@@ -1,0 +1,245 @@
+---
+title: "LDAP"
+---
+# LDAP
+
+## Rocky10
+
+## Rocky9
+
+## Rocky8
+
+Rocky Linux is a community enterprise Operating System designed to be 100% bug-for-bug compatible with Enterprise Linux, now that CentOS has shifted direction.
+
+The official website: [https://rockylinux.org/](https://rockylinux.org/)
+
+authselect
+```bash
+dnf install -y openldap-clients sssd sssd-ldap oddjob-mkhomedir openssl-perl
+systemctl enable --now oddjobd.service
+
+# replace ldap_tls_cacertdir with ldap_tls_cacert in /etc/sssd/conf.d/sssd.conf
+#ldap_tls_cacertdir = /etc/openldap/cacerts
+ldap_tls_cacert = /etc/openldap/cacerts/caname.crt
+
+# chmod
+chmod 0600 /etc/openldap/cacerts/caname.crt
+chmod 0600 /etc/sssd/conf.d/sssd.conf
+
+dnf install -y autofs nfs-utils
+systemctl enable --now autofs
+systemctl enable --now sssd
+
+# grep -Ev "^$|^\s*#" /etc/idmapd.conf
+[General]
+Domain = DOMAIN.TLD
+[Mapping]
+Nobody-User = nobody
+Nobody-Group = nobody
+[Translation]
+[Static]
+[UMICH_SCHEMA]
+LDAP_server = LDAP.DOMAIN.TLD
+LDAP_base = dc=DOMAIN,dc=TLD
+
+authselect current
+authselect select sssd with-mkhomedir with-sudo --force
+
+#apply changes
+authselect apply-changes
+```
+
+sssd.conf
+```text
+[domain/default]
+id_provider = ldap
+autofs_provider = ldap
+auth_provider = ldap
+chpass_provider = ldap
+ldap_uri = ldaps://DS.DOMAIN.TLD
+ldap_chpass_uri = ldaps://DS.DOMAIN.TLD
+ldap_schema = rfc2307bis
+ldap_group_member = uniqueMember
+ldap_search_base = dc=DOMAIN,dc=TLD
+ldap_id_use_start_tls = False
+ldap_tls_cacert = /etc/openldap/cacert.pem
+
+cache_credentials = True
+#ldap_tls_reqcert = never
+entry_cache_timeout = 600
+ldap_network_timeout = 3
+ldap_connection_expire_timeout = 60
+
+debug_level = 9
+ldap_autofs_map_object_class = nisMap
+ldap_autofs_map_name = nisMapName
+ldap_autofs_entry_object_class = nisObject
+ldap_autofs_entry_key = cn
+ldap_autofs_entry_value = nisMapEntry
+ldap_autofs_search_base = ou=service,dc=DOMAIN,dc=TLD
+
+ldap_default_bind_dn = uid=ds_bind,ou=service,dc=DOMAIN,dc=TLD
+ldap_default_authtok_type = password
+ldap_default_authtok = YOUR_PASSWORD
+
+[sssd]
+config_file_version = 2
+services = nss,pam,autofs
+domains = default
+
+[nss]
+homedir_substring = /home
+debug_level = 5
+filter_groups = root
+filter_users = root
+
+[pam]
+pam_account_locked_message = Account locked, please contact IT Team.
+pam_verbosity = 2
+pam_pwd_expiration_warning = 5
+
+[sudo]
+
+[autofs]
+debug_level = 5
+
+[ssh]
+```
+
+## CentOS 7
+
+authconfig
+
+```bash
+authconfig --enablesssd --enablesssdauth --enableldap --enableldapauth --ldapserver=ldaps://LDAP.DOMAIN.COM:636 --ldapbasedn="dc=DOMAIN,dc=COM" --enableldaptls --enablerfc2307bis --disablecachecreds --enablemkhomedir --updateall --test
+
+#umask
+~] cat /etc/pam.d/system-auth
+session     optional      pam_oddjob_mkhomedir.so umask=0022
+~] cat /etc/pam.d/password-auth
+session     optional      pam_oddjob_mkhomedir.so umask=0022
+```
+
+sssd.conf
+
+```text
+[domain/default]
+
+autofs_provider = ldap
+ldap_schema = rfc2307bis
+ldap_search_base = dc=DOMAIN,dc=TLD
+id_provider = ldap
+auth_provider = ldap
+chpass_provider = ldap
+ldap_uri = ldaps://LDAPSERVER.DOMAIN.TLD:636
+ldap_id_use_start_tls = False
+cache_credentials = False
+ldap_tls_cacertdir = /etc/openldap/cacerts
+ldap_group_member = uniqueMember
+entry_cache_timeout = 60
+debug_level = 5
+ldap_autofs_map_object_class = nisMap
+ldap_autofs_map_name = nisMapName
+ldap_autofs_entry_object_class = nisObject
+ldap_autofs_entry_key = cn
+ldap_autofs_entry_value = nisMapEntry
+ldap_autofs_search_base = ou=service,dc=DOMAIN,dc=TLD
+
+[sssd]
+services = nss, pam, autofs
+domains = default
+
+[nss]
+homedir_substring = /home
+debug_level = 5
+filter_groups = root
+filter_users = root
+
+[pam]
+pam_account_locked_message = Account locked, please contact IT helpdesk.
+pam_verbosity = 2
+pam_pwd_expiration_warning = 5
+
+[sudo]
+
+[autofs]
+debug_level = 5
+
+[ssh]
+
+[pac]
+
+[ifp]
+
+[secrets]
+
+[session_recording]
+```
+
+## CentOS 6
+
+```text
+[domain/default]
+
+autofs_provider = ldap
+ldap_search_base = dc=DOMAIN,dc=TLD
+krb5_realm = EXAMPLE.COM
+krb5_server = kerberos.example.com
+id_provider = ldap
+auth_provider = ldap
+chpass_provider = ldap
+ldap_uri = ldaps://LDAPSERVER.DOMAIN.TLD:636
+ldap_id_use_start_tls = False
+cache_credentials = False
+ldap_tls_cacertdir = /etc/openldap/cacerts
+ldap_group_member = uniqueMember
+ldap_schema = rfc2307bis
+entry_cache_timeout = 60
+debug_level = 5
+ldap_autofs_map_object_class = nisMap
+ldap_autofs_map_name = nisMapName
+ldap_autofs_entry_object_class = nisObject
+ldap_autofs_entry_key = cn
+ldap_autofs_entry_value = nisMapEntry
+ldap_autofs_search_base = ou=service,dc=DOMAIN,dc=TLD
+
+[sssd]
+services = nss, pam
+domains = default
+
+[nss]
+homedir_substring = /home
+filter_users = root
+filter_groups = root
+
+[pam]
+
+[sudo]
+
+[autofs]
+
+[ssh]
+
+[pac]
+
+[ifp]
+```
+
+## CentOS 5
+```bash
+# grep -Ev "^$|\s*#" /etc/openldap/ldap.conf
+URI ldap://LDAPSERVER.DOMAIN.TLD/
+BASE dc=DOMAIN,dc=TLD
+TLS_CACERTDIR /etc/openldap/cacerts
+
+# grep -Ev "^$|\s*#" /etc/ldap.conf
+base dc=DOMAIN,dc=TLD
+timelimit 120
+bind_timelimit 120
+idle_timelimit 3600
+nss_initgroups_ignoreusers root,ldap,named,avahi,haldaemon,dbus,radvd,tomcat,radiusd,news,mailman,nscd,gdm
+uri ldap://LDAPSERVER.DOMAIN.TLD/
+ssl no
+tls_cacertdir /etc/openldap/cacerts
+pam_password md5
+```

@@ -1,0 +1,19 @@
+{
+    "pages": [
+        "index",
+        "---Compute---",
+        "Slurm",
+        "Scheduler",
+        "Training",
+        "---Storage---",
+        "Storage",
+        "NetApp",
+        "TrueNAS",
+        "---System---",
+        "OS",
+        "SmartOS",
+        "SoftwareEnv",
+        "IDP",
+        "SSO"
+    ]
+}

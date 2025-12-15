@@ -1,0 +1,12 @@
+{
+    "title": "Cloud Computing",
+    "pages": [
+        "index",
+        "OpenStack",
+        "AWS",
+        "GCP",
+        "Azure",
+        "Alibaba_Cloud",
+        "CTyun"
+    ]
+}

@@ -1,0 +1,122 @@
+---
+title: "BeeGFS"
+---
+# BeeGFS
+[BeeGFS](https://www.beegfs.io/) is one of the leading parallel file systmes offering maximum performance, scala-bility, high flexibility, and robustness.
+
+
+:::warning
+**⚠️ 警告 (Warning)** <br />
+Warning Mirroring is not a replacement for backups. If files are accidentally deleted or overwritten by a user or process, mirroring won’t help you to bring the old file back. You are still responsible for doing regular backups of your important bits.
+:::
+
+
+**KEY Benefits**
+* Distributed File Contents and Metadata
+* HPC Technologies
+* Easy to Use
+* Optimized for Highly Concurrent Access
+
+**Disadvantages**
+* Does not support any kind of data protection such as erasure coding or distributed RAID
+* Does not have file encryption
+* No native support NVME-over-Fabric
+* Does not support enterprise features such as snapshots, backup, data tiering
+* Does not support enterprise protocols such as NFS or SMB
+
+# Hardware
+ - 3x H3C R4900G7 physical servers, with each
+    - Intel® Xeon® 6505P *2
+    - 32G DDR5-6400 RDIMM *8
+    - NVME DISK(Storage) *14
+    - NVME DISK(Metadata) *2
+    - Intel E810 100G NIC
+ - DELL S5232F 100G Network Switch
+
+# Software
+ - RockyLinux 9
+ - BeeGFS 8.X
+ - ext4 (beegfs meta)
+    - ext4格式化时候inode要注意
+ - XFS (beegfs storage)
+ - RoCE v2 (BeeGFS对RMDA的支持远好于TCP)
+
+# Questions
+1. 如何防止`/dev/nvme0n1`在服务器重启后变为其他
+2. 如何写`/etc/fstab` 
+3. mgmtd如何实现高可用
+
+# Installation
+## 初始化
+1. RockyLinux9 (关闭不必要的服务)
+2. mdadm
+格式化ext4
+
+`mkfs.ext4 -i 2048 -J size=4096 /dev/md0`
+
+格式化xfs
+
+`mkfs.xfs -d su=128k,sw=1 -l version=2,su=128k /dev/nvmeXn1`
+
+## Metadata
+```bash
+/opt/beegfs/sbin/beegfs-setup-meta -p /data/beegfs/meta -s 1 -m node1
+# 记得修改 /etc/beegfs/beegfs-meta.conf 里的 tuneNumWorkers (建议 64-128)
+systemctl enable --now beegfs-meta
+```
+## Storage
+```bash
+beegfs-storage.conf
+
+# 你有 14 块盘，至少需要 14 个线程，建议更多
+tuneNumWorkers = 128
+# 针对 100G 网络
+connMaxInternodeNum = 64
+```
+
+
+
+`/proc/fs/beegfs/*/config`
+
+`/opt/beegfs/sbin/beegfs-setup-storage -p /beegfs-storage/pool102 -s 1 -i 102 -m 10.244.244.103`
+
+check the `Root Node` of metadata server
+
+`beegfs entry info --mount=none /`
+
+`beegfs entry info --verbose --retro /mnt/beegfs/file`
+
+`beegfs entry set --num-targets=4 --chunk-size=4MiB /mnt/beegfs/`
+
+buddy group
+
+`beegfs mirror list`
+
+### benchmark
+`beegfs --tls-disable --auth-disable benchmark start --num-workers=10 --size=128G --block-size=4K --watch=1s`
+
+## BeeGFS command cheatsheet
+```bash
+# basic
+beegfs node list --with-nics
+
+# health
+beegfs health net
+beegfs health df
+beegfs health check
+beegfs target list --state
+
+# quota
+beegfs quota list-usage --uids=all
+```
+
+**目前已经发现的问题**
+以下需要license
+1. 数据分层和移动需要license
+2. user/group quota需要license
+3. sysACLsEnabled
+4. sysSELinuxEnabled
+
+**进一步理解**
+* Striping
+* Partition Alignment

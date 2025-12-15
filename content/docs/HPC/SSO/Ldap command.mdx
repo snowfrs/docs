@@ -1,0 +1,67 @@
+---
+title: "Ldap command"
+---
+
+## `add-user.ldif`
+
+```
+dn: uid=ithelpdesk,ou=People,dc=example,dc=com
+uid: ithelpdesk
+objectClass: top
+objectClass: account
+objectClass: posixaccount
+objectClass: inetOrgPerson
+objectClass: person
+objectClass: inetUser
+objectClass: organizationalPerson
+uidNumber: 5001
+gidNumber: 100
+homeDirectory: /home/ithelpdesk
+loginShell: /bin/bash
+userPassword: 123456
+sn: IT
+givenname: Helpdesk
+cn: IT Helpdesk
+l: Hangzhou
+mail: ithelpdesk@example.com
+description: ithelpdesk
+```
+
+```
+~]# ldapadd -f add-user.ldif -h dsserver -p 389 -D "cn=Directory Manager" -x -W
+Enter LDAP Password:
+adding new entry "uid=ithelpdesk,ou=People,dc=example,dc=com"
+```
+
+## `add-group.ldif`
+
+```
+dn: cn=users,ou=Groups,dc=example,dc=com
+objectClass: top
+objectClass: posixGroup
+objectClass: groupOfUniqueNames
+gidNumber:   2001
+cn: users
+```
+
+```
+~]# ldapadd -f add-group.ldif -h dsserver -p 389 -D "cn=Directory Manager" -x -W
+Enter LDAP Password:
+adding new entry "cn=users,ou=Groups,dc=example,dc=com"
+```
+
+## Interactive ldap command
+
+### **ldapmodify**
+
+```bash
+~]# ldapmodify -D "cn=Directory Manager" -W -p 389 -h server.example.com -x
+dn: uid=user,ou=people,dc=example,dc=com
+changetype: modify
+delete: telephoneNumber
+-
+add: manager
+manager: cn=manager\_name,ou=people,dc=example,dc=com
+^D
+^D 或者 按两次enter 表示退出交互式命令
+```

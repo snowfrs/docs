@@ -1,0 +1,421 @@
+---
+title: "Debian 13 Email Server Implementation Guide"
+---
+# Debian 13 Email Server Implementation Guide
+
+This guide details the operational steps to deploy the Email architecture described in `Email.md` on **Debian 13 (Trixie)**.
+
+> [!WARNING]
+> **Debian 13 (Trixie)** is currently in *Testing*. Some packages (especially SOGo) may not have dedicated repositories for Trixie yet. We will use Debian 12 (Bookworm) repositories for SOGo where necessary, or standard Debian repositories.
+
+## 1. System Preparation
+
+### 1.1 Hostname & DNS
+Ensure your hostname is fully qualified (FQDN).
+```bash
+# Set hostname
+hostnamectl set-hostname mail.yourdomain.com
+
+# Edit /etc/hosts
+# 127.0.0.1 localhost
+# 127.0.1.1 mail.yourdomain.com mail
+nano /etc/hosts
+```
+
+### 1.2 Update & Install Basic Tools
+```bash
+apt update && apt upgrade -y
+apt install -y curl wget gnupg2 lsb-release ca-certificates git sudo vim net-tools dnsutils
+```
+
+---
+
+## 2. PostgreSQL Database Setup
+We will use PostgreSQL for SOGo data and potentially for user authentication (if not using AD).
+
+### 2.1 Install PostgreSQL
+```bash
+apt install -y postgresql-17 postgresql-client-17
+```
+
+### 2.2 Configure Database for SOGo
+```bash
+su - postgres
+psql
+
+-- Create SOGo user and database
+CREATE USER sogo WITH PASSWORD 'YourStrongDBPassword';
+CREATE DATABASE sogo OWNER sogo;
+GRANT ALL PRIVILEGES ON DATABASE sogo TO sogo;
+
+-- (Optional) If using SQL for Auth instead of AD
+CREATE TABLE sogo_users (c_uid VARCHAR(100) PRIMARY KEY, c_name VARCHAR(100), c_password VARCHAR(100), c_cn VARCHAR(100), mail VARCHAR(100));
+INSERT INTO sogo_users VALUES ('user1', 'User One', '{MD5}'||md5('password'), 'User One', 'user1@yourdomain.com');
+
+\q
+exit
+```
+
+---
+
+## 3. Cyrus IMAP Setup
+Cyrus handles IMAP, JMAP, and Sieve.
+
+### 3.1 Install Cyrus
+```bash
+apt install -y cyrus-imapd cyrus-clients cyrus-admin cyrus-doc sasl2-bin libsasl2-modules libsasl2-modules-sql
+```
+
+### 3.2 Configure SASL (Authentication)
+Edit `/etc/default/saslauthd` to start the daemon.
+```bash
+# /etc/default/saslauthd
+START=yes
+MECHANISMS="pam"  # Or "shadow" for local users, "ldap" for AD
+```
+
+Start SASL:
+```bash
+systemctl restart saslauthd
+```
+
+### 3.3 Configure Cyrus (`/etc/imapd.conf`)
+Backup the original:
+```bash
+mv /etc/imapd.conf /etc/imapd.conf.bak
+nano /etc/imapd.conf
+```
+Content:
+```ini
+configdirectory: /var/lib/cyrus
+defaultpartition: default
+partition-default: /var/spool/cyrus/mail
+admins: cyrus
+sievedir: /var/lib/cyrus/sieve
+
+# Sockets
+lmtpsocket: /run/cyrus/socket/lmtp
+idlesocket: /run/cyrus/socket/idle
+notifysocket: /run/cyrus/socket/notify
+
+# Auth
+allowplaintext: yes
+sasl_pwcheck_method: saslauthd
+sasl_mech_list: PLAIN LOGIN
+
+# SSL/TLS (Paths will be updated after Certbot)
+tls_cert_file: /etc/ssl/certs/ssl-cert-snakeoil.pem
+tls_key_file: /etc/ssl/private/ssl-cert-snakeoil.key
+
+# Modules
+httpmodules: jmap caldav carddav
+httpallowcompress: 1
+httpallowplaintext: no
+```
+
+### 3.4 Configure Services (`/etc/cyrus.conf`)
+```bash
+nano /etc/cyrus.conf
+```
+Ensure these lines exist in `SERVICES` section:
+```ini
+SERVICES {
+  imap      cmd="imapd" listen="imap" prefork=0
+  imaps     cmd="imapd -s" listen="imaps" prefork=0
+  lmtp      cmd="lmtpd" listen="lmtp" prefork=0
+  sieve     cmd="timsieved" listen="sieve" prefork=0
+  # JMAP/Http port
+  http      cmd="httpd" listen="localhost:8080" prefork=0
+}
+```
+
+Restart Cyrus:
+```bash
+systemctl restart cyrus-imapd
+```
+
+---
+
+## 4. Postfix MTA Setup
+
+### 4.1 Install Postfix
+```bash
+apt install -y postfix postfix-pgsql postfix-pcre
+# Select "Internet Site" during installation
+# System mail name: yourdomain.com
+```
+
+### 4.2 Configure Postfix (`/etc/postfix/main.cf`)
+```bash
+nano /etc/postfix/main.cf
+```
+Key configurations:
+```ini
+# Host & Domain
+myhostname = mail.yourdomain.com
+mydomain = yourdomain.com
+myorigin = $mydomain
+mydestination = localhost
+
+# Network
+inet_interfaces = all
+inet_protocols = all
+
+# TLS
+smtpd_tls_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem
+smtpd_tls_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+smtpd_use_tls=yes
+smtpd_tls_security_level=may
+
+# SASL Auth (Cyrus SASL)
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_type = cyrus
+smtpd_sasl_path = smtpd
+smtpd_sasl_security_options = noanonymous
+
+# Handover to Cyrus via LMTP
+mailbox_transport = lmtp:unix:/run/cyrus/socket/lmtp
+```
+
+### 4.3 Configure Master (`/etc/postfix/master.cf`)
+Uncomment the `submission` (587) and `smtps` (465) sections to enable client submission.
+
+Restart Postfix:
+```bash
+systemctl restart postfix
+```
+
+---
+
+## 5. SOGo Groupware Setup
+
+### 5.1 Add SOGo Repository
+Since Debian 13 is testing, we try the nightly builds or Bookworm repos.
+```bash
+# Install HTTPS support for apt
+apt install -y apt-transport-https
+
+# Add Key
+wget -O- "https://keys.openpgp.org/vks/v1/by-fingerprint/74FFC6D72B925A34B5D356BDF8A27B36A6E2EAE9" | gpg --dearmor | sudo tee /usr/share/keyrings/sogo-archive-keyring.gpg > /dev/null
+
+# Add Repo (using Bookworm as fallback for Trixie)
+echo "deb [signed-by=/usr/share/keyrings/sogo-archive-keyring.gpg] https://packages.sogo.nu/nightly/5/debian/ bookworm bookworm" > /etc/apt/sources.list.d/sogo.list
+
+apt update
+apt install -y sogo sogo-activesync
+```
+
+### 5.2 Configure SOGo (`/etc/sogo/sogo.conf`)
+```bash
+# Create the configuration directory if it doesn't exist
+mkdir -p /etc/sogo
+# Create the configuration file
+nano /etc/sogo/sogo.conf
+```
+
+Paste the following configuration. This configuration assumes:
+- Database: PostgreSQL (sogo database)
+- Auth: SQL Table (sogo_users)
+- IMAP/SMTP: Localhost (Cyrus/Postfix)
+- Timezone: Asia/Shanghai
+
+```json
+{
+  /* --------------------------------------------------------------------
+     Database Configuration (PostgreSQL)
+     -------------------------------------------------------------------- */
+  "SOGoProfileURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_user_profile",
+  "OCSFolderInfoURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_folder_info",
+  "OCSSessionsFolderURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_sessions_folder",
+
+  /* --------------------------------------------------------------------
+     General Preferences
+     -------------------------------------------------------------------- */
+  "SOGoPageTitle": "My Webmail",
+  "SOGoTimeZone": "Asia/Shanghai",
+  "SOGoLanguage": "English",
+  "SOGoAppointmentSendEMailNotifications": "YES",
+  "SOGoFoldersSendEMailNotifications": "YES",
+  "SOGoConfirmAttachedMail": "NO",
+
+  /* --------------------------------------------------------------------
+     Mail Server Connectivity (Cyrus IMAP + Postfix)
+     -------------------------------------------------------------------- */
+  /* Use IMAPS on port 993 for secure local connection */
+  "SOGoIMAPServer": "imaps://127.0.0.1:993",
+  
+  /* SMTP for sending mail */
+  "SOGoSMTPServer": "127.0.0.1",
+  "SOGoMailingMechanism": "smtp",
+  
+  /* Force email to match the authenticated user (Security) */
+  "SOGoForceExternalLoginWithEmail": "NO",
+  
+  /* IMAP Folder Names (Standard RFC6154) */
+  "SOGoSentFolderName": "Sent",
+  "SOGoTrashFolderName": "Trash",
+  "SOGoDraftsFolderName": "Drafts",
+  "SOGoJunkFolderName": "Junk",
+
+  /* --------------------------------------------------------------------
+     Authentication (SQL Source)
+     -------------------------------------------------------------------- */
+  "SOGoUserSources": [
+    {
+      "type": "sql",
+      "id": "directory",
+      "viewURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_users",
+      "canAuthenticate": "YES",
+      "isAddressBook": "YES",
+      "displayName": "Global Address Book",
+      
+      /* Field Mappings */
+      "userPasswordAlgorithm": "md5",
+      "prependPasswordScheme": "YES",
+      
+      /* Query Fields */
+      "IMAPLoginFieldName": "c_uid",
+      "KindFieldName": "c_kind",
+      "MultipleBookingsFieldName": "c_multiple_bookings",
+      "listRequiresDot": "NO"
+    }
+  ],
+
+  /* --------------------------------------------------------------------
+     ActiveSync (EAS) Configuration
+     -------------------------------------------------------------------- */
+  "SOGoEASQueryTimeout": 30,
+  "SOGoMaximumPingInterval": 3540,
+  "SOGoMaximumSyncInterval": 3540,
+  "SOGoMaximumSyncWindowSize": 100
+}
+```
+
+Restart SOGo:
+```bash
+systemctl restart sogo
+```
+
+---
+
+## 6. Nginx & SSL Setup
+
+### 6.1 Install Nginx & Certbot
+```bash
+apt install -y nginx certbot python3-certbot-nginx
+```
+
+### 6.2 Obtain SSL Certificate
+```bash
+certbot --nginx -d mail.yourdomain.com
+```
+
+### 6.3 Configure Nginx (`/etc/nginx/sites-available/mail`)
+```bash
+nano /etc/nginx/sites-available/mail
+```
+Content:
+```nginx
+server {
+    listen 80;
+    server_name mail.yourdomain.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name mail.yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/mail.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mail.yourdomain.com/privkey.pem;
+
+    # SOGo Webmail
+    location /SOGo {
+        proxy_pass http://127.0.0.1:20000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header x-webobjects-server-protocol https;
+        proxy_set_header x-webobjects-remote-host 127.0.0.1;
+        proxy_set_header x-webobjects-server-name $server_name;
+        proxy_set_header x-webobjects-server-url https://$host;
+        
+        # Heavy buffers for ActiveSync
+        client_max_body_size 100m;
+        client_body_buffer_size 128k;
+    }
+
+    # ActiveSync
+    location /Microsoft-Server-ActiveSync {
+        proxy_pass http://127.0.0.1:20000/SOGo/Microsoft-Server-ActiveSync;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header x-webobjects-server-protocol https;
+        proxy_set_header x-webobjects-remote-host 127.0.0.1;
+        proxy_set_header x-webobjects-server-name $server_name;
+    }
+    
+    # JMAP (Cyrus)
+    location /jmap {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+Enable site:
+```bash
+ln -s /etc/nginx/sites-available/mail /etc/nginx/sites-enabled/
+rm /etc/nginx/sites-enabled/default
+nginx -t
+systemctl reload nginx
+```
+
+---
+
+## 7. Final Integration & Verification
+
+### 7.1 Create a Mail User (Cyrus)
+If using local sasldb or simple auth, you need to create the mailbox in Cyrus.
+```bash
+cyradm --user cyrus localhost
+> cm user.user1
+```
+
+### 7.2 Update Certificates in Postfix/Cyrus
+Now that you have real certs from Certbot, update the configs.
+
+**Postfix (`/etc/postfix/main.cf`):**
+```ini
+smtpd_tls_cert_file=/etc/letsencrypt/live/mail.yourdomain.com/fullchain.pem
+smtpd_tls_key_file=/etc/letsencrypt/live/mail.yourdomain.com/privkey.pem
+```
+
+**Cyrus (`/etc/imapd.conf`):**
+```ini
+tls_cert_file: /etc/letsencrypt/live/mail.yourdomain.com/fullchain.pem
+tls_key_file: /etc/letsencrypt/live/mail.yourdomain.com/privkey.pem
+```
+*Note: You may need to grant the `cyrus` user read access to the certificate files or copy them to a location Cyrus can read.*
+
+Restart services:
+```bash
+systemctl restart postfix cyrus-imapd
+```
+
+### 7.3 Testing
+1. **Webmail**: Visit `https://mail.yourdomain.com/SOGo`
+2. **IMAP**: Test with `openssl s_client -connect mail.yourdomain.com:993`
+3. **SMTP**: Test sending an email from Webmail.
+
+## 8. Shadow Mailbox Setup (Feature Requirement)
+
+To implement the "Shadow Mailbox" (BCC all mails):
+
+1. Create the shadow user in Cyrus: `cyradm -> cm user.shadow`
+2. Edit Postfix `main.cf`:
+   ```ini
+   always_bcc = shadow@yourdomain.com
+   ```
+3. Reload Postfix: `systemctl reload postfix`

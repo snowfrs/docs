@@ -1,0 +1,296 @@
+---
+title: "Setting up ONTAP S3"
+---
+# Setting up ONTAP S3
+
+* 1 Overview
+* 2 ONTAP S3 Architecture
+  + 2.1 use cases
+* 3 ONTAP version support for S3 object storage
+* 4 S3 License
+* 5 Service policy
+* 6 Object store server
+* 7 Configuration S3 using ONTAP CLI
+  + 7.1 Create the service policy
+  + 7.2 Create a data LIF to use S3
+  + 7.3 Install a CA certificate
+  + 7.4 Create the object store server
+  + 7.5 Create the bucket
+  + 7.6 Create a user
+  + 7.7 Example
+* 8 Configuration for local cluster tiering(CLI)
+* 9 Security
+
+## Overview
+
+ONTAP 9.8 has an S3 front-end available for production use.
+
+NetApp ONTAP 9.8 software supports the Amazon Simple Storage Service (S3). ONTAP supports a subset of AWS S3 API actions and allows data to be represented as objects in ONTAP-based systems, including AFF, FAS, and ONTAP Select.
+
+NetApp recommends using StorageGRID, the premier NetApp object store solution, when tiering more than **300TB** of inactive data. A FabricPool license is not required when using ONTAP or StorageGRID as the cloud tier.
+
+## ONTAP S3 Architecture
+
+In ONTAP, the underlying architecture for a bucket is a FlexGroup volume - a single namespace that is made up of multiple constituent member volumes but is managed as a single volume.
+
+### use cases
+
+There are three primary use cases for client access to ONTAP S3 services:
+
+* For ONTAP systems using ONTAP S3 as a remote FabricPool capacity (cloud) tier The S3 server and bucket containing the capacity tier (for *cold* data) is on a different cluster than the performance tier (for *hot* data).
+* For ONTAP systems using ONTAP S3 as a local FabricPool tier The S3 server and bucket containing the capacity tier is on the same cluster, but on a different HA pair, as the performance tier.
+* For external S3 client apps ONTAP S3 serves S3 client apps run on non-NetApp systems.
+
+It is a best practice to provide access to ONTAP S3 buckets using HTTPS. When HTTPS is enabled, security certificates are required for proper integration with SSL/TLS. Client users’ access and secret keys are then required to authenticate the user with ONTAP S3 as well as authorizing the users’ access permissions for operations within ONTAP S3. The client application should also have access to the root CA certificate (the ONTAP S3 server’s signed certificate) to be able to authenticate the server and create a secure connection between client and server.
+
+Users are created within the S3-enabled SVM, and their access permissions can be controlled at the bucket or SVM level; that is, they can be granted access to one or more buckets within the SVM.
+
+HTTPS is enabled by default on ONTAP S3 servers. It is possible to disable HTTPS and enable HTTP for client access, in which case authentication using CA certificates is not required. However, when HTTP is enabled and HTTPS is disabled, all communication with the ONTAP S3 server are sent over the network in clear text.
+
+## ONTAP version support for S3 object storage
+
+**Platforms**
+
+• NetApp AFF storage system. S3 is supported on all AFF platforms using ONTAP 9.8+
+
+• FAS storage system. S3 is supported on all FAS platforms using ONTAP 9.8+
+
+• NetApp ONTAP Select. S3 is supported on all platforms using ONTAP Select 9.8+
+
+• Cloud Volumes ONTAP. Starting in ONTAP 9.9.1, S3 is supported on Cloud Volumes ONTAP for Azure. S3 is not supported on other Cloud Volumes ONTAP providers.
+
+## S3 License
+
+As with other protocols such as FC, iSCSI, NFS, NVMe\_oF, and SMB, S3 requires the installation of a license before it can be used in ONTAP. The **S3 license is a zero-cost license**, but it must be installed on systems upgrading to ONTAP 9.8.
+
+New ONTAP 9.8 systems have the S3 license pre-installed.
+
+The S3 license can be downloaded from the [Master License Keys page](https://mysupport.netapp.com/NOW/knowledge/docs/olio/guides/master_lickey/) on the NetApp support site.
+
+## Service policy
+
+Data service policies are assigned to SVMs and provide a collection of network services required by data LIFs to support client application protocols. For example, data-nfs is used to support NFS traffic, data-iscsi is used to support iSCSI traffic, and so on.
+
+New in ONTAP 9.8, the **data-s3-server** service, allows data LIFS to support client application traffic using S3.
+
+**Note**: In addition to the data-s3-server service, **the data-core service should be included in any service policy to ensure applications using the LIF work as expected**.
+
+## Object store server
+
+The SVM’s object store server manages data as objects, as opposed to other storage architectures such as file or block storage. Management of bucket and user permission levels also takes place at the object store server level.
+
+**ONTAP S3 supports one object store server per SVM.**
+
+**Bucket**
+
+In ONTAP, the underlying architecture for a bucket is a FlexGroup volume—a single namespace that is made up of multiple constituent member volumes but is managed as a single volume.
+
+Individual objects in a bucket are allocated to individual member volumes and are not striped across volumes or nodes.
+
+**Individual buckets cannot be provisioned smaller than 96GB**.
+
+The Amazon S3 maximum object size is 5TB. ONTAP S3 supports objects up to 16TB.
+
+## Configuration S3 using ONTAP CLI
+
+the procedure:
+
+1. Create the service policy
+2. Create a data LIF to use S3
+3. Install a CA certificate
+4. Create the object store server
+5. Create the bucket
+6. Create a user.
+
+### Create the service policy
+
+A service policy is required to enable S3 data traffic on the SVM LIFs.
+
+```bash
+network interface service-policy create
+-vserver &lt;name&gt;
+-policy &lt;name&gt;
+-services data-s3-server, data-core
+```
+
+### Create a data LIF to use S3
+
+SVMs hosting object store servers require data LIFs to communicate with client applications using S3. NetApp recommends creating an S3 data LIF on all nodes as a best practice.
+
+```bash
+network interface create
+-vserver &lt;name&gt;
+-lif &lt;name&gt;
+-service-policy &lt;name&gt;
+-home-node &lt;node&gt;
+-home-port &lt;port&gt;
+-address &lt;number&gt;
+-netmask &lt;number&gt;
+-status-admin up
+```
+
+### Install a CA certificate
+
+```bash
+security certificate install -type server -vserver &lt;name&gt;
+```
+
+### Create the object store server
+
+The ONTAP object store server manages data as objects, as opposed to other storage architectures such as file or block storage.
+
+```bash
+vserver object-store-server create
+-vserver &lt;name&gt;
+-object-store-server <FQDN>
+-certificate-name &lt;name&gt;
+-secure-listener-port &lt;443&gt;
+-is-http-enabled &lt;false&gt;
+```
+
+**Note**: Remember config DNS Server to resolve the FQDN
+
+### Create the bucket
+
+```bash
+vserver object-store-server bucket create
+-vserver &lt;name&gt;
+-bucket &lt;name&gt;
+-aggr-list <aggregate name>,<aggregate name>
+-aggr-list-multiplier <number of constiuent volumes per aggregate> (default 4)
+-size &lt;size&gt;
+```
+
+### Create a user
+
+```bash
+vserver object-store-server user create
+-vserver &lt;name&gt;
+-user &lt;name&gt;
+```
+
+If you want to show a user's access and secret key (**Advanced privilege level**)
+
+```bash
+vserver object-store-server user show
+```
+
+Regenerate access and secret key for a user
+
+```bash
+vserver object-store-server user regenerate-keys -user &lt;name&gt;
+```
+
+### Example
+
+As a best practice, NetApp recommends create a new SVM and new logical interface to serve data-s3-server traffic.
+
+While here we will create a S3 store server in a exist SVM and using exist LIFs.
+
+```bash
+cluster::> network interface service-policy show
+cluster::> network interface service-policy add-service -policy default-data-files -vserver SVM -service data-s3-server -allowed-addresses 0.0.0.0/0
+cluster::> network interface show -vserver SVM -fields service-policy,services
+cluster::> security certificate install -type server -vserver SVM -cert-name CERTNAME
+Please enter Certificate: Press <Enter> when done
+-----BEGIN CERTIFICATE-----
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+<YOUR CERT HERE>
+-----END CERTIFICATE-----
+
+
+Please enter Private Key: Press <Enter> when done
+-----BEGIN RSA PRIVATE KEY-----
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+<YOUR CERT PRIVATE KEY HERE>
+-----END RSA PRIVATE KEY-----
+
+
+Enter certificates of certification authorities (CA) which form the certificate chain of the server certificate. This starts with the issuing CA certificate of the server certificate and can range up to
+the root CA certificate.
+
+Do you want to continue entering root and/or intermediate certificates {y|n}: y
+
+Please enter Intermediate Certificate: Press <Enter> when done
+-----BEGIN CERTIFICATE-----
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+<the intermediate certificate HERE>
+-----END CERTIFICATE-----
+
+
+Do you want to continue entering root and/or intermediate certificates {y|n}: y
+
+Please enter Intermediate Certificate: Press <Enter> when done
+-----BEGIN CERTIFICATE-----
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+<the ROOT CA certificate HERE>
+-----END CERTIFICATE-----
+
+
+Do you want to continue entering root and/or intermediate certificates {y|n}: n
+
+You should keep a copy of the private key and the CA-signed digital certificate for future reference.
+
+The installed certificate's CA and serial number for reference:
+CA: RapidSSL TLS DV RSA Mixed SHA256 2020 CA-1
+serial: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+The certificate's generated name for reference: XXXXXXXX
+
+NOTE:
+YOUR_CERT -> YOUR_CERT_PRIKEY -> Intermediate_CERT -> ROOT_CA_CERT
+
+cluster::> security certificate show-user-installed
+
+cluster::> vserver object-store-server create -vserver SVM -object-store-server NAME.DOMAIN.TLD -certificate-name CERT_NAME -is-http-enabled false -status-admin up -is-https-enabled true -comment "Object Storage Server"
+
+cluster::> vserver object-store-server show
+```
+
+```bash
+volume show -vserver NFS-SVM -is-constituent true
+Vserver   Volume       Aggregate    State      Type       Size  Available Used%
+--------- ------------ ------------ ---------- ---- ---------- ---------- -----
+NFS-SVM   fg_oss_1639450743__0001
+                       n02_aggr1_SATA
+                                    online     RW         24GB    22.68GB    0%
+NFS-SVM   fg_oss_1639450743__0002
+                       n02_aggr1_SATA
+                                    online     RW         24GB    22.68GB    0%
+NFS-SVM   fg_oss_1639450743__0003
+                       n02_aggr1_SATA
+                                    online     RW         24GB    22.68GB    0%
+NFS-SVM   fg_oss_1639450743__0004
+                       n02_aggr1_SATA
+                                    online     RW         24GB    22.68GB    0%
+```
+
+```bash
+#example of s3cmd client configuration
+
+~ cat ~/.s3cfg
+[default]
+host_base = ONTAPS3.com
+host_bucket =
+bucket_location = us-east-1
+access_key = xxxxxx
+secret_key = xxxxxx
+signature_v2 = False
+use_https = True
+check_ssl_certificate = False
+```
+
+## Configuration for local cluster tiering(CLI)
+
+## Security
+
+TR-4814: ONTAP S3[1]
+
+NetApp FabricPool and S3 in ONTAP 9.8[2]
+
+NetApp ONTAP 9.8 - S3 in GA[3]
+
+References:
+
+1. [https://www.netapp.com/us/media/tr-4814.pdf](https://www.netapp.com/us/media/tr-4814.pdf)
+2. [https://whyistheinternetbroken.wordpress.com/2020/11/13/ep268-fabricpool-s3-ontap98/](https://whyistheinternetbroken.wordpress.com/2020/11/13/ep268-fabricpool-s3-ontap98/)
+3. [https://storageexorcist.wordpress.com/2020/11/04/netapp-ontap-9-8-s3-is-ga/](https://storageexorcist.wordpress.com/2020/11/04/netapp-ontap-9-8-s3-is-ga/)

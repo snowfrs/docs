@@ -1,0 +1,29 @@
+---
+title: "Pam oddjob mkhomedir.so versus pam mkhomedir.so"
+---
+## package name
+```
+rpm -qf /usr/lib64/security/pam\_mkhomedir.so
+
+pam-1.3.1-15.el8.x86\_64
+
+rpm -qf /usr/lib64/security/pam\_oddjob\_mkhomedir.so
+
+oddjob-mkhomedir-0.34.7-1.el8.x86\_64
+```
+
+By default, authconfig/authselect prefers oddjob rather than mkhomedir module
+
+## Reason
+
+The reason we have pam\_oddjob\_mkhomedir is to separate out the ability to create a homedir and all of the content from the login programs.
+
+With pam\_mkhomedir login programs have to be allowed to create Your homedir, but if you setup /etc/skel then it also needs to be able to create any content in your home dir.
+
+We in the SELinux world want to control what login programs can do. So we want to separate this abiltity to create home directory content into a separate priv daemon on the hosts, which the login programs can request to create the content. This means that from an SELinux point of view we can stop login programs like sshd from reading random content in your homedir. Why is this important? Over the years it has been shown that login programs have had bugs that led to information leakage without the users every being able to login to a system.
+
+Reference:
+
+- [https://access.redhat.com/discussions/903523](https://access.redhat.com/discussions/903523)
+
+- [https://danwalsh.livejournal.com/69837.html](https://danwalsh.livejournal.com/69837.html)

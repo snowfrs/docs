@@ -1,0 +1,47 @@
+{
+  "name": "wiki",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
+    "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
+    "postinstall": "fumadocs-mdx",
+    "lint": "biome check",
+    "format": "biome format --write"
+  },
+  "dependencies": {
+    "@giscus/react": "^3.1.0",
+    "@orama/orama": "^3.1.16",
+    "@orama/tokenizers": "^3.1.16",
+    "@types/mdast": "^4.0.4",
+    "@types/unist": "^3.0.3",
+    "fumadocs-core": "16.2.4",
+    "fumadocs-mdx": "14.1.0",
+    "fumadocs-ui": "16.2.4",
+    "lucide-react": "^0.556.0",
+    "mermaid": "^11.12.2",
+    "next": "16.0.8",
+    "next-themes": "^0.4.6",
+    "posthog-js": "^1.306.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.0.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.8",
+    "@tailwindcss/postcss": "^4.1.17",
+    "@types/mdx": "^2.0.13",
+    "@types/node": "^24.10.2",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "glob": "^13.0.0",
+    "postcss": "^8.5.6",
+    "remark-directive": "^4.0.0",
+    "tailwindcss": "^4.1.17",
+    "typescript": "^5.9.3"
+  }
+}

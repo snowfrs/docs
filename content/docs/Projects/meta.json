@@ -1,0 +1,13 @@
+{
+    "pages": [
+        "index",
+        "Project_Management",
+        "---Storage---",
+        "beegfs",
+        "beegfs方案对比",
+        "CubeFS",
+        "---Communication---",
+        "Email",
+        "Email_Implementation"
+    ]
+}

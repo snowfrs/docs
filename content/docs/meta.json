@@ -1,0 +1,16 @@
+{
+	"root": true,
+	"pages": [
+		"index",
+		"---Category---",
+		"Infra",
+		"HPC",
+		"K8s",
+		"DevOps",
+		"Cloud_Computing",
+		"Projects",
+		"Links",
+		"---Archive---",
+		"blog"
+	]
+}

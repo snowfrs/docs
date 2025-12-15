@@ -1,0 +1,92 @@
+---
+title: "What is a Semaphore"
+---
+**A semaphore is an integer variable, shared among multiple processes. The main aim of using a semaphore is process synchronization and access control for a common resource in a concurrent environment.**
+
+The initial value of a semaphore depends on the problem at hand. Usually, we use the number of resources available as the initial value.
+
+**A powerful and well-known process synchronization tool: semaphore.**
+
+## Contents
+
+* 1 semaphore operations
+* 2 semaphore types
+* 3 semaphore implementation
+* 4 process synchornization
+  + 4.1 Deadlock Avoidance
+  + 4.2 Avoiding Starvation
+  + 4.3 Priority Inversion
+* 5 Kernel Parameters to set semaphore limits
+
+### semaphore operations
+
+A semaphore has two indivisible (atomic) operations, namely: ***wait*** and ***signal***.
+
+### semaphore types
+
+There are two types of semaphores:
+
+* Binary semaphore
+* Counting semaphore
+
+A binary semaphore can have only two integer values: 0 or 1. It's simpler to implement and provides mutual exclusion. We can use a binary semaphore to solve the critical section problem.
+
+Some experienced readers might confuse binary semaphores with a mutex. There's a common misconception that they can be used interchangeably. But in fact, a semaphore is a signaling mechanism where on the other hand, a mutex is a locking mechanism. So, we need to know that binary semaphore is not a mutex.
+
+A counting semaphore is again an integer value, which an rang over an unrestricted domain. We can use it to resolve synchronization problems like resource allocation.
+
+### semaphore implementation
+
+An implementation with no busy waiting requires an integer value (to hold semaphore value) and a pointer to the next process in the waiting list. The list consists of processes that are put to sleep on the  operation. The kernel uses two additional operations:  and , to command the processes.
+
+We can think of semaphore implementation as a critical section problem since we don’t want more than one process accessing the semaphore variable concurrently.
+
+### process synchornization
+
+### Deadlock Avoidance
+
+### Avoiding Starvation
+
+A famous starvation example is the **Dining Philosophers** problem, which we’ll cover in the following sections. In this problem, five philosophers are sitting around a circular table. They share five chopsticks. Each philosopher either think or eat. To eat, a philosopher needs two chopsticks.
+
+#### Priority Inversion
+
+### Kernel Parameters to set semaphore limits
+
+The kernel parameters to set the semaphore limits are:
+
+```
+kernel.sem = SEMMSL SEMMNS SEMOPM SEMMNI
+SEMMSL - max semaphores per array
+SEMMNS - max semaphores system wide
+SEMOPM - max ops per semop call
+SEMMNI - max number of arrays
+```
+
+If a limit needs to be changed there should be taken in to account that
+
+**(max number of arrays)\*(max semaphores per array) >= (max semaphores system-wide)**.
+
+No need to have more semaphores system-wide if limited by the amount of a possible number of arrays with max semaphores per it.
+
+```
+# sysctl -w kernel.sem="250 32000 32 192"
+kernel.sem = 250 32000 32 192
+
+# cat /etc/sysctl.conf | grep kernel.sem
+kernel.sem = 250 32000 32 192
+```
+
+You can verify limits set by:
+
+```
+# ipcs -ls
+------ Semaphore Limits --------
+max number of arrays = 192
+max semaphores per array = 250
+max semaphores system wide = 32000
+max ops per semop call = 32
+semaphore max value = 32767
+```
+
+1. https://www.baeldung.com/cs/semaphore
