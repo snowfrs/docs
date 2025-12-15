@@ -5,26 +5,26 @@ title: "交换机安全配置"
 # 端口安全
 
 ```bash
-   Switch>enable
-   Switch#configure terminal
-   Switch(config)#interface fastethernet 0/1
-   Switch(config-if)#switchport mode access
-   Switch(config-if)#switchport access vlan 10
-   Switch(config-if)#switchport port-security
-   Switch(config-if)#switchport port-security maximum 1
-   #Set limit for hosts that can be associated with interface. Default value is 1. Skip this command to use default value.
-   Switch(config-if)#switchport port-security violation shutdown
-   #Set security violation mode. Default mode is shutdown. Skip this command to use default mode.
-   Switch(config-if)#switchport port-security mac-address sticky
-   #Enable sticky feature.
+  Switch>enable
+  Switch#configure terminal
+  Switch(config)#interface fastethernet 0/1
+  Switch(config-if)#switchport mode access
+  Switch(config-if)#switchport access vlan 10
+  Switch(config-if)#switchport port-security
+  Switch(config-if)#switchport port-security maximum 1
+  #Set limit for hosts that can be associated with interface. Default value is 1. Skip this command to use default value.
+  Switch(config-if)#switchport port-security violation shutdown
+  #Set security violation mode. Default mode is shutdown. Skip this command to use default mode.
+  Switch(config-if)#switchport port-security mac-address sticky
+  #Enable sticky feature.
 ```
 
 violation shutdown触发之后端口进入err-disable状态 可在全局设置err-disable自动恢复
 
 ```bash
-   #errdisable recovery cause psecure-violation
-   #errdisable recovery cause mac-locking
-   #errdisable recovery interval 30 	#(30s)
+  #errdisable recovery cause psecure-violation
+  #errdisable recovery cause mac-locking
+  #errdisable recovery interval 30 	#(30s)
 ```
 
 也可手动 shutdown / no shutdown 开启端口
@@ -32,16 +32,16 @@ violation shutdown触发之后端口进入err-disable状态 可在全局设置er
 全局配置port-security
 
 ```bash
-   switchport port-security
+  switchport port-security
 ```
 
 端口配置port-security
 
 ```bash
-   switchport port-security
-   switchport port-securtiy maximum 3
-   switchport port-security mac-address sticky
-   switchport port-security violation shutdown
+  switchport port-security
+  switchport port-securtiy maximum 3
+  switchport port-security mac-address sticky
+  switchport port-security violation shutdown
 ```
 
 # DHCP安全
@@ -49,21 +49,21 @@ violation shutdown触发之后端口进入err-disable状态 可在全局设置er
 开启dhcp snooping 只在接入层交换机开启
 
 ```bash
-   ip dhcp snooping
-   ip dhcp snooping vlan 10
-   ip dhcp snooping verify mac-address
+  ip dhcp snooping
+  ip dhcp snooping vlan 10
+  ip dhcp snooping verify mac-address
 ```
 
 ```bash
-   #untrusted port (end suer port)
-   int fastethernet 1/0/1
-   ip dhcp snooping limit rate 20
-   #trusted port (trunk interface)
-   int fastethernet 1/0/10
-   ip dhcp snooping trust
+  #untrusted port (end suer port)
+  int fastethernet 1/0/1
+  ip dhcp snooping limit rate 20
+  #trusted port (trunk interface)
+  int fastethernet 1/0/10
+  ip dhcp snooping trust
 ```
 
-原理：
+原理: 
 
 When option 82 is enabled on the switch, then this sequence of events occurs when a DHCP client sends a DHCP request:
 
@@ -96,12 +96,12 @@ STP 生成树协议 防止二层交换机出现环路
 全局下
 
 ```bash
-    vlan 2
-    vlan association mac xxxx.xxxx.xxxx
+  vlan 2
+  vlan association mac xxxx.xxxx.xxxx
 ```
 
 查看
 
 ```bash
-   show vlan association mac
+  show vlan association mac
 ```

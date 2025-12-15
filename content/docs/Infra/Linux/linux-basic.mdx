@@ -23,17 +23,17 @@ title: "Linux Basic"
 调试命令
 
 ```bash
-break 16    #断点行
-break func  #断点函数
-info break  #打印断点
+break 16  #断点行
+break func #断点函数
+info break #打印断点
 
-r           # run
-n           # next
-c           # continue
-p i         # print i
-bt          # 函数堆栈
-finish      # 退出函数
-q           # 退出GDB
+r      # run
+n      # next
+c      # continue
+p i     # print i
+bt     # 函数堆栈
+finish   # 退出函数
+q      # 退出GDB
 ```
 
 ## awk
@@ -43,26 +43,26 @@ awk 'pattern {action}'
 pattern(all by default) BEGIN, END
 action(print by default)
 builtin variables
-NR:       已输入记录的条数。
-NF:       当前记录中域的个数。记录中最后一个域可以以 $NF 的方式引用。
-FILENAME: 当前输入文件的文件名。
-FS:       域分隔符，用于将输入记录分割成域。其默认值为“空白字符”，即空格和制表符。FS可以替换为其它字符，从而改变域分隔符。
-RS:       当前的记录分隔符。默认状态下，输入的每行都被作为一个记录，因此默认记录分隔符是换行符。
-OFS:      输出域分隔符，即分隔print命令的参数的符号。其默认值为空格。
-ORS:      输出记录分隔符，即每个print命令之间的符号。其默认值为换行符。
-OFMT:     输出数字格式(Format for numeric output)，其默认值为"%.6g"。
-%0:       整个记录
-%n:       第n个记录
+NR:    已输入记录的条数. 
+NF:    当前记录中域的个数. 记录中最后一个域可以以 $NF 的方式引用. 
+FILENAME: 当前输入文件的文件名. 
+FS:    域分隔符, 用于将输入记录分割成域. 其默认值为"空白字符", 即空格和制表符. FS可以替换为其它字符, 从而改变域分隔符. 
+RS:    当前的记录分隔符. 默认状态下, 输入的每行都被作为一个记录, 因此默认记录分隔符是换行符. 
+OFS:   输出域分隔符, 即分隔print命令的参数的符号. 其默认值为空格. 
+ORS:   输出记录分隔符, 即每个print命令之间的符号. 其默认值为换行符. 
+OFMT:   输出数字格式(Format for numeric output), 其默认值为"%.6g". 
+%0:    整个记录
+%n:    第n个记录
 ```
 
 ## sed
 
 ```bash
-/模式/p            # 打印
-/模式/d            # 删除
-s/模式/替换文字/   # 替换
-s/模式/替换文字/g  # 替换所有
-np                 # 匹配第n行
+/模式/p      # 打印
+/模式/d      # 删除
+s/模式/替换文字/  # 替换
+s/模式/替换文字/g # 替换所有
+np         # 匹配第n行
 ```
 
 ## cp
@@ -92,15 +92,15 @@ rsync -avzP --delete /PATH/TO/SOURCE/. /PATH/TO/DESTATION/
 
 MBR, Master Boot Record 硬盘主引导记录
 
-硬盘分区表 DPT, Disk Partition Table  占64字节
+硬盘分区表 DPT, Disk Partition Table 占64字节
 
-Magic Number  2字节 固定为 `55AA`
+Magic Number 2字节 固定为 `55AA`
 
-MBR  512 = 446+64+2
+MBR 512 = 446+64+2
 
 `type` 用于查看命令是内部命令还是外部命令
 
-`tee  -a` 追加保存
+`tee -a` 追加保存
 
 `tr 'a-z' 'A-Z'` 大小写转换
 
@@ -120,7 +120,7 @@ MBR  512 = 446+64+2
 
 `uniq` 连续相同的行只显示一行
 
-`sort -u` 重复行只显示一次，不管是否联系
+`sort -u` 重复行只显示一次, 不管是否联系
 
 `uniq -c` 重复的次数 `-d` 只显示重复的行
 
@@ -136,7 +136,7 @@ MBR  512 = 446+64+2
 
 `kill -l`	显示所有64种信号
 
-常用：
+常用: 
 
 1	重新加载
 
@@ -150,15 +150,15 @@ MBR  512 = 446+64+2
 
 `killall -9 httpd`	强制杀死所有httpd进程
 
-进程优先级	数字越小，优先级越大
+进程优先级	数字越小, 优先级越大
 
-只有root可以调节优先级，普通用户只能将优先级数字调大
+只有root可以调节优先级, 普通用户只能将优先级数字调大
 
-`nice -n 5 command`	开启一个进程，给予优先级5
+`nice -n 5 command`	开启一个进程, 给予优先级5
 
 `renice 5 pid`			重新赋予优先级
 
-`bg %1`	作业号1，继续放到后台运行
+`bg %1`	作业号1, 继续放到后台运行
 
 `fg %1`	作业号1放到前台运行
 

@@ -71,7 +71,7 @@ Edit `/etc/default/saslauthd` to start the daemon.
 ```bash
 # /etc/default/saslauthd
 START=yes
-MECHANISMS="pam"  # Or "shadow" for local users, "ldap" for AD
+MECHANISMS="pam" # Or "shadow" for local users, "ldap" for AD
 ```
 
 Start SASL:
@@ -120,12 +120,12 @@ nano /etc/cyrus.conf
 Ensure these lines exist in `SERVICES` section:
 ```ini
 SERVICES {
-  imap      cmd="imapd" listen="imap" prefork=0
-  imaps     cmd="imapd -s" listen="imaps" prefork=0
-  lmtp      cmd="lmtpd" listen="lmtp" prefork=0
-  sieve     cmd="timsieved" listen="sieve" prefork=0
-  # JMAP/Http port
-  http      cmd="httpd" listen="localhost:8080" prefork=0
+ imap   cmd="imapd" listen="imap" prefork=0
+ imaps   cmd="imapd -s" listen="imaps" prefork=0
+ lmtp   cmd="lmtpd" listen="lmtp" prefork=0
+ sieve   cmd="timsieved" listen="sieve" prefork=0
+ # JMAP/Http port
+ http   cmd="httpd" listen="localhost:8080" prefork=0
 }
 ```
 
@@ -221,73 +221,73 @@ Paste the following configuration. This configuration assumes:
 
 ```json
 {
-  /* --------------------------------------------------------------------
-     Database Configuration (PostgreSQL)
-     -------------------------------------------------------------------- */
-  "SOGoProfileURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_user_profile",
-  "OCSFolderInfoURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_folder_info",
-  "OCSSessionsFolderURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_sessions_folder",
+ /* --------------------------------------------------------------------
+   Database Configuration (PostgreSQL)
+   -------------------------------------------------------------------- */
+ "SOGoProfileURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_user_profile",
+ "OCSFolderInfoURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_folder_info",
+ "OCSSessionsFolderURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_sessions_folder",
 
-  /* --------------------------------------------------------------------
-     General Preferences
-     -------------------------------------------------------------------- */
-  "SOGoPageTitle": "My Webmail",
-  "SOGoTimeZone": "Asia/Shanghai",
-  "SOGoLanguage": "English",
-  "SOGoAppointmentSendEMailNotifications": "YES",
-  "SOGoFoldersSendEMailNotifications": "YES",
-  "SOGoConfirmAttachedMail": "NO",
+ /* --------------------------------------------------------------------
+   General Preferences
+   -------------------------------------------------------------------- */
+ "SOGoPageTitle": "My Webmail",
+ "SOGoTimeZone": "Asia/Shanghai",
+ "SOGoLanguage": "English",
+ "SOGoAppointmentSendEMailNotifications": "YES",
+ "SOGoFoldersSendEMailNotifications": "YES",
+ "SOGoConfirmAttachedMail": "NO",
 
-  /* --------------------------------------------------------------------
-     Mail Server Connectivity (Cyrus IMAP + Postfix)
-     -------------------------------------------------------------------- */
-  /* Use IMAPS on port 993 for secure local connection */
-  "SOGoIMAPServer": "imaps://127.0.0.1:993",
-  
-  /* SMTP for sending mail */
-  "SOGoSMTPServer": "127.0.0.1",
-  "SOGoMailingMechanism": "smtp",
-  
-  /* Force email to match the authenticated user (Security) */
-  "SOGoForceExternalLoginWithEmail": "NO",
-  
-  /* IMAP Folder Names (Standard RFC6154) */
-  "SOGoSentFolderName": "Sent",
-  "SOGoTrashFolderName": "Trash",
-  "SOGoDraftsFolderName": "Drafts",
-  "SOGoJunkFolderName": "Junk",
+ /* --------------------------------------------------------------------
+   Mail Server Connectivity (Cyrus IMAP + Postfix)
+   -------------------------------------------------------------------- */
+ /* Use IMAPS on port 993 for secure local connection */
+ "SOGoIMAPServer": "imaps://127.0.0.1:993",
+ 
+ /* SMTP for sending mail */
+ "SOGoSMTPServer": "127.0.0.1",
+ "SOGoMailingMechanism": "smtp",
+ 
+ /* Force email to match the authenticated user (Security) */
+ "SOGoForceExternalLoginWithEmail": "NO",
+ 
+ /* IMAP Folder Names (Standard RFC6154) */
+ "SOGoSentFolderName": "Sent",
+ "SOGoTrashFolderName": "Trash",
+ "SOGoDraftsFolderName": "Drafts",
+ "SOGoJunkFolderName": "Junk",
 
-  /* --------------------------------------------------------------------
-     Authentication (SQL Source)
-     -------------------------------------------------------------------- */
-  "SOGoUserSources": [
-    {
-      "type": "sql",
-      "id": "directory",
-      "viewURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_users",
-      "canAuthenticate": "YES",
-      "isAddressBook": "YES",
-      "displayName": "Global Address Book",
-      
-      /* Field Mappings */
-      "userPasswordAlgorithm": "md5",
-      "prependPasswordScheme": "YES",
-      
-      /* Query Fields */
-      "IMAPLoginFieldName": "c_uid",
-      "KindFieldName": "c_kind",
-      "MultipleBookingsFieldName": "c_multiple_bookings",
-      "listRequiresDot": "NO"
-    }
-  ],
+ /* --------------------------------------------------------------------
+   Authentication (SQL Source)
+   -------------------------------------------------------------------- */
+ "SOGoUserSources": [
+  {
+   "type": "sql",
+   "id": "directory",
+   "viewURL": "postgresql://sogo:YourStrongDBPassword@127.0.0.1:5432/sogo/sogo_users",
+   "canAuthenticate": "YES",
+   "isAddressBook": "YES",
+   "displayName": "Global Address Book",
+   
+   /* Field Mappings */
+   "userPasswordAlgorithm": "md5",
+   "prependPasswordScheme": "YES",
+   
+   /* Query Fields */
+   "IMAPLoginFieldName": "c_uid",
+   "KindFieldName": "c_kind",
+   "MultipleBookingsFieldName": "c_multiple_bookings",
+   "listRequiresDot": "NO"
+  }
+ ],
 
-  /* --------------------------------------------------------------------
-     ActiveSync (EAS) Configuration
-     -------------------------------------------------------------------- */
-  "SOGoEASQueryTimeout": 30,
-  "SOGoMaximumPingInterval": 3540,
-  "SOGoMaximumSyncInterval": 3540,
-  "SOGoMaximumSyncWindowSize": 100
+ /* --------------------------------------------------------------------
+   ActiveSync (EAS) Configuration
+   -------------------------------------------------------------------- */
+ "SOGoEASQueryTimeout": 30,
+ "SOGoMaximumPingInterval": 3540,
+ "SOGoMaximumSyncInterval": 3540,
+ "SOGoMaximumSyncWindowSize": 100
 }
 ```
 
@@ -317,50 +317,50 @@ nano /etc/nginx/sites-available/mail
 Content:
 ```nginx
 server {
-    listen 80;
-    server_name mail.yourdomain.com;
-    return 301 https://$host$request_uri;
+  listen 80;
+  server_name mail.yourdomain.com;
+  return 301 https://$host$request_uri;
 }
 
 server {
-    listen 443 ssl http2;
-    server_name mail.yourdomain.com;
+  listen 443 ssl http2;
+  server_name mail.yourdomain.com;
 
-    ssl_certificate /etc/letsencrypt/live/mail.yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/mail.yourdomain.com/privkey.pem;
+  ssl_certificate /etc/letsencrypt/live/mail.yourdomain.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/mail.yourdomain.com/privkey.pem;
 
-    # SOGo Webmail
-    location /SOGo {
-        proxy_pass http://127.0.0.1:20000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header x-webobjects-server-protocol https;
-        proxy_set_header x-webobjects-remote-host 127.0.0.1;
-        proxy_set_header x-webobjects-server-name $server_name;
-        proxy_set_header x-webobjects-server-url https://$host;
-        
-        # Heavy buffers for ActiveSync
-        client_max_body_size 100m;
-        client_body_buffer_size 128k;
-    }
-
-    # ActiveSync
-    location /Microsoft-Server-ActiveSync {
-        proxy_pass http://127.0.0.1:20000/SOGo/Microsoft-Server-ActiveSync;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header x-webobjects-server-protocol https;
-        proxy_set_header x-webobjects-remote-host 127.0.0.1;
-        proxy_set_header x-webobjects-server-name $server_name;
-    }
+  # SOGo Webmail
+  location /SOGo {
+    proxy_pass http://127.0.0.1:20000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header x-webobjects-server-protocol https;
+    proxy_set_header x-webobjects-remote-host 127.0.0.1;
+    proxy_set_header x-webobjects-server-name $server_name;
+    proxy_set_header x-webobjects-server-url https://$host;
     
-    # JMAP (Cyrus)
-    location /jmap {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-    }
+    # Heavy buffers for ActiveSync
+    client_max_body_size 100m;
+    client_body_buffer_size 128k;
+  }
+
+  # ActiveSync
+  location /Microsoft-Server-ActiveSync {
+    proxy_pass http://127.0.0.1:20000/SOGo/Microsoft-Server-ActiveSync;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header x-webobjects-server-protocol https;
+    proxy_set_header x-webobjects-remote-host 127.0.0.1;
+    proxy_set_header x-webobjects-server-name $server_name;
+  }
+  
+  # JMAP (Cyrus)
+  location /jmap {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+  }
 }
 ```
 
@@ -415,7 +415,7 @@ To implement the "Shadow Mailbox" (BCC all mails):
 
 1. Create the shadow user in Cyrus: `cyradm -> cm user.shadow`
 2. Edit Postfix `main.cf`:
-   ```ini
-   always_bcc = shadow@yourdomain.com
-   ```
+  ```ini
+  always_bcc = shadow@yourdomain.com
+  ```
 3. Reload Postfix: `systemctl reload postfix`

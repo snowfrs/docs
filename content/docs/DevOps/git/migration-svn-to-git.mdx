@@ -13,7 +13,7 @@ Atlassian有篇非常优秀的[文章][migrating-to-git]介绍如何从SVN迁移
 - 存在的项目继续使用 SVN, 新项目使用Git 
 - 同一个项目既使用SVN又使用Git
 
-实际情况往往是复杂的, 而且迁移到Git之后协同工作流应该做适当调整. 对于中小型项目, 可以选择一次性将整个代码库迁移到Git, 这种做法相对容易，当然操作前需要所有开发人员花时间熟悉和学习Git工作流.
+实际情况往往是复杂的, 而且迁移到Git之后协同工作流应该做适当调整. 对于中小型项目, 可以选择一次性将整个代码库迁移到Git, 这种做法相对容易, 当然操作前需要所有开发人员花时间熟悉和学习Git工作流.
 
 ## 准备工作
 ### 获取 svn authors
@@ -82,23 +82,23 @@ subgit configure [SVN_REPO_URL] REPO.sugbit
 SubGit version 3.3.10 ('Bobique') build #4368
 
 Configuring writable Git mirror of remote Subversion repository:
-    Subversion repository URL : svn://your.server.tld/repo
-    Git repository location   : REPO.subgit
+  Subversion repository URL : svn://your.server.tld/repo
+  Git repository location  : REPO.subgit
 
 CONFIGURATION SUCCESSFUL
 
 To complete SubGit installation do the following:
 
 1) Adjust Subversion to Git branches mapping if necessary:
-    /data/REPO.subgit/subgit/config
+  /data/REPO.subgit/subgit/config
 2) Define at least one Subversion credentials in default SubGit passwd file at:
-    /data/REPO.subgit/subgit/passwd
-   OR configure SSH or SSL credentials in the [auth] section of:
-    /data/REPO.subgit/subgit/config
+  /data/REPO.subgit/subgit/passwd
+  OR configure SSH or SSL credentials in the [auth] section of:
+  /data/REPO.subgit/subgit/config
 3) Optionally, add custom authors mapping to the authors.txt file(s) at:
-    /data/REPO.subgit/subgit/authors.txt
+  /data/REPO.subgit/subgit/authors.txt
 4) Run SubGit 'install' command:
-    subgit install REPO.subgit
+  subgit install REPO.subgit
 ```
 
 按照要求配置好 
@@ -120,8 +120,8 @@ SubGit version 3.3.10 ('Bobique') build #4368
 
 Translating Subversion revisions to Git commits...
 
-    Subversion revisions translated: 1218.
-    Total time: 534 seconds.
+  Subversion revisions translated: 1218.
+  Total time: 534 seconds.
 
 INSTALLATION SUCCESSFUL
 
@@ -149,7 +149,7 @@ git remote set-url origin git@your.server.tld:username/projectname.git
 #master
 git push origin master
 #分支
-for branch in `git branch -r | grep -Ev "HEAD|master" | cut -d/ -f2`; do git push origin remotes/origin/$branch\:refs/heads/$branch; done  # 冒号后面为远程仓库中的地址,必须以refs/heads开头
+for branch in `git branch -r | grep -Ev "HEAD|master" | cut -d/ -f2`; do git push origin remotes/origin/$branch\:refs/heads/$branch; done # 冒号后面为远程仓库中的地址,必须以refs/heads开头
 #tags
 git push --tags
 ```

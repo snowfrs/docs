@@ -5,9 +5,9 @@ tags: firewalld
 
 # `firewalld`
 ## `firewalld`介绍
-firewalld随RHEL7一同推出,作为iptalbes的前端控制器。firewalld是iptables的一个封装。
+firewalld随RHEL7一同推出,作为iptalbes的前端控制器. firewalld是iptables的一个封装. 
 
-RHEL8开始firewalld后端由iptalbes更换为nftables。
+RHEL8开始firewalld后端由iptalbes更换为nftables. 
 
 - firewalld使用区域和服务而不是链式规则
 - 动态管理规则集,允许更新规则而不破坏现有会话
@@ -63,13 +63,13 @@ firewall-cmd --permanent --zone=<ZONE> --add-rich-rule='rule family=ipv4 source 
 ```
 记录日志
 
-将来自192.168.1.0/24的ssh流量记录到日志，每分钟最多写50条日志记录，log level
+将来自192.168.1.0/24的ssh流量记录到日志, 每分钟最多写50条日志记录, log level
 为info或更高级别的才写入日志
 ```
 firewall-cmd --permanent --zone=<ZONE> --add-rich-rule='rule family=ipv4 source address=192.168.1.0/24 service name =ssh log prefix=ssh level=info limit value=50/m accept'
 ```
 ## 高级用法
-目标：将来自 114.114.0.0/16 的流量ban掉
+目标: 将来自 114.114.0.0/16 的流量ban掉
 
 初始操作
 ```

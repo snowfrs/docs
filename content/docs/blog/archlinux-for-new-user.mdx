@@ -23,16 +23,16 @@ timedatectl set-ntp true
 
 ## 磁盘分区并格式化
 ```bash
-   lsblk 查看磁盘 
-   fdisk 分区
-   sda1   EFI分区
-   sda2    根分区
-   sda3    home
-   sda4    swap
-   mkfs.vfat  /dev/sda1
-   mkfs.ext4   /dev/sda2
-   mkfs.ext4    /dev/sda3
-   mkswap      /dev/sda4
+  lsblk 查看磁盘 
+  fdisk 分区
+  sda1  EFI分区
+  sda2  根分区
+  sda3  home
+  sda4  swap
+  mkfs.vfat /dev/sda1
+  mkfs.ext4  /dev/sda2
+  mkfs.ext4  /dev/sda3
+  mkswap   /dev/sda4
 ```
 
 ## 挂载
@@ -58,7 +58,7 @@ genfstab -U /mnt >> /mnt/etc/fstab
 
 ## chroot
 ```
-arch-chroot  /mnt
+arch-chroot /mnt
 ```
 
 ## 修改root密码,添加新用户
@@ -71,10 +71,10 @@ passwd snowfrs
 
 ## 时区
 ```
-ln -sf /usr/share/zoneinfo/Asia/Taipei   /etc/localtime
-```   
+ln -sf /usr/share/zoneinfo/Asia/Taipei  /etc/localtime
+```  
 硬件时钟 
-```   
+```  
 hwclock --systohc
 ```
 
@@ -85,8 +85,8 @@ hwclock --systohc
 ```
 en_US.UTF-8 UTF-8
 zh_CN.UTF-8 UTF-8
-zh_CN.GBK    GBK
-zh_CN    GB2312
+zh_CN.GBK  GBK
+zh_CN  GB2312
 ```
 使用命令`locale-gen`生成信息
 
@@ -98,7 +98,7 @@ zh_CN    GB2312
 
 ```
 /etc/hostname	arch
-/etc/hosts	127.0.0.1  arch.localdomain  arch
+/etc/hosts	127.0.0.1 arch.localdomain arch
 ```
 
 ## 网络和基本组件
@@ -116,7 +116,7 @@ pacman -S sddm
 ```
 
 ## 生成randisk
-`mkinitcpio   -p linux`
+`mkinitcpio  -p linux`
 
 ## 引导器
 ```
@@ -202,7 +202,7 @@ pacman -S libu2f-host
 
 终端查看图片 feh
 
-系统信息输出  neofetch
+系统信息输出 neofetch
 
 如果你需要使用 $\TeX$ 文档
 ```

@@ -13,20 +13,20 @@ title: "Linux Sysctl Configuration"
 #
 # Added kernel version < 2.6.33 set net.ipv4.tcp_congestion_control=htcp
 # Notes:
-#   This script is a simple "helper" to configure your sysctl.conf on linux
-#   There is no silver bullet. Don't expect the perfect setup, review comments
-#   and adapt the parameters to your needs and application usage.
+#  This script is a simple "helper" to configure your sysctl.conf on linux
+#  There is no silver bullet. Don't expect the perfect setup, review comments
+#  and adapt the parameters to your needs and application usage.
 #
-#   Use this script at your OWN risk. There is no guarantee whatsoever.
+#  Use this script at your OWN risk. There is no guarantee whatsoever.
 #
 # License:
-#   This work is licenced under the CC-GNU LGPL version 2.1 or later.
-#   To view a copy of this licence, visit http://creativecommons.org/licenses/LGPL/2.1/
-#   or send a letter to:
+#  This work is licenced under the CC-GNU LGPL version 2.1 or later.
+#  To view a copy of this licence, visit http://creativecommons.org/licenses/LGPL/2.1/
+#  or send a letter to:
 #
-#           Creative Commons
-#           171 Second Street, Suite 300
-#           San Francisco, California 94105, USA
+#      Creative Commons
+#      171 Second Street, Suite 300
+#      San Francisco, California 94105, USA
 #
 # May 2012, Jon Zobrist <jon@jonzobrist.com> http://www.jonzobrist.com/
 # Things added:
@@ -56,8 +56,8 @@ mv /etc/sysctl.conf /etc/${BACKUP_SYSCTL}
 
 which bc
 if [ $? -ne 0 ]; then
-    echo "This script require GNU bc, cf. http://www.gnu.org/software/bc/"
-    echo "On Linux Debian/Ubuntu you can install it by doing : apt-get install bc"
+  echo "This script require GNU bc, cf. http://www.gnu.org/software/bc/"
+  echo "On Linux Debian/Ubuntu you can install it by doing : apt-get install bc"
 fi
 
 echo "Update sysctl for $host"
@@ -78,30 +78,30 @@ echo "min_free = " $min_free
 
 if [ "${KERNEL_VERSION}" -lt 3 ] && [ "${MAJOR_VERSION}" -lt 7 ] && [ "${MINOR_VERSION}" -lt 33 ]
  then
-    CONGESTION_CONTROL="htcp"
+  CONGESTION_CONTROL="htcp"
  else
-    if [ "$(sysctl net.ipv4.tcp_available_congestion_control | grep reno)" ]
-     then
-        CONGESTION_CONTROL="reno"
-    else
-        CONGESTION_CONTROL="cubic"
-    fi
+  if [ "$(sysctl net.ipv4.tcp_available_congestion_control | grep reno)" ]
+   then
+    CONGESTION_CONTROL="reno"
+  else
+    CONGESTION_CONTROL="cubic"
+  fi
 fi
 
 if [ "$1" != "ssd" ]; then
-    vm_dirty_bg_ratio=5
-    vm_dirty_ratio=15
+  vm_dirty_bg_ratio=5
+  vm_dirty_ratio=15
 else
-    # This setup is generally ok for ssd and highmem servers
-    vm_dirty_bg_ratio=3
-    vm_dirty_ratio=5
+  # This setup is generally ok for ssd and highmem servers
+  vm_dirty_bg_ratio=3
+  vm_dirty_ratio=5
 fi
 
 >/etc/sysctl.conf cat << EOF
 # manage by puppet
 # Kernel sysctl configuration file for Red Hat Linux
 #
-# For binary values, 0 is disabled, 1 is enabled.  See sysctl(8) and
+# For binary values, 0 is disabled, 1 is enabled. See sysctl(8) and
 # sysctl.conf(5) for more details.
 
 # Controls IP packet forwarding
@@ -148,7 +148,7 @@ net.ipv4.tcp_rfc1337 = 1
 
 # Defines the local port range that is used by TCP and UDP
 # to choose the local port
-#net.ipv4.ip_local_port_range = 1024  65535
+#net.ipv4.ip_local_port_range = 1024 65535
 
 # Log packets with impossible addresses for security
 net.ipv4.conf.all.log_martians = 1
@@ -168,7 +168,7 @@ net.ipv4.tcp_sack = 1
 # Enable FACK congestion avoidance and fast restransmission
 net.ipv4.tcp_fack = 1
 
-#  Allows TCP to send "duplicate" SACKs
+# Allows TCP to send "duplicate" SACKs
 net.ipv4.tcp_dsack = 1
 
 
@@ -293,19 +293,19 @@ EOF
 
 SAVEIFS=$IFS
 IFS=$(echo -en "\n\b")
-for LINE in $(grep -v '^#' ${CURRENT_SYSCTL_FILE} | grep . )
+for LINE in $(grep -v '^#' ${CURRENT_SYSCTL_FILE} | grep .)
  do
-    unset RESULT
-    MY_VAR=$(echo ${LINE} | awk '{ print $1 }')
-    RESULT=$(grep ${MY_VAR} /etc/sysctl.conf)
-    if [ "${RESULT}" ]
-     then
-        echo "${MY_VAR} exists in new sysctl.conf, skipping"
-     else
-        echo "Adding ${MY_VAR} from old sysctl.conf to new"
-        echo "${LINE}"
-        echo "${LINE}" >> /etc/sysctl.conf
-    fi
+  unset RESULT
+  MY_VAR=$(echo ${LINE} | awk '{ print $1 }')
+  RESULT=$(grep ${MY_VAR} /etc/sysctl.conf)
+  if [ "${RESULT}" ]
+   then
+    echo "${MY_VAR} exists in new sysctl.conf, skipping"
+   else
+    echo "Adding ${MY_VAR} from old sysctl.conf to new"
+    echo "${LINE}"
+    echo "${LINE}" >> /etc/sysctl.conf
+  fi
 
 done
 IFS=$SAVEIFS

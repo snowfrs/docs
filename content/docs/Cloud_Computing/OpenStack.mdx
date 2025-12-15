@@ -29,24 +29,24 @@ Red Hat Certified Engineer in Red Hat OpenStack
 * Build software-defined networks with OpenDaylight.
 
 ## OpenStack FAQ
-1. OpenStack是什么？
+1. OpenStack是什么? 
 2. OpenStack主要组件简单介绍
 
 **Nova**: 用于在计算级别管理虚拟机, 并在计算或管理程序级别执行其他计算任务
 
-**Neutron**: 为虚拟机、计算和控制节点提供网络功能
+**Neutron**: 为虚拟机, 计算和控制节点提供网络功能
 
 **Keystone**: 为所有云用户和OpenStack云服务提供身份认证服务
 
-**Horizon**: 提供图形用户界面，使用图形化界面可以很轻松完成各种日常操作
+**Horizon**: 提供图形用户界面, 使用图形化界面可以很轻松完成各种日常操作
 
 **Cinder**: 提供块存储功能
 
 **Swift**: 提供对象存储功能
 
-**Glance**: 提供镜像服务，使用glance的管理平台上传和下载云镜像
+**Glance**: 提供镜像服务, 使用glance的管理平台上传和下载云镜像
 
-**Heat**: 提供编排服务。使用Heat管理平台可以轻松将虚拟机作为堆栈，并根据需要将虚拟机扩展或收缩
+**Heat**: 提供编排服务. 使用Heat管理平台可以轻松将虚拟机作为堆栈, 并根据需要将虚拟机扩展或收缩
 
 **Ceilometer**: 提供计量和监控功能
 
@@ -63,7 +63,7 @@ Red Hat Certified Engineer in Red Hat OpenStack
 9. 如何在OpenStack中执行网络命名空间内的命令 `#ip netns exec {network-space} &lt;command&gt;`
 10. Glance服务中如何使用命令上传和下载镜像
 
-`#openstack image create --disk-format qcow2 --container-format bare --public --file {Name-Cloud-Image}.qcow2  <Cloud-Image-Name>`
+`#openstack image create --disk-format qcow2 --container-format bare --public --file {Name-Cloud-Image}.qcow2 <Cloud-Image-Name>`
 
 `#glance image-download --file <Cloud-Image-Name> --progress <Image-ID>`
 
@@ -84,7 +84,7 @@ Red Hat Certified Engineer in Red Hat OpenStack
 18. 列出所有在OpenStack中创建的项目或用户 `# openstack project list --long`
 19. 如何显示 OpenStack 服务端点列表
 
-OpenStack服务端点被分为3类：**公共端点** **内部端点** **管理端点**
+OpenStack服务端点被分为3类: **公共端点** **内部端点** **管理端点**
 
 `#openstack catalog list`
 
@@ -98,7 +98,7 @@ service nova-conductor restart
 service nova-consoleauth restart
 service nova-scheduler restart
 ```
-21. 假如计算节点上为数据流量配置了一些DPDK端口，如何检查DPDK端口的状态
+21. 假如计算节点上为数据流量配置了一些DPDK端口, 如何检查DPDK端口的状态
 ```bash
 # ovs-appctl bond/show | grep dpdk active slave mac: 90:38:09:ac:7a:99(dpdk0) slave dpdk0: enabled slave dpdk1: enabled
 # dpdk-devbind.py --status
@@ -108,30 +108,30 @@ service nova-scheduler restart
 23. 如何查看控制节点和计算节点的OVS桥配置 `#ovs-vsctl show`
 24. 计算节点上的桥 br-int 作用是什么
 
-集成桥 br-int 对来自和运行在计算节点上的实例的流量执行VLAN标记和取消标记 数据包从实例的n/w接口发出 使用虚拟接口qvo通过Linux桥(qbr). qvb接口用来连接Linux桥，qvo接口用来连接集成桥br-int. br-int上的qvo端口有一个内部VLAN标签，这个标签是用于当数据包到达br-int时候贴到数据包头部的.
+集成桥 br-int 对来自和运行在计算节点上的实例的流量执行VLAN标记和取消标记 数据包从实例的n/w接口发出 使用虚拟接口qvo通过Linux桥(qbr). qvb接口用来连接Linux桥, qvo接口用来连接集成桥br-int. br-int上的qvo端口有一个内部VLAN标签, 这个标签是用于当数据包到达br-int时候贴到数据包头部的.
 
 25. 计算节点上的桥 br-tun 作用是什么
 
-隧道桥(br-tun) 根据OpenFlow规则将VLAN标记的流量从集成网桥转换为隧道ID br-tun允许不同网络的实例彼此进行通信. 隧道有利于封装在非安全网络上传输的流量，它支持两层网络 GRE 和 VXLAN
+隧道桥(br-tun) 根据OpenFlow规则将VLAN标记的流量从集成网桥转换为隧道ID br-tun允许不同网络的实例彼此进行通信. 隧道有利于封装在非安全网络上传输的流量, 它支持两层网络 GRE 和 VXLAN
 
 26. 外部OVS桥 (br-ex)的作用是什么
 
-此网桥转发来自网络的流量，允许外部访问实例. br-ex连接物理接口比如eth2, 这样用户网络的浮动IP数据从物理网络接收并路由到用户网络端口
+此网桥转发来自网络的流量, 允许外部访问实例. br-ex连接物理接口比如eth2, 这样用户网络的浮动IP数据从物理网络接收并路由到用户网络端口
 
 27. OpenFlow规则的作用是什么
 
-OpenFlow规则是一种机制，这种机制定义了一个数据包如何从源到达目的地。OpenFlow规则存储在flow表中。flow表是OpenFlow交换机的一部分. 当一个数据包到达交换机就会被第一个flow表检查，如果不匹配flow表中的任何入口, 那么这个数据包会被丢弃或者转发到其他flow表中.
+OpenFlow规则是一种机制, 这种机制定义了一个数据包如何从源到达目的地. OpenFlow规则存储在flow表中. flow表是OpenFlow交换机的一部分. 当一个数据包到达交换机就会被第一个flow表检查, 如果不匹配flow表中的任何入口, 那么这个数据包会被丢弃或者转发到其他flow表中.
 
-28. 如何查看 OpenFlow 交换机的信息？ 比如端口 表编号 缓存编号 `#ovs-ofctl show br-int`
+28. 如何查看 OpenFlow 交换机的信息? 比如端口 表编号 缓存编号 `#ovs-ofctl show br-int`
 29. 如何显示叫混迹中的所有flow的入口 `#ovs-ofctl dump-flows br-int`
-30. 什么是Neutron代理？ 如何显示所有Neutron代理?
+30. 什么是Neutron代理? 如何显示所有Neutron代理?
 
-OpenStack Neutron服务器充当中心控制器，实际网络配置是在计算节点或者网络节点上执行的。Neutron代理是计算节点或者网络节点上进行配置更新的软件实体。Neutron代理通过Neutron服务和消息队列来和中心Neutron服务通信
+OpenStack Neutron服务器充当中心控制器, 实际网络配置是在计算节点或者网络节点上执行的. Neutron代理是计算节点或者网络节点上进行配置更新的软件实体. Neutron代理通过Neutron服务和消息队列来和中心Neutron服务通信
 
 `#openstack network agent list -c 'Agent type' -c Host -c Alive -c State`
 
 31. CPU Pinning是什么
 
-CPU Pinning是指为某个虚拟机保留物理核心。也称为CPU隔离。
+CPU Pinning是指为某个虚拟机保留物理核心. 也称为CPU隔离. 
 
-目的： 确保虚拟机只能在专用核心上运行 确保公共主机进程不在这些核心上运行 也可以认为Pinning是物理核心到一个用户虚拟CPU(vCPU)的一对一映射。
+目的: 确保虚拟机只能在专用核心上运行 确保公共主机进程不在这些核心上运行 也可以认为Pinning是物理核心到一个用户虚拟CPU(vCPU)的一对一映射. 

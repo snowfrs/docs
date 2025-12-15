@@ -8,24 +8,24 @@ title: "BeeGFS存储架构设计"
 2. 通过virtio虚拟出来的网卡有性能瓶颈
 
 ```
-# iperf3  --client 10.10.10.1 --port 10000
+# iperf3 --client 10.10.10.1 --port 10000
 Connecting to host 10.10.10.1, port 10000
-[  5] local 10.10.10.2 port 58022 connected to 10.10.10.1 port 10000
-[ ID] Interval           Transfer     Bitrate         Retr  Cwnd
-[  5]   0.00-1.00   sec  2.28 GBytes  19.6 Gbits/sec    0   2.75 MBytes
-[  5]   1.00-2.00   sec  1.91 GBytes  16.4 Gbits/sec    0   2.75 MBytes
-[  5]   2.00-3.00   sec  2.39 GBytes  20.5 Gbits/sec    0   2.93 MBytes
-[  5]   3.00-4.00   sec  2.38 GBytes  20.5 Gbits/sec    0   2.93 MBytes
-[  5]   4.00-5.00   sec  1.88 GBytes  16.2 Gbits/sec    0   2.93 MBytes
-[  5]   5.00-6.00   sec  2.03 GBytes  17.4 Gbits/sec    0   3.78 MBytes
-[  5]   6.00-7.00   sec  2.32 GBytes  19.9 Gbits/sec    0   3.78 MBytes
-[  5]   7.00-8.00   sec  2.28 GBytes  19.6 Gbits/sec    0   3.78 MBytes
-[  5]   8.00-9.00   sec  2.33 GBytes  20.0 Gbits/sec    0   3.78 MBytes
-[  5]   9.00-10.00  sec  2.34 GBytes  20.1 Gbits/sec    0   3.78 MBytes
+[ 5] local 10.10.10.2 port 58022 connected to 10.10.10.1 port 10000
+[ ID] Interval      Transfer   Bitrate     Retr Cwnd
+[ 5]  0.00-1.00  sec 2.28 GBytes 19.6 Gbits/sec  0  2.75 MBytes
+[ 5]  1.00-2.00  sec 1.91 GBytes 16.4 Gbits/sec  0  2.75 MBytes
+[ 5]  2.00-3.00  sec 2.39 GBytes 20.5 Gbits/sec  0  2.93 MBytes
+[ 5]  3.00-4.00  sec 2.38 GBytes 20.5 Gbits/sec  0  2.93 MBytes
+[ 5]  4.00-5.00  sec 1.88 GBytes 16.2 Gbits/sec  0  2.93 MBytes
+[ 5]  5.00-6.00  sec 2.03 GBytes 17.4 Gbits/sec  0  3.78 MBytes
+[ 5]  6.00-7.00  sec 2.32 GBytes 19.9 Gbits/sec  0  3.78 MBytes
+[ 5]  7.00-8.00  sec 2.28 GBytes 19.6 Gbits/sec  0  3.78 MBytes
+[ 5]  8.00-9.00  sec 2.33 GBytes 20.0 Gbits/sec  0  3.78 MBytes
+[ 5]  9.00-10.00 sec 2.34 GBytes 20.1 Gbits/sec  0  3.78 MBytes
 - - - - - - - - - - - - - - - - - - - - - - - - -
-[ ID] Interval           Transfer     Bitrate         Retr
-[  5]   0.00-10.00  sec  22.1 GBytes  19.0 Gbits/sec    0             sender
-[  5]   0.00-10.04  sec  22.1 GBytes  18.9 Gbits/sec                  receiver
+[ ID] Interval      Transfer   Bitrate     Retr
+[ 5]  0.00-10.00 sec 22.1 GBytes 19.0 Gbits/sec  0       sender
+[ 5]  0.00-10.04 sec 22.1 GBytes 18.9 Gbits/sec         receiver
 
 iperf Done.
 ```
@@ -35,10 +35,10 @@ iperf Done.
 - beegfs-1 和 beegfs-2 的metadata硬盘组建 buddy mirror
 - 客户端, 规格(16CPU, 32G Memory), 操作系统RockyLinux8
 ```
-beegfs-1 10.10.10.1         metadata, storage
-beegfs-2 10.10.10.2         metadata, storage
-beegfs-3 10.10.10.3         storage, mgmtd, mon
-beegfs-client 10.10.10.4    client
+beegfs-1 10.10.10.1     metadata, storage
+beegfs-2 10.10.10.2     metadata, storage
+beegfs-3 10.10.10.3     storage, mgmtd, mon
+beegfs-client 10.10.10.4  client
 ```
 
 ## 命名规则
@@ -50,109 +50,109 @@ beegfs-client 10.10.10.4    client
 ## 方案一
 - metadata: 2块硬盘本地通过mdadm组建raid1, 格式化为ext4
 - storage: 14块硬盘使用xfs格式化(每块硬盘一个tgn). 
-    - **Buddy Mirror 策略 (三角交叉镜像)**: 为了实现单台服务器故障容错并保证负载均衡, 采用三角交叉分组方式:
-        - **Group A**: Node1 前7块盘 (101-107) &lt;-&gt; Node2 后7块盘 (208-214)
-        - **Group B**: Node2 前7块盘 (201-207) &lt;-&gt; Node3 后7块盘 (308-314)
-        - **Group C**: Node3 前7块盘 (301-307) &lt;-&gt; Node1 后7块盘 (108-114)
-    - 这种方式下, 任意一台服务器宕机(如Node1), 其数据由Node2(承载Group A)和Node3(承载Group C)共同分担, 避免单点过载.
-    而且, 便于理解, 每台服务器左侧的7块盘是primary, 右侧的7块盘是secondary. 同时也方便扩容.
+  - **Buddy Mirror 策略 (三角交叉镜像)**: 为了实现单台服务器故障容错并保证负载均衡, 采用三角交叉分组方式:
+    - **Group A**: Node1 前7块盘 (101-107) &lt;-&gt; Node2 后7块盘 (208-214)
+    - **Group B**: Node2 前7块盘 (201-207) &lt;-&gt; Node3 后7块盘 (308-314)
+    - **Group C**: Node3 前7块盘 (301-307) &lt;-&gt; Node1 后7块盘 (108-114)
+  - 这种方式下, 任意一台服务器宕机(如Node1), 其数据由Node2(承载Group A)和Node3(承载Group C)共同分担, 避免单点过载.
+  而且, 便于理解, 每台服务器左侧的7块盘是primary, 右侧的7块盘是secondary. 同时也方便扩容.
 
 
 ### Storage Buddy Mirroring Flow (Triangle Topology)
 
 ```mermaid
 graph LR
-    subgraph Node1 ["beegfs-1 (14 Disks)"]
-        N1_G1["Disks 1-7"]
-        N1_G3["Disks 8-14"]
-    end
+  subgraph Node1 ["beegfs-1 (14 Disks)"]
+    N1_G1["Disks 1-7"]
+    N1_G3["Disks 8-14"]
+  end
 
-    subgraph Node2 ["beegfs-2 (14 Disks)"]
-        N2_G1["Disks 1-7"]
-        N2_G2["Disks 8-14"]
-    end
+  subgraph Node2 ["beegfs-2 (14 Disks)"]
+    N2_G1["Disks 1-7"]
+    N2_G2["Disks 8-14"]
+  end
 
-    subgraph Node3 ["beegfs-3 (14 Disks)"]
-        N3_G2["Disks 1-7"]
-        N3_G3["Disks 8-14"]
-    end
+  subgraph Node3 ["beegfs-3 (14 Disks)"]
+    N3_G2["Disks 1-7"]
+    N3_G3["Disks 8-14"]
+  end
 
-    %% Triangle Mirroring
-    N1_G1 <==>|"Group A (Mirror)"| N2_G2
-    N2_G1 <==>|"Group B (Mirror)"| N3_G3
-    N3_G2 <==>|"Group C (Mirror)"| N1_G3
-    
-    style N1_G1 fill:#ffcccc,stroke:#cc0000,stroke-width:2px
-    style N2_G2 fill:#ffcccc,stroke:#cc0000,stroke-width:2px
-    
-    style N2_G1 fill:#ccffcc,stroke:#009900,stroke-width:2px
-    style N3_G3 fill:#ccffcc,stroke:#009900,stroke-width:2px
-    
-    style N3_G2 fill:#ccccff,stroke:#0000cc,stroke-width:2px
-    style N1_G3 fill:#ccccff,stroke:#0000cc,stroke-width:2px
+  %% Triangle Mirroring
+  N1_G1 <==>|"Group A (Mirror)"| N2_G2
+  N2_G1 <==>|"Group B (Mirror)"| N3_G3
+  N3_G2 <==>|"Group C (Mirror)"| N1_G3
+  
+  style N1_G1 fill:#ffcccc,stroke:#cc0000,stroke-width:2px
+  style N2_G2 fill:#ffcccc,stroke:#cc0000,stroke-width:2px
+  
+  style N2_G1 fill:#ccffcc,stroke:#009900,stroke-width:2px
+  style N3_G3 fill:#ccffcc,stroke:#009900,stroke-width:2px
+  
+  style N3_G2 fill:#ccccff,stroke:#0000cc,stroke-width:2px
+  style N1_G3 fill:#ccccff,stroke:#0000cc,stroke-width:2px
 ```
 
 ### Disk-Level Mirroring Detail
 
 ```mermaid
 graph LR
-    subgraph Node1 ["Node 1 (14 Disks)"]
-        direction TB
-        subgraph N1_G1 ["Group A (Front 7)"]
-            N1_D1["Disk 1 (Tgt 101)"]
-            N1_D7["... Disk 7 (Tgt 107)"]
-        end
-        subgraph N1_G3 ["Group C (Back 7)"]
-            N1_D8["Disk 8 (Tgt 108)"]
-            N1_D14["... Disk 14 (Tgt 114)"]
-        end
+  subgraph Node1 ["Node 1 (14 Disks)"]
+    direction TB
+    subgraph N1_G1 ["Group A (Front 7)"]
+      N1_D1["Disk 1 (Tgt 101)"]
+      N1_D7["... Disk 7 (Tgt 107)"]
     end
-
-    subgraph Node2 ["Node 2 (14 Disks)"]
-        direction TB
-        subgraph N2_G1 ["Group B (Front 7)"]
-            N2_D1["Disk 1 (Tgt 201)"]
-            N2_D7["... Disk 7 (Tgt 207)"]
-        end
-        subgraph N2_G2 ["Group A (Back 7)"]
-            N2_D8["Disk 8 (Tgt 208)"]
-            N2_D14["... Disk 14 (Tgt 214)"]
-        end
+    subgraph N1_G3 ["Group C (Back 7)"]
+      N1_D8["Disk 8 (Tgt 108)"]
+      N1_D14["... Disk 14 (Tgt 114)"]
     end
+  end
 
-    subgraph Node3 ["Node 3 (14 Disks)"]
-        direction TB
-        subgraph N3_G2 ["Group C (Front 7)"]
-            N3_D1["Disk 1 (Tgt 301)"]
-            N3_D7["... Disk 7 (Tgt 307)"]
-        end
-        subgraph N3_G3 ["Group B (Back 7)"]
-            N3_D8["Disk 8 (Tgt 308)"]
-            N3_D14["... Disk 14 (Tgt 314)"]
-        end
+  subgraph Node2 ["Node 2 (14 Disks)"]
+    direction TB
+    subgraph N2_G1 ["Group B (Front 7)"]
+      N2_D1["Disk 1 (Tgt 201)"]
+      N2_D7["... Disk 7 (Tgt 207)"]
     end
+    subgraph N2_G2 ["Group A (Back 7)"]
+      N2_D8["Disk 8 (Tgt 208)"]
+      N2_D14["... Disk 14 (Tgt 214)"]
+    end
+  end
 
-    %% Group A Connections (Node1 Front &lt;-&gt; Node2 Back)
-    N1_D1 <==> N2_D8
-    N1_D7 <==> N2_D14
+  subgraph Node3 ["Node 3 (14 Disks)"]
+    direction TB
+    subgraph N3_G2 ["Group C (Front 7)"]
+      N3_D1["Disk 1 (Tgt 301)"]
+      N3_D7["... Disk 7 (Tgt 307)"]
+    end
+    subgraph N3_G3 ["Group B (Back 7)"]
+      N3_D8["Disk 8 (Tgt 308)"]
+      N3_D14["... Disk 14 (Tgt 314)"]
+    end
+  end
 
-    %% Group B Connections (Node2 Front &lt;-&gt; Node3 Back)
-    N2_D1 <==> N3_D8
-    N2_D7 <==> N3_D14
+  %% Group A Connections (Node1 Front &lt;-&gt; Node2 Back)
+  N1_D1 <==> N2_D8
+  N1_D7 <==> N2_D14
 
-    %% Group C Connections (Node3 Front &lt;-&gt; Node1 Back)
-    N3_D1 <==> N1_D8
-    N3_D7 <==> N1_D14
+  %% Group B Connections (Node2 Front &lt;-&gt; Node3 Back)
+  N2_D1 <==> N3_D8
+  N2_D7 <==> N3_D14
 
-    %% Styling
-    style N1_G1 fill:#ffcccc,stroke:#cc0000
-    style N2_G2 fill:#ffcccc,stroke:#cc0000
-    
-    style N2_G1 fill:#ccffcc,stroke:#009900
-    style N3_G3 fill:#ccffcc,stroke:#009900
-    
-    style N3_G2 fill:#ccccff,stroke:#0000cc
-    style N1_G3 fill:#ccccff,stroke:#0000cc
+  %% Group C Connections (Node3 Front &lt;-&gt; Node1 Back)
+  N3_D1 <==> N1_D8
+  N3_D7 <==> N1_D14
+
+  %% Styling
+  style N1_G1 fill:#ffcccc,stroke:#cc0000
+  style N2_G2 fill:#ffcccc,stroke:#cc0000
+  
+  style N2_G1 fill:#ccffcc,stroke:#009900
+  style N3_G3 fill:#ccffcc,stroke:#009900
+  
+  style N3_G2 fill:#ccccff,stroke:#0000cc
+  style N1_G3 fill:#ccccff,stroke:#0000cc
 ```
 
 ### 实施步骤 (Implementation Steps)
@@ -162,10 +162,10 @@ graph LR
 ```bash
 # cat san.cnf
 [ req ]
-default_bits       = 2048
+default_bits    = 2048
 distinguished_name = req_distinguished_name
-req_extensions     = req_ext
-x509_extensions    = v3_ca # The extensions to add to the self signed cert
+req_extensions   = req_ext
+x509_extensions  = v3_ca # The extensions to add to the self signed cert
 prompt	= no
 
 [ req_distinguished_name ]
@@ -178,8 +178,8 @@ subjectAltName = @alt_names
 subjectAltName = @alt_names
 
 [ alt_names ]
-DNS.1   = beegfs-mgmt
-IP.1    = 10.10.10.3
+DNS.1  = beegfs-mgmt
+IP.1  = 10.10.10.3
 openssl req -new -x509 -nodes -days 10000 -keyout /etc/beegfs/key.pem -out /etc/beegfs/cert.pem -config san.cnf
 
 # -nodes 表示不加密私钥(服务启动不需要输密码)
@@ -220,31 +220,31 @@ mkfs.ext4 -i 2048 -I 512 -J size=400 -Odir_index,large_dir,filetype /dev/md0
 配置 Metadata Buddy Mirror
 在 Node1 和 Node2 上配置 Metadata 服务, 并开启 Buddy Mirror.
 
-1.  **准备 Metadata 存储**:
-    -   **Node1**: 2块盘组建 RAID1 (mdadm), 挂载到 `/data/beegfs/meta`.
-    -   **Node2**: 2块盘组建 RAID1 (mdadm), 挂载到 `/data/beegfs/meta`.
+1. **准备 Metadata 存储**:
+  -  **Node1**: 2块盘组建 RAID1 (mdadm), 挂载到 `/data/beegfs/meta`.
+  -  **Node2**: 2块盘组建 RAID1 (mdadm), 挂载到 `/data/beegfs/meta`.
 
-2.  **初始化 Metadata 服务**:
-    ```bash
-    # Node1 (Meta ID 1)
-    beegfs-setup-meta -p /data/beegfs/meta -s 1 -m 10.10.10.3
-    
-    # Node2 (Meta ID 2)
-    beegfs-setup-meta -p /data/beegfs/meta -s 2 -m 10.10.10.3
-    ```
+2. **初始化 Metadata 服务**:
+  ```bash
+  # Node1 (Meta ID 1)
+  beegfs-setup-meta -p /data/beegfs/meta -s 1 -m 10.10.10.3
+  
+  # Node2 (Meta ID 2)
+  beegfs-setup-meta -p /data/beegfs/meta -s 2 -m 10.10.10.3
+  ```
 
-3.  **开启 Mirroring 功能**:
-    在 `beegfs-mgmtd.conf` 中设置:
-    ```ini
-    storeMetaMirror = true
-    ```
-    重启 mgmtd 服务: `systemctl restart beegfs-mgmtd`
+3. **开启 Mirroring 功能**:
+  在 `beegfs-mgmtd.conf` 中设置:
+  ```ini
+  storeMetaMirror = true
+  ```
+  重启 mgmtd 服务: `systemctl restart beegfs-mgmtd`
 
-4.  **创建 Metadata 镜像组**:
-    使用 `beegfs-ctl` 将 Meta ID 1 和 Meta ID 2 结对:
-    ```bash
-    beegfs-ctl --addmirrorgroup --nodetype=meta --groupid=100 --primary=1 --secondary=2
-    ```
+4. **创建 Metadata 镜像组**:
+  使用 `beegfs-ctl` 将 Meta ID 1 和 Meta ID 2 结对:
+  ```bash
+  beegfs-ctl --addmirrorgroup --nodetype=meta --groupid=100 --primary=1 --secondary=2
+  ```
 
 #### Storage service
 
@@ -285,45 +285,45 @@ beegfs-ctl --addmirrorgroup --groupid=21 --primary=307 --secondary=114
 
 ```mermaid
 graph TB
-    subgraph Client["Client (10.10.10.4)"]
-        C[BeeGFS Client]
-    end
+  subgraph Client["Client (10.10.10.4)"]
+    C[BeeGFS Client]
+  end
 
-    subgraph Node1["beegfs-1 (10.10.10.1)"]
-        M1[Metadata Service]
-        S1[Storage Service]
-        MD1["MD RAID1 (mdadm ext4)"]
-        D1["14x Disks (XFS Targets)"]
-        M1 --- MD1
-        S1 --- D1
-    end
+  subgraph Node1["beegfs-1 (10.10.10.1)"]
+    M1[Metadata Service]
+    S1[Storage Service]
+    MD1["MD RAID1 (mdadm ext4)"]
+    D1["14x Disks (XFS Targets)"]
+    M1 --- MD1
+    S1 --- D1
+  end
 
-    subgraph Node2["beegfs-2 (10.10.10.2)"]
-        M2[Metadata Service]
-        S2[Storage Service]
-        MD2["MD RAID1 (mdadm ext4)"]
-        D2["14x Disks (XFS Targets)"]
-        M2 --- MD2
-        S2 --- D2
-    end
+  subgraph Node2["beegfs-2 (10.10.10.2)"]
+    M2[Metadata Service]
+    S2[Storage Service]
+    MD2["MD RAID1 (mdadm ext4)"]
+    D2["14x Disks (XFS Targets)"]
+    M2 --- MD2
+    S2 --- D2
+  end
 
-    subgraph Node3["beegfs-3 (10.10.10.3)"]
-        Mgmtd[Mgmtd & Mon]
-        S3[Storage Service]
-        D3["14x Disks (XFS Targets)"]
-        Mgmtd --- S3
-        S3 --- D3
-    end
+  subgraph Node3["beegfs-3 (10.10.10.3)"]
+    Mgmtd[Mgmtd & Mon]
+    S3[Storage Service]
+    D3["14x Disks (XFS Targets)"]
+    Mgmtd --- S3
+    S3 --- D3
+  end
 
-    C -.-> Mgmtd
-    C ==> M1 & M2
-    C ==> S1 & S2 & S3
-    
-    %% Mirroring
-    M1 <.->|Buddy Mirror| M2
-    S1 <.->|Buddy Mirror| S2
-    S2 <.->|Buddy Mirror| S3
-    S1 <.->|Buddy Mirror| S3
+  C -.-> Mgmtd
+  C ==> M1 & M2
+  C ==> S1 & S2 & S3
+  
+  %% Mirroring
+  M1 <.->|Buddy Mirror| M2
+  S1 <.->|Buddy Mirror| S2
+  S2 <.->|Buddy Mirror| S3
+  S1 <.->|Buddy Mirror| S3
 ```
 
 
@@ -380,76 +380,76 @@ beegfs-ctl --addmirrorgroup --groupid=28 --primary=407 --secondary=114
 
 ```mermaid
 graph LR
-    subgraph Node1
-        N1_F["Front (101-107)"]
-        N1_B["Back (108-114)"]
-    end
-    subgraph Node2
-        N2_F["Front (201-207)"]
-        N2_B["Back (208-214)"]
-    end
-    subgraph Node3
-        N3_F["Front (301-307)"]
-        N3_B["Back (308-314)"]
-    end
-    subgraph Node4 ["Node 4 (New)"]
-        N4_F["Front (401-407)"]
-        N4_B["Back (408-414)"]
-    end
+  subgraph Node1
+    N1_F["Front (101-107)"]
+    N1_B["Back (108-114)"]
+  end
+  subgraph Node2
+    N2_F["Front (201-207)"]
+    N2_B["Back (208-214)"]
+  end
+  subgraph Node3
+    N3_F["Front (301-307)"]
+    N3_B["Back (308-314)"]
+  end
+  subgraph Node4 ["Node 4 (New)"]
+    N4_F["Front (401-407)"]
+    N4_B["Back (408-414)"]
+  end
 
-    %% Ring Connections
-    N1_F <==>|"Group A"| N2_B
-    N2_F <==>|"Group B"| N3_B
-    N3_F <==>|"Group C (New)"| N4_B
-    N4_F <==>|"Group D (New)"| N1_B
+  %% Ring Connections
+  N1_F <==>|"Group A"| N2_B
+  N2_F <==>|"Group B"| N3_B
+  N3_F <==>|"Group C (New)"| N4_B
+  N4_F <==>|"Group D (New)"| N1_B
 
-    style N4_F fill:#ffffcc,stroke:#cccc00
-    style N4_B fill:#ffffcc,stroke:#cccc00
+  style N4_F fill:#ffffcc,stroke:#cccc00
+  style N4_B fill:#ffffcc,stroke:#cccc00
 ```
 
 ## 方案二
 - metadata: 2块硬盘本地通过mdadm组建raid1, 格式化为ext4
 - storage: 14块硬盘组建zfs (7+7, zfs raidz2).
-    - **Buddy Mirror 策略 (逻辑Target三角镜像)**: 由于只有3台服务器, 若每台只提供1个Target, 无法组成闭环镜像. 因此需要**在ZFS Pool上创建2个不同的Dataset作为2个独立的BeeGFS Target (Front & Back)**.
-    - **拓扑结构**:
-        - **Group A**: Node1-Target Front &lt;-&gt; Node2-Target Back
-        - **Group B**: Node2-Target Front &lt;-&gt; Node3-Target Back
-        - **Group C**: Node3-Target Front &lt;-&gt; Node1-Target Back
-    - 这种配置下, 任意一台服务器宕机, 剩余两台服务器均持有完整数据副本.
+  - **Buddy Mirror 策略 (逻辑Target三角镜像)**: 由于只有3台服务器, 若每台只提供1个Target, 无法组成闭环镜像. 因此需要**在ZFS Pool上创建2个不同的Dataset作为2个独立的BeeGFS Target (Front & Back)**.
+  - **拓扑结构**:
+    - **Group A**: Node1-Target Front &lt;-&gt; Node2-Target Back
+    - **Group B**: Node2-Target Front &lt;-&gt; Node3-Target Back
+    - **Group C**: Node3-Target Front &lt;-&gt; Node1-Target Back
+  - 这种配置下, 任意一台服务器宕机, 剩余两台服务器均持有完整数据副本.
 
 
 ### Storage Buddy Mirroring Flow (Triangle Topology)
 
 ```mermaid
 graph LR
-    subgraph Node1 ["beegfs-1 (ZFS Pool)"]
-        N1_TF["Target Front"]
-        N1_TB["Target Back"]
-    end
+  subgraph Node1 ["beegfs-1 (ZFS Pool)"]
+    N1_TF["Target Front"]
+    N1_TB["Target Back"]
+  end
 
-    subgraph Node2 ["beegfs-2 (ZFS Pool)"]
-        N2_TF["Target Front"]
-        N2_TB["Target Back"]
-    end
+  subgraph Node2 ["beegfs-2 (ZFS Pool)"]
+    N2_TF["Target Front"]
+    N2_TB["Target Back"]
+  end
 
-    subgraph Node3 ["beegfs-3 (ZFS Pool)"]
-        N3_TF["Target Front"]
-        N3_TB["Target Back"]
-    end
+  subgraph Node3 ["beegfs-3 (ZFS Pool)"]
+    N3_TF["Target Front"]
+    N3_TB["Target Back"]
+  end
 
-    %% Triangle Mirroring (Front -> Back)
-    N1_TF <==>|Group A| N2_TB
-    N2_TF <==>|Group B| N3_TB
-    N3_TF <==>|Group C| N1_TB
-    
-    style N1_TF fill:#ffcccc,stroke:#cc0000,stroke-width:2px
-    style N2_TB fill:#ffcccc,stroke:#cc0000,stroke-width:2px
-    
-    style N2_TF fill:#ccffcc,stroke:#009900,stroke-width:2px
-    style N3_TB fill:#ccffcc,stroke:#009900,stroke-width:2px
-    
-    style N3_TF fill:#ccccff,stroke:#0000cc,stroke-width:2px
-    style N1_TB fill:#ccccff,stroke:#0000cc,stroke-width:2px
+  %% Triangle Mirroring (Front -> Back)
+  N1_TF <==>|Group A| N2_TB
+  N2_TF <==>|Group B| N3_TB
+  N3_TF <==>|Group C| N1_TB
+  
+  style N1_TF fill:#ffcccc,stroke:#cc0000,stroke-width:2px
+  style N2_TB fill:#ffcccc,stroke:#cc0000,stroke-width:2px
+  
+  style N2_TF fill:#ccffcc,stroke:#009900,stroke-width:2px
+  style N3_TB fill:#ccffcc,stroke:#009900,stroke-width:2px
+  
+  style N3_TF fill:#ccccff,stroke:#0000cc,stroke-width:2px
+  style N1_TB fill:#ccccff,stroke:#0000cc,stroke-width:2px
 ```
 
 
@@ -458,31 +458,31 @@ graph LR
 #### 0. 配置 Metadata Buddy Mirror
 在 Node1 和 Node2 上配置 Metadata 服务, 并开启 Buddy Mirror.
 
-1.  **准备 Metadata 存储**:
-    -   **Node1**: 2块盘组建 RAID1 (mdadm), 挂载到 `/beegfs/meta`.
-    -   **Node2**: 2块盘组建 RAID1 (mdadm), 挂载到 `/beegfs/meta`.
+1. **准备 Metadata 存储**:
+  -  **Node1**: 2块盘组建 RAID1 (mdadm), 挂载到 `/beegfs/meta`.
+  -  **Node2**: 2块盘组建 RAID1 (mdadm), 挂载到 `/beegfs/meta`.
 
-2.  **初始化 Metadata 服务**:
-    ```bash
-    # Node1 (Meta ID 1)
-    beegfs-setup-meta -p /beegfs/meta -s 1 -m 1
-    
-    # Node2 (Meta ID 2)
-    beegfs-setup-meta -p /beegfs/meta -s 2 -m 2
-    ```
+2. **初始化 Metadata 服务**:
+  ```bash
+  # Node1 (Meta ID 1)
+  beegfs-setup-meta -p /beegfs/meta -s 1 -m 1
+  
+  # Node2 (Meta ID 2)
+  beegfs-setup-meta -p /beegfs/meta -s 2 -m 2
+  ```
 
-3.  **开启 Mirroring 功能**:
-    在 `beegfs-mgmtd.conf` 中设置:
-    ```ini
-    storeMetaMirror = true
-    ```
-    重启 mgmtd 服务: `systemctl restart beegfs-mgmtd`
+3. **开启 Mirroring 功能**:
+  在 `beegfs-mgmtd.conf` 中设置:
+  ```ini
+  storeMetaMirror = true
+  ```
+  重启 mgmtd 服务: `systemctl restart beegfs-mgmtd`
 
-4.  **创建 Metadata 镜像组**:
-    使用 `beegfs-ctl` 将 Meta ID 1 和 Meta ID 2 结对:
-    ```bash
-    beegfs-ctl --addmirrorgroup --nodetype=meta --groupid=100 --primary=1 --secondary=2
-    ```
+4. **创建 Metadata 镜像组**:
+  使用 `beegfs-ctl` 将 Meta ID 1 和 Meta ID 2 结对:
+  ```bash
+  beegfs-ctl --addmirrorgroup --nodetype=meta --groupid=100 --primary=1 --secondary=2
+  ```
 
 #### 1. 准备 ZFS Datasets (每台服务器)
 在每台服务器的 ZFS Pool (假设名为 `tank`) 上创建两个 Dataset:
@@ -501,15 +501,15 @@ zfs create tank/target_back
 ```bash
 # Node1
 beegfs-setup-storage -p /tank/target_front -s 1 -i 101 ...
-beegfs-setup-storage -p /tank/target_back  -s 1 -i 102 ...
+beegfs-setup-storage -p /tank/target_back -s 1 -i 102 ...
 
 # Node2
 beegfs-setup-storage -p /tank/target_front -s 2 -i 201 ...
-beegfs-setup-storage -p /tank/target_back  -s 2 -i 202 ...
+beegfs-setup-storage -p /tank/target_back -s 2 -i 202 ...
 
 # Node3
 beegfs-setup-storage -p /tank/target_front -s 3 -i 301 ...
-beegfs-setup-storage -p /tank/target_back  -s 3 -i 302 ...
+beegfs-setup-storage -p /tank/target_back -s 3 -i 302 ...
 ```
 
 #### 3. 创建镜像组 (Triangle)
@@ -530,45 +530,45 @@ beegfs-ctl --addmirrorgroup --groupid=3 --primary=301 --secondary=102
 
 ```mermaid
 graph TB
-    subgraph Client["Client (10.10.10.4)"]
-        C[BeeGFS Client]
-    end
+  subgraph Client["Client (10.10.10.4)"]
+    C[BeeGFS Client]
+  end
 
-    subgraph Node1["beegfs-1 (10.10.10.1)"]
-        M1[Metadata Service]
-        S1[Storage Service]
-        MD1["MD RAID1 (mdadm ext4)"]
-        Z1["ZFS Pool (2x RAIDZ2 7+7)"]
-        M1 --- MD1
-        S1 --- Z1
-    end
+  subgraph Node1["beegfs-1 (10.10.10.1)"]
+    M1[Metadata Service]
+    S1[Storage Service]
+    MD1["MD RAID1 (mdadm ext4)"]
+    Z1["ZFS Pool (2x RAIDZ2 7+7)"]
+    M1 --- MD1
+    S1 --- Z1
+  end
 
-    subgraph Node2["beegfs-2 (10.10.10.2)"]
-        M2[Metadata Service]
-        S2[Storage Service]
-        MD2["MD RAID1 (mdadm ext4)"]
-        Z2["ZFS Pool (2x RAIDZ2 7+7)"]
-        M2 --- MD2
-        S2 --- Z2
-    end
+  subgraph Node2["beegfs-2 (10.10.10.2)"]
+    M2[Metadata Service]
+    S2[Storage Service]
+    MD2["MD RAID1 (mdadm ext4)"]
+    Z2["ZFS Pool (2x RAIDZ2 7+7)"]
+    M2 --- MD2
+    S2 --- Z2
+  end
 
-    subgraph Node3["beegfs-3 (10.10.10.3)"]
-        Mgmtd[Mgmtd & Mon]
-        S3[Storage Service]
-        Z3["ZFS Pool (2x RAIDZ2 7+7)"]
-        Mgmtd --- S3
-        S3 --- Z3
-    end
+  subgraph Node3["beegfs-3 (10.10.10.3)"]
+    Mgmtd[Mgmtd & Mon]
+    S3[Storage Service]
+    Z3["ZFS Pool (2x RAIDZ2 7+7)"]
+    Mgmtd --- S3
+    S3 --- Z3
+  end
 
-    C -.-> Mgmtd
-    C ==> M1 & M2
-    C ==> S1 & S2 & S3
-    
-    %% Mirroring
-    M1 <.->|Buddy Mirror| M2
-    S1 <.->|Buddy Mirror| S2
-    S2 <.->|Buddy Mirror| S3
-    S1 <.->|Buddy Mirror| S3
+  C -.-> Mgmtd
+  C ==> M1 & M2
+  C ==> S1 & S2 & S3
+  
+  %% Mirroring
+  M1 <.->|Buddy Mirror| M2
+  S1 <.->|Buddy Mirror| S2
+  S2 <.->|Buddy Mirror| S3
+  S1 <.->|Buddy Mirror| S3
 ```
 
 
@@ -613,76 +613,76 @@ beegfs-ctl --addmirrorgroup --groupid=4 --primary=401 --secondary=102
 
 ```mermaid
 graph LR
-    subgraph Node1
-        N1_F["Front (101)"]
-        N1_B["Back (102)"]
-    end
-    subgraph Node2
-        N2_F["Front (201)"]
-        N2_B["Back (202)"]
-    end
-    subgraph Node3
-        N3_F["Front (301)"]
-        N3_B["Back (302)"]
-    end
-    subgraph Node4 ["Node 4 (New)"]
-        N4_F["Front (401)"]
-        N4_B["Back (402)"]
-    end
+  subgraph Node1
+    N1_F["Front (101)"]
+    N1_B["Back (102)"]
+  end
+  subgraph Node2
+    N2_F["Front (201)"]
+    N2_B["Back (202)"]
+  end
+  subgraph Node3
+    N3_F["Front (301)"]
+    N3_B["Back (302)"]
+  end
+  subgraph Node4 ["Node 4 (New)"]
+    N4_F["Front (401)"]
+    N4_B["Back (402)"]
+  end
 
-    %% Ring Connections
-    N1_F <==>|"Group A"| N2_B
-    N2_F <==>|"Group B"| N3_B
-    N3_F <==>|"Group C (New)"| N4_B
-    N4_F <==>|"Group D (New)"| N1_B
+  %% Ring Connections
+  N1_F <==>|"Group A"| N2_B
+  N2_F <==>|"Group B"| N3_B
+  N3_F <==>|"Group C (New)"| N4_B
+  N4_F <==>|"Group D (New)"| N1_B
 
-    style N4_F fill:#ffffcc,stroke:#cccc00
-    style N4_B fill:#ffffcc,stroke:#cccc00
+  style N4_F fill:#ffffcc,stroke:#cccc00
+  style N4_B fill:#ffffcc,stroke:#cccc00
 ```
 
 ## 方案三
 - metadata: 2块硬盘本地组建zfs raid1
 - storage: 14块硬盘组建zfs(7+7, zfs raidz2).
-    - **Buddy Mirror 策略 (逻辑Target三角镜像)**: 与方案二相同, 需要**在ZFS Pool上创建2个不同的Dataset作为2个独立的BeeGFS Target (Front & Back)**.
-    - **拓扑结构**:
-        - **Group A**: Node1-Target Front &lt;-&gt; Node2-Target Back
-        - **Group B**: Node2-Target Front &lt;-&gt; Node3-Target Back
-        - **Group C**: Node3-Target Front &lt;-&gt; Node1-Target Back
-    - 这种配置下, 任意一台服务器宕机, 剩余两台服务器均持有完整数据副本.
+  - **Buddy Mirror 策略 (逻辑Target三角镜像)**: 与方案二相同, 需要**在ZFS Pool上创建2个不同的Dataset作为2个独立的BeeGFS Target (Front & Back)**.
+  - **拓扑结构**:
+    - **Group A**: Node1-Target Front &lt;-&gt; Node2-Target Back
+    - **Group B**: Node2-Target Front &lt;-&gt; Node3-Target Back
+    - **Group C**: Node3-Target Front &lt;-&gt; Node1-Target Back
+  - 这种配置下, 任意一台服务器宕机, 剩余两台服务器均持有完整数据副本.
 
 
 ### Storage Buddy Mirroring Flow (Triangle Topology)
 
 ```mermaid
 graph LR
-    subgraph Node1 ["beegfs-1 (ZFS Pool)"]
-        N1_TF["Target Front"]
-        N1_TB["Target Back"]
-    end
+  subgraph Node1 ["beegfs-1 (ZFS Pool)"]
+    N1_TF["Target Front"]
+    N1_TB["Target Back"]
+  end
 
-    subgraph Node2 ["beegfs-2 (ZFS Pool)"]
-        N2_TF["Target Front"]
-        N2_TB["Target Back"]
-    end
+  subgraph Node2 ["beegfs-2 (ZFS Pool)"]
+    N2_TF["Target Front"]
+    N2_TB["Target Back"]
+  end
 
-    subgraph Node3 ["beegfs-3 (ZFS Pool)"]
-        N3_TF["Target Front"]
-        N3_TB["Target Back"]
-    end
+  subgraph Node3 ["beegfs-3 (ZFS Pool)"]
+    N3_TF["Target Front"]
+    N3_TB["Target Back"]
+  end
 
-    %% Triangle Mirroring (Front -> Back)
-    N1_TF <==>|Group A| N2_TB
-    N2_TF <==>|Group B| N3_TB
-    N3_TF <==>|Group C| N1_TB
-    
-    style N1_TF fill:#ffcccc,stroke:#cc0000,stroke-width:2px
-    style N2_TB fill:#ffcccc,stroke:#cc0000,stroke-width:2px
-    
-    style N2_TF fill:#ccffcc,stroke:#009900,stroke-width:2px
-    style N3_TB fill:#ccffcc,stroke:#009900,stroke-width:2px
-    
-    style N3_TF fill:#ccccff,stroke:#0000cc,stroke-width:2px
-    style N1_TB fill:#ccccff,stroke:#0000cc,stroke-width:2px
+  %% Triangle Mirroring (Front -> Back)
+  N1_TF <==>|Group A| N2_TB
+  N2_TF <==>|Group B| N3_TB
+  N3_TF <==>|Group C| N1_TB
+  
+  style N1_TF fill:#ffcccc,stroke:#cc0000,stroke-width:2px
+  style N2_TB fill:#ffcccc,stroke:#cc0000,stroke-width:2px
+  
+  style N2_TF fill:#ccffcc,stroke:#009900,stroke-width:2px
+  style N3_TB fill:#ccffcc,stroke:#009900,stroke-width:2px
+  
+  style N3_TF fill:#ccccff,stroke:#0000cc,stroke-width:2px
+  style N1_TB fill:#ccccff,stroke:#0000cc,stroke-width:2px
 ```
 
 
@@ -692,35 +692,35 @@ graph LR
 #### 0. 准备 Metadata (ZFS Mirror + BeeGFS Buddy Mirror)
 在 Node1 和 Node2 上使用 ZFS Mirror 承载 Metadata, 并开启 BeeGFS Buddy Mirror.
 
-1.  **创建 ZFS Metadata Pool**:
-    在 Node1 和 Node2 上, 使用2块专用硬盘组建 ZFS Mirror Pool (假设盘符为 /dev/sdX, /dev/sdY):
-    ```bash
-    # On Node1 & Node2
-    zpool create -f beegfs_meta mirror /dev/sdX /dev/sdY
-    zfs create beegfs_meta/meta
-    ```
+1. **创建 ZFS Metadata Pool**:
+  在 Node1 和 Node2 上, 使用2块专用硬盘组建 ZFS Mirror Pool (假设盘符为 /dev/sdX, /dev/sdY):
+  ```bash
+  # On Node1 & Node2
+  zpool create -f beegfs_meta mirror /dev/sdX /dev/sdY
+  zfs create beegfs_meta/meta
+  ```
 
-2.  **初始化 Metadata Service**:
-    ```bash
-    # On Node1 (Meta ID 1)
-    beegfs-setup-meta -p /beegfs_meta/meta -s 1 -m 1
-    
-    # On Node2 (Meta ID 2)
-    beegfs-setup-meta -p /beegfs_meta/meta -s 2 -m 2
-    ```
+2. **初始化 Metadata Service**:
+  ```bash
+  # On Node1 (Meta ID 1)
+  beegfs-setup-meta -p /beegfs_meta/meta -s 1 -m 1
+  
+  # On Node2 (Meta ID 2)
+  beegfs-setup-meta -p /beegfs_meta/meta -s 2 -m 2
+  ```
 
-3.  **开启 Mirroring 功能**:
-    在 `beegfs-mgmtd.conf` 中设置:
-    ```ini
-    storeMetaMirror = true
-    ```
-    重启 mgmtd 服务: `systemctl restart beegfs-mgmtd`
+3. **开启 Mirroring 功能**:
+  在 `beegfs-mgmtd.conf` 中设置:
+  ```ini
+  storeMetaMirror = true
+  ```
+  重启 mgmtd 服务: `systemctl restart beegfs-mgmtd`
 
-4.  **创建 Metadata 镜像组**:
-    使用 `beegfs-ctl` 将 Meta ID 1 和 Meta ID 2 结对:
-    ```bash
-    beegfs-ctl --addmirrorgroup --nodetype=meta --groupid=100 --primary=1 --secondary=2
-    ```
+4. **创建 Metadata 镜像组**:
+  使用 `beegfs-ctl` 将 Meta ID 1 和 Meta ID 2 结对:
+  ```bash
+  beegfs-ctl --addmirrorgroup --nodetype=meta --groupid=100 --primary=1 --secondary=2
+  ```
 
 #### 1. 准备 ZFS Datasets (每台服务器)
 在每台服务器的 ZFS Pool (假设名为 `tank`) 上创建两个 Dataset:
@@ -739,15 +739,15 @@ zfs create tank/target_back
 ```bash
 # Node1
 beegfs-setup-storage -p /tank/target_front -s 1 -i 101 ...
-beegfs-setup-storage -p /tank/target_back  -s 1 -i 102 ...
+beegfs-setup-storage -p /tank/target_back -s 1 -i 102 ...
 
 # Node2
 beegfs-setup-storage -p /tank/target_front -s 2 -i 201 ...
-beegfs-setup-storage -p /tank/target_back  -s 2 -i 202 ...
+beegfs-setup-storage -p /tank/target_back -s 2 -i 202 ...
 
 # Node3
 beegfs-setup-storage -p /tank/target_front -s 3 -i 301 ...
-beegfs-setup-storage -p /tank/target_back  -s 3 -i 302 ...
+beegfs-setup-storage -p /tank/target_back -s 3 -i 302 ...
 ```
 
 #### 3. 创建镜像组 (Triangle)
@@ -768,45 +768,45 @@ beegfs-ctl --addmirrorgroup --groupid=3 --primary=301 --secondary=102
 
 ```mermaid
 graph TB
-    subgraph Client["Client (10.10.10.4)"]
-        C[BeeGFS Client]
-    end
+  subgraph Client["Client (10.10.10.4)"]
+    C[BeeGFS Client]
+  end
 
-    subgraph Node1["beegfs-1 (10.10.10.1)"]
-        M1[Metadata Service]
-        S1[Storage Service]
-        MD1[ZFS Mirror Pool]
-        Z1["ZFS Pool (2x RAIDZ2 7+7)"]
-        M1 --- MD1
-        S1 --- Z1
-    end
+  subgraph Node1["beegfs-1 (10.10.10.1)"]
+    M1[Metadata Service]
+    S1[Storage Service]
+    MD1[ZFS Mirror Pool]
+    Z1["ZFS Pool (2x RAIDZ2 7+7)"]
+    M1 --- MD1
+    S1 --- Z1
+  end
 
-    subgraph Node2["beegfs-2 (10.10.10.2)"]
-        M2[Metadata Service]
-        S2[Storage Service]
-        MD2[ZFS Mirror Pool]
-        Z2["ZFS Pool (2x RAIDZ2 7+7)"]
-        M2 --- MD2
-        S2 --- Z2
-    end
+  subgraph Node2["beegfs-2 (10.10.10.2)"]
+    M2[Metadata Service]
+    S2[Storage Service]
+    MD2[ZFS Mirror Pool]
+    Z2["ZFS Pool (2x RAIDZ2 7+7)"]
+    M2 --- MD2
+    S2 --- Z2
+  end
 
-    subgraph Node3["beegfs-3 (10.10.10.3)"]
-        Mgmtd[Mgmtd & Mon]
-        S3[Storage Service]
-        Z3["ZFS Pool (2x RAIDZ2 7+7)"]
-        Mgmtd --- S3
-        S3 --- Z3
-    end
+  subgraph Node3["beegfs-3 (10.10.10.3)"]
+    Mgmtd[Mgmtd & Mon]
+    S3[Storage Service]
+    Z3["ZFS Pool (2x RAIDZ2 7+7)"]
+    Mgmtd --- S3
+    S3 --- Z3
+  end
 
-    C -.-> Mgmtd
-    C ==> M1 & M2
-    C ==> S1 & S2 & S3
-    
-    %% Mirroring
-    M1 <.->|Buddy Mirror| M2
-    S1 <.->|Buddy Mirror| S2
-    S2 <.->|Buddy Mirror| S3
-    S1 <.->|Buddy Mirror| S3
+  C -.-> Mgmtd
+  C ==> M1 & M2
+  C ==> S1 & S2 & S3
+  
+  %% Mirroring
+  M1 <.->|Buddy Mirror| M2
+  S1 <.->|Buddy Mirror| S2
+  S2 <.->|Buddy Mirror| S3
+  S1 <.->|Buddy Mirror| S3
 ```
 
 
@@ -850,31 +850,31 @@ beegfs-ctl --addmirrorgroup --groupid=4 --primary=401 --secondary=102
 
 ```mermaid
 graph LR
-    subgraph Node1
-        N1_F["Front (101)"]
-        N1_B["Back (102)"]
-    end
-    subgraph Node2
-        N2_F["Front (201)"]
-        N2_B["Back (202)"]
-    end
-    subgraph Node3
-        N3_F["Front (301)"]
-        N3_B["Back (302)"]
-    end
-    subgraph Node4 ["Node 4 (New)"]
-        N4_F["Front (401)"]
-        N4_B["Back (402)"]
-    end
+  subgraph Node1
+    N1_F["Front (101)"]
+    N1_B["Back (102)"]
+  end
+  subgraph Node2
+    N2_F["Front (201)"]
+    N2_B["Back (202)"]
+  end
+  subgraph Node3
+    N3_F["Front (301)"]
+    N3_B["Back (302)"]
+  end
+  subgraph Node4 ["Node 4 (New)"]
+    N4_F["Front (401)"]
+    N4_B["Back (402)"]
+  end
 
-    %% Ring Connections
-    N1_F <==>|"Group A"| N2_B
-    N2_F <==>|"Group B"| N3_B
-    N3_F <==>|"Group C (New)"| N4_B
-    N4_F <==>|"Group D (New)"| N1_B
+  %% Ring Connections
+  N1_F <==>|"Group A"| N2_B
+  N2_F <==>|"Group B"| N3_B
+  N3_F <==>|"Group C (New)"| N4_B
+  N4_F <==>|"Group D (New)"| N1_B
 
-    style N4_F fill:#ffffcc,stroke:#cccc00
-    style N4_B fill:#ffffcc,stroke:#cccc00
+  style N4_F fill:#ffffcc,stroke:#cccc00
+  style N4_B fill:#ffffcc,stroke:#cccc00
 ```
 
 ## Kernel Tuning

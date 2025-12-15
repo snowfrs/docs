@@ -5,17 +5,17 @@ title: "Nfs4 acl"
 
 * 1 Abstract
 * 2 package
-  + 2.1 ACE Type
-  + 2.2 ACE Flags
+ + 2.1 ACE Type
+ + 2.2 ACE Flags
 * 3 ACE Principal
 * 4 ACE Permissions
 * 5 Using NFSv4 ACL
-  + 5.1 nfs4\_editfacl
-  + 5.2 nfs4\_getfacl
-  + 5.3 nfs4\_setfacl
-    - 5.3.1 commands
-    - 5.3.2 Options
-  + 5.4 Use cases
+ + 5.1 nfs4\_editfacl
+ + 5.2 nfs4\_getfacl
+ + 5.3 nfs4\_setfacl
+  - 5.3.1 commands
+  - 5.3.2 Options
+ + 5.4 Use cases
 
 ### Abstract
 
@@ -102,23 +102,23 @@ Aliases such '`R`' '`W`' '`X`' can be used as permissions. These work simlarly t
 
 Summary
 
-|  |  |
+| | |
 | --- | --- |
-| ACE Type |  |
+| ACE Type | |
 | A | A = Allow : it means Allow accesses. |
 | D | D = Deny : it means Deny accesses. |
-| ACE Flags |  |
+| ACE Flags | |
 | d | Directory-Inherit : New sub-directory inherits the same ACE. |
 | f | File-Inherit : New file inherits the same ACE but not inherit inheritance-flag. |
 | n | No-Propogate-Inherit : New sub-directory inherits the same ACE but not inherit inheritance-flag. |
 | i | Inherit-Only : New file/sub-directory inherits the same ACE but this directory does not have ACE. |
-| ACE Principal |  |
+| ACE Principal | |
 | (USER)@(NFSDomain) | Common User For [NFSDomain], it is just the Domain name that is specified for [Domain] value in [idmapd.conf]. |
 | (GROUP)@(NFSDomain) | Common Group For group, Specify [g] flag like this ⇒ A:g:GROUP@NFSDomain:rxtncy |
 | OWNER@ | Special Principal : Owner |
 | GROUP@ | Special Principal : Group |
 | EVERYONE@ | Special Principal : Everyone |
-| ACE Permissions |  |
+| ACE Permissions | |
 | r | Read data of files / List files in directory |
 | w | Write data to files / Create new files in directory |
 | a | Append data to files / Create new sub-directory |
@@ -174,11 +174,11 @@ Options can be used in combination or ommitted entirely. A list of options is sh
 #### Use cases
 
 ```
-nfs4_setfacl -Ra A::user1@domain:RWX  /path
+nfs4_setfacl -Ra A::user1@domain:RWX /path
 ```
 
 ```
-nfs4_setfacl -a A:fdg:group1@domain:RWX  /path
+nfs4_setfacl -a A:fdg:group1@domain:RWX /path
 ```
 
 reference:

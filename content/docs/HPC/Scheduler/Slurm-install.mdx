@@ -7,12 +7,12 @@ tags: slurm
 # Slurm
 ## 系统架构
 - Slurm Master Head (**`slurmctld`**): 
-  - test-slurm-master
+ - test-slurm-master
 - Slurm Compute Node (**`slurmd`**): 
-  - test-slurm-node1 
-  - test-slurm-node2
+ - test-slurm-node1 
+ - test-slurm-node2
 - Slurm DataBase Daemon (**`slurmdbd`**)
-  
+ 
 ## 基本系统配置
 ```bash
  sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config
@@ -33,11 +33,11 @@ chronyc sources
 ```
 ## 配置LDAP
 Slurm Cluster 中所有服务需要保持 `uid` 和 `gid` 一致.
-方法有两种：
+方法有两种: 
 
 1. Cluster中所有服务器创建本地user/group 保持uid和gid一致
 2. Cluster中所有服务器从中央认证服务器LDAP获取用户id信息
-   
+  
  推荐使用[389ds][389ds]作为LDAP认证服务器.
  
  389ds及sssd相关配置这里不作讨论.
@@ -153,8 +153,8 @@ touch /var/log/slurmdbd.log
 chown slurm: /var/log/slurmdbd.log
 ```
 ## 测试运行 slurmdbd
-    
-    slurmdbd -D -vvv
+  
+  slurmdbd -D -vvv
 
 ```bash
 # on master head node
@@ -165,7 +165,7 @@ systemctl enable --now slurmdbd
 
 在compute node上, 可以使用以下命令查看硬件配置
 
-    slurmd -C
+  slurmd -C
 
 官方slrum[配置生成器][configurator]
 
@@ -349,7 +349,7 @@ Reconfiguration of slurm.conf and distribute to all compute and login nodes.
 - **`sattach`**: attach to a running job step
 - **`sbatch`**: submit a batch script to Slrum
 - **`scancel`**: cancel a job or job step or signal a running job or job step
-- **`scontrol`**: display (and modify when permitted) the status of Slurm entities.  Entities include:  jobs, job steps, nodes, partitions, reservations, etc.
+- **`scontrol`**: display (and modify when permitted) the status of Slurm entities. Entities include: jobs, job steps, nodes, partitions, reservations, etc.
 - **`sdiag`**: display scheduling statistics and timing parameters
 - **`sinfo`**: display node partition (queue) summary information
 - **`sprio`**: display the factors that comprise a job's scheduling priority
@@ -362,7 +362,7 @@ Reconfiguration of slurm.conf and distribute to all compute and login nodes.
 - **`smap`**: graphically view information about Slurm jobs, partitions, and set configurations parameters
 - **`sstat`**
 
-  sinfo -N -l
+ sinfo -N -l
 
 # Job States
 The basic job states are these:
@@ -390,7 +390,7 @@ For the complete list, see the "JOB STATE CODES" section under the [`squeue man 
 
 - https://support.ceci-hpc.be/doc/_contents/QuickStart/SubmittingJobs/SlurmTutorial.html
 
--  http://www.top500.org/  (Top500 supercomputers)
+- http://www.top500.org/ (Top500 supercomputers)
 
 [389ds]: https://www.port389.org/
 

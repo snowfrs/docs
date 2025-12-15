@@ -13,7 +13,7 @@ tags: PXE SLES
 + linuxrc 启动并做一些附加的硬件检测
 + yast2 启动并开始安装
 
-使用第三方网卡的情况下, 网卡必须在最开始就能工作。我们需要 DUD (Driver Update Disk). DUD 可以在启动和安装过程中为某些需要的硬件加载驱动.
+使用第三方网卡的情况下, 网卡必须在最开始就能工作. 我们需要 DUD (Driver Update Disk). DUD 可以在启动和安装过程中为某些需要的硬件加载驱动.
 
 ## Update Media 种类
 + **Driver Update**: 通过 Driver Update, 可以在创建发行版时不支持的硬件上安装 SUSE. 并且以后可以引导已安装的操作系统, 无需在安装系统后手动安装设备驱动程序.
@@ -50,21 +50,21 @@ sdt dud create -u /root/update/ -b /media/ ./mydud
 # tree ./mydud
 mydud
 └── linux
-    └── suse
-        └── x86_64-sles12
-            ├── dud.config
-            ├── install
-            │   ├── rpms
-            │   │   ├── ngbe-1.0.3-1.x86_64.rpm
-            │   │   └── ngbe-kmp-default-1.0.3_k4.12.14_120-1.x86_64.rpm
-            │   ├── update.post2
-            │   ├── update.post2.d
-            │   │   └── remove_dud_repo
-            │   ├── update.pre
-            │   └── update.pre.d
-            │       └── create_add_on_products
-            └── modules
-                └── ngbe.ko
+  └── suse
+    └── x86_64-sles12
+      ├── dud.config
+      ├── install
+      │  ├── rpms
+      │  │  ├── ngbe-1.0.3-1.x86_64.rpm
+      │  │  └── ngbe-kmp-default-1.0.3_k4.12.14_120-1.x86_64.rpm
+      │  ├── update.post2
+      │  ├── update.post2.d
+      │  │  └── remove_dud_repo
+      │  ├── update.pre
+      │  └── update.pre.d
+      │    └── create_add_on_products
+      └── modules
+        └── ngbe.ko
 ```
 
 ## 制作initrd
@@ -77,11 +77,11 @@ sdt initrd update -u ./mydud/ -b /media/ -m network:ngbe,INITRD -m network:txgbe
 
 -m MODSPEC, –modspec MODSPEC
 
-              Additional module to add to module.config such that it’s added to initrd and linuxrc considers it while probing hardware.  MODSPEC is of the following format:
+       Additional module to add to module.config such that it's added to initrd and linuxrc considers it while probing hardware. MODSPEC is of the following format:
 
-              **SECTION:MODULE,DESCR,PARAM,PRE_INST,POST_INST,INITRD,AUTO**
+       **SECTION:MODULE,DESCR,PARAM,PRE_INST,POST_INST,INITRD,AUTO**
 
-              If the kernel doesn’t contain any new driver which should be loaded for installation compared to the kernel contained in the base ISO, this option isn’t necessary.
+       If the kernel doesn't contain any new driver which should be loaded for installation compared to the kernel contained in the base ISO, this option isn't necessary.
 
 SECTION 可选的有
 
@@ -107,13 +107,13 @@ sdt initrd compare /media/boot/x86_64/loader/initrd newinitrd
 ```txt
 ------
 - /media/boot/x86_64/loader/initrd://lib/modules/&lt;kernel&gt;lib/modules/initrd/ngbe.ko: NOT FOUND
-+                      newinitrd.5://lib/modules/&lt;kernel&gt;lib/modules/initrd/ngbe.ko: MODE: N/A UID: None GID: None hash: N/A
++           newinitrd.5://lib/modules/&lt;kernel&gt;lib/modules/initrd/ngbe.ko: MODE: N/A UID: None GID: None hash: N/A
 ------
 - /media/boot/x86_64/loader/initrd://linux/suse/x86_64-sles12/install/rpms/ngbe-1.0.3-1.x86_64.rpm: NOT FOUND
-+                      newinitrd.5://linux/suse/x86_64-sles12/install/rpms/ngbe-1.0.3-1.x86_64.rpm: MODE: -rw-r--r-- UID: 0 GID: 0 hash: 3fa556f992dcb44cee9e9d99ea993523b619915f
++           newinitrd.5://linux/suse/x86_64-sles12/install/rpms/ngbe-1.0.3-1.x86_64.rpm: MODE: -rw-r--r-- UID: 0 GID: 0 hash: 3fa556f992dcb44cee9e9d99ea993523b619915f
 ------
 - /media/boot/x86_64/loader/initrd://linux/suse/x86_64-sles12/install/rpms/ngbe-kmp-default-1.0.3_k4.12.14_120-1.x86_64.rpm: NOT FOUND
-+                      newinitrd.5://linux/suse/x86_64-sles12/install/rpms/ngbe-kmp-default-1.0.3_k4.12.14_120-1.x86_64.rpm: MODE: -rw-r--r-- UID: 0 GID: 0 hash: f2f10db6c3e78d7949d997c1ba6553977043c71b 
++           newinitrd.5://linux/suse/x86_64-sles12/install/rpms/ngbe-kmp-default-1.0.3_k4.12.14_120-1.x86_64.rpm: MODE: -rw-r--r-- UID: 0 GID: 0 hash: f2f10db6c3e78d7949d997c1ba6553977043c71b 
 ------
 ```
 解压newinitrd 到一个空目录 test
@@ -154,9 +154,9 @@ test
 
 整个过程大概是这样的:
 
-PXE网络启动时获取kernel和initrd(修改过包含第三方网卡驱动 name.ko ), linuxrc检测DUD并加载网卡驱动 name.ko, yast2启动并安装操作系统，安装DUD源里的rpm包, 安装完成.
+PXE网络启动时获取kernel和initrd(修改过包含第三方网卡驱动 name.ko), linuxrc检测DUD并加载网卡驱动 name.ko, yast2启动并安装操作系统, 安装DUD源里的rpm包, 安装完成.
 
-安装DUD源里的rpm包时，并非所有 **test/linux/suse/x86_64-sles12/install/rpms** 下存在的rpm包都会被安装，只有被kernel和linuxrc检测到的硬件对应的rpm包会被安装.
+安装DUD源里的rpm包时, 并非所有 **test/linux/suse/x86_64-sles12/install/rpms** 下存在的rpm包都会被安装, 只有被kernel和linuxrc检测到的硬件对应的rpm包会被安装.
 
 
 Reference:

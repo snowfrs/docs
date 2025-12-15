@@ -20,11 +20,11 @@ vserver is-unix-nt-acl-enabled
 parisi     true
 ```
 
-When using this option, the Windows clients will show a security tab entry that approximates the UNIX mode bits into ACLs. It will show the owner, group and “other” permissions. It will also attempt to convert the UNIX UID into a Windows-friendly SID so the client can display it. The Windows user will look like this:
+When using this option, the Windows clients will show a security tab entry that approximates the UNIX mode bits into ACLs. It will show the owner, group and "other" permissions. It will also attempt to convert the UNIX UID into a Windows-friendly SID so the client can display it. The Windows user will look like this:
 
 ![Unix-windows-acl1](/assets/images/Unix-windows-acl1.png)
 
-That user is a “fake SID” that is tied to the cluster’s Storage Virtual Machine. It translates to a SID that ONTAP creates based on the numeric ID of the user or group. The Windows client uses that SID to translate into a name.
+That user is a "fake SID" that is tied to the cluster's Storage Virtual Machine. It translates to a SID that ONTAP creates based on the numeric ID of the user or group. The Windows client uses that SID to translate into a name.
 
 For example:
 
@@ -48,11 +48,11 @@ cluster::*> diag secd authentication translate -node node1 -vserver SVM -unix-gr
 1002
 ```
 
-From Windows, we can see the level of access for the users from the “Change Permissions” window:
+From Windows, we can see the level of access for the users from the "Change Permissions" window:
 
 ![Unix-windows-acl2](/assets/images/Unix-windows-acl2.png)
 
-On the NFS side, mode bits have no clue how to translate NTFS permission concepts like extended attributes. Instead, the clients only know Read, Write, Execute, Traverse, etc. It’s possible to show an approximation of those mode bits in UNIX for NTFS security style volumes with this option:
+On the NFS side, mode bits have no clue how to translate NTFS permission concepts like extended attributes. Instead, the clients only know Read, Write, Execute, Traverse, etc. It's possible to show an approximation of those mode bits in UNIX for NTFS security style volumes with this option:
 
 ```bash
 cluster::*> nfs server show -fields ntacl-display-permissive-perms
@@ -61,7 +61,7 @@ vserver ntacl-display-permissive-perms
 parisi     disabled
 ```
 
-When that option is disabled, NTFS ACLs show up as closely to UNIX permissions as they can. In the following example, I have an NTFS security style folder that allowed only the owner to have full control, but allows read to “Everyone.” With the option mentioned, we see that reflected as “755” in permissions:
+When that option is disabled, NTFS ACLs show up as closely to UNIX permissions as they can. In the following example, I have an NTFS security style folder that allowed only the owner to have full control, but allows read to "Everyone." With the option mentioned, we see that reflected as "755" in permissions:
 
 ![Unix-windows-acl3](/assets/images/Unix-windows-acl3.png)
 
@@ -101,14 +101,14 @@ Expanded Dos Attributes: -
  ALLOW-Everyone-0x1200a9-CI
 ```
 
-However, as you can see, those ACLs don’t make a ton of sense unless you can read hexadecimal. (If you can, more power to ya.)
+However, as you can see, those ACLs don't make a ton of sense unless you can read hexadecimal. (If you can, more power to ya.)
 
-Let’s break down the ACLs a bit to understand them better.
+Let's break down the ACLs a bit to understand them better.
 
-* First, DACL means “Discretionary Access Control List.” From MSDN:
+* First, DACL means "Discretionary Access Control List." From MSDN:
 * An access control list that is controlled by the owner of an object and that specifies the access particular users or groups can have to the object.
-* In the DACLs above, we can see whether the DACL is an ALLOW or a DENY ACL. (Deny ACLs override ALLOWS.) We can also see the user or group being allowed access. After that, the information isn’t really in a “human readable” format.
-* The CI, IO, OI values are “ACE strings” and tell us whether the ACL was inherited by the owner or container. MSDN has a handy list of those here: ACE Strings
+* In the DACLs above, we can see whether the DACL is an ALLOW or a DENY ACL. (Deny ACLs override ALLOWS.) We can also see the user or group being allowed access. After that, the information isn't really in a "human readable" format.
+* The CI, IO, OI values are "ACE strings" and tell us whether the ACL was inherited by the owner or container. MSDN has a handy list of those here: ACE Strings
 
 The rest of the ACLs are hexadecimal values and translate into what the actual permissions that were set were.
 
@@ -337,11 +337,11 @@ However, with a ton of ACLs on an object, this could get a bit overwhelming. So,
 
 About the ACCESS\_MASK structure
 
-In the above ACL, we see 0x1f01ff for Everyone. That’s Full Control. In addition, 0x10000000 is considered GENERIC\_ALL.
+In the above ACL, we see 0x1f01ff for Everyone. That's Full Control. In addition, 0x10000000 is considered GENERIC\_ALL.
 
 ## Applying ACLs to objects from the storage
 
-In addition to displaying ACLs, **vserver security file-directory** commands can be used to apply SACLs and DACLs to objects from the cluster’s CLI.
+In addition to displaying ACLs, **vserver security file-directory** commands can be used to apply SACLs and DACLs to objects from the cluster's CLI.
 
 The general steps are covered in this KB article:
 
@@ -349,7 +349,7 @@ https://kb.netapp.com/support/s/article/how-to-modify-permissions-on-files-and-f
 
 The following shows an example of doing this on a single qtree in ONTAP.
 
-This is a qtree called “mixed.” It has an effective security style of UNIX, unix permissions 770 and root:sharedgroup as the owners.
+This is a qtree called "mixed." It has an effective security style of UNIX, unix permissions 770 and root:sharedgroup as the owners.
 
 ```bash
 cluster::*> vserver security file-directory show -vserver DEMO -path /shared/mixed
@@ -394,15 +394,15 @@ NTFS Security Descriptor Name: sdname
             Raw Control Flags: -
 ```
 
-Next, create one or more DACLs or SACLs. In this case, I’ve created 2 DACLs. This command allows the following:
+Next, create one or more DACLs or SACLs. In this case, I've created 2 DACLs. This command allows the following:
 
 ```bash
-cluster::*> vserver security file-directory ntfs dacl add ?    -vserver                                                   Vserver   [-ntfs-sd]                                             NTFS Security Descriptor Name   [-access-type] {deny|allow}                                               Allow or Deny   [-account]                                                   Account Name or SID  { [[-rights] {no-access|full-control|modify|read-and-execute|read|write}]  DACL ACE's Access Rights  | [ -advanced-rights , ... ]                        DACL ACE's Advanced Access Rights  | [ -rights-raw  ] }                                          *DACL ACE's Raw Access Rights  [ -apply-to {this-folder|sub-folders|files}, ... ]                         Apply DACL Entry
+cluster::*> vserver security file-directory ntfs dacl add ?    -vserver                                                   Vserver   [-ntfs-sd]                                             NTFS Security Descriptor Name   [-access-type] {deny|allow}                                               Allow or Deny   [-account]                                                   Account Name or SID  { [[-rights] {no-access|full-control|modify|read-and-execute|read|write}]  DACL ACE's Access Rights  | [ -advanced-rights , ... ]                        DACL ACE's Advanced Access Rights  | [ -rights-raw ] }                                          *DACL ACE's Raw Access Rights  [ -apply-to {this-folder|sub-folders|files}, ... ]                         Apply DACL Entry
 ```
 
-The users I’m adding are ntfsonly and student1. Ntfsonly gets full control; student1 gets readonly access. I’m applying the DACL to all objects (this-folder, sub-folders, files).
+The users I'm adding are ntfsonly and student1. Ntfsonly gets full control; student1 gets readonly access. I'm applying the DACL to all objects (this-folder, sub-folders, files).
 
-NOTE: If you don’t apply the DACL to the top level folder, you run the risk of denying access to everyone because the owner doesn’t get set properly.
+NOTE: If you don't apply the DACL to the top level folder, you run the risk of denying access to everyone because the owner doesn't get set properly.
 
 ```bash
 ontap9-tme-8040::*> vserver security file-directory ntfs dacl add -vserver DEMO -ntfs-sd sdname -access-type allow -account ntfsonly -apply-to this-folder,sub-folders,files -advanced-rights full-control
@@ -478,7 +478,7 @@ NTFS Security Descriptor Name: sdname
 6 entries were displayed.
 ```
 
-Now that the policy is created and I have the desired DACLs and SACLs, I can apply them to whatever paths I want. In the above, I’ve set the DACLs to only apply to the specific folder. To apply the policy, create a new task and define the path you want to re-ACL. The task will “propogate” by default. You can also specify “replace” if desired.
+Now that the policy is created and I have the desired DACLs and SACLs, I can apply them to whatever paths I want. In the above, I've set the DACLs to only apply to the specific folder. To apply the policy, create a new task and define the path you want to re-ACL. The task will "propogate" by default. You can also specify "replace" if desired.
 
 ```bash
 cluster::*> file-directory policy task add -vserver DEMO -policy-name Policy1 -path /shared/mixed -ntfs-sd sdname

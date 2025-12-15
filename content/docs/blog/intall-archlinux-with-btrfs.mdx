@@ -3,18 +3,18 @@ title: 使用 btrfs 文件系統安裝 archlinux
 tags: btrfs archlinux
 ---
 
-距离上次安装archlinux已经过去很久。最近想尝试下btrfs，于是有了这篇。
+距离上次安装archlinux已经过去很久. 最近想尝试下btrfs, 于是有了这篇. 
 
 ## 备份当前系统数据
-备份方式太多了。我只备份了 dotfiles, 当前系统安装的包列表，以及一些重要数据。
+备份方式太多了. 我只备份了 dotfiles, 当前系统安装的包列表, 以及一些重要数据. 
 
 ## 准备分区
 我的磁盘分区是这样的
 
 - /dev/nvme0n1p1	EFI分区
-- /dev/nvme0n1p3	btrfs分区，用来安装新的系统
+- /dev/nvme0n1p3	btrfs分区, 用来安装新的系统
 
-EFI分区已经有数据，不再格式化。
+EFI分区已经有数据, 不再格式化. 
 
 格式化
 ```
@@ -93,7 +93,7 @@ hostnamectl set-hostname YOUR-HOSTNAME
 ```
 vim /etc/mkinitcpio.conf
 添加 btrfs 到 MODULES=(...)行
-找到 HOOKS=(...)行，更换fsck为btrfs
+找到 HOOKS=(...)行, 更换fsck为btrfs
 最终你看到的/etc/mkinitcpio.conf文件格式为
 
 ...
@@ -107,7 +107,7 @@ HOOKS=(base udev autodetect modconf block filesystems keyboard btrfs)
 ```
 mkinitcpio -p linux
 ```
-## 用户，密码，引导项，DM, WM
+## 用户, 密码, 引导项, DM, WM
 ```
 passwd root
 useradd -m -u UID -G wheel -s /bin/bash USERNAME
@@ -131,7 +131,7 @@ umount /mnt
 reboot
 ```
 ## application
-自己配置，我一般根据备份的软件列表安装
+自己配置, 我一般根据备份的软件列表安装
 
 ## AUR, archlinuxcn
 ```
@@ -141,7 +141,7 @@ Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxcn/$arch
 ```
 
 ## snapshot
-btrfs有snapshot功能，snapper可以自动帮你自动做snapshot
+btrfs有snapshot功能, snapper可以自动帮你自动做snapshot
 ```
 pacman -S snapper
 snapper -c root create-config /

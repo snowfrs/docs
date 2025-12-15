@@ -9,7 +9,7 @@ title: "E-mail"
 IMAP + SMTP + CalDAV + CardDAV
 Cyrus IMAP + JMAP + EAS Gateway(z-push.org or SOGo), we choose SOGo.
 
-You’ll be setting up a groupware mail stack with:
+You'll be setting up a groupware mail stack with:
 
 Cyrus IMAP — handles IMAP, LMTP, sieve filters, and JMAP.
 
@@ -17,7 +17,7 @@ Postfix — SMTP in/out.
 
 nginx — TLS reverse proxy for HTTPS and JMAP.
 
-Let’s Encrypt / Certbot — SSL certificates.
+Let's Encrypt / Certbot — SSL certificates.
 
 DNS — MX, SPF, DKIM, DMARC records.
  - MX, Mail Exchange
@@ -52,389 +52,389 @@ Feature list:
 
 
 
-Let’s go step by step for Cyrus + Postfix + SOGo (EAS + CalDAV + CardDAV + Webmail) — with a visual architecture summary at the end.
+Let's go step by step for Cyrus + Postfix + SOGo (EAS + CalDAV + CardDAV + Webmail) — with a visual architecture summary at the end.
 
 🧱 Architecture Overview
 ```
 📱 Mobile/Outlook Clients
-        │
-        │ HTTPS (ActiveSync, JMAP, Web)
-        ▼
-     ┌───────────────┐
-     │     Nginx     │  ← TLS termination + proxy
-     └───────────────┘
-             │
-             ▼
-     ┌───────────────┐
-     │     SOGo      │  ← Webmail, CalDAV, CardDAV, EAS gateway
-     └───────────────┘
-             │
-   ┌────────────────────┐
-   │ Cyrus IMAP (Mail, JMAP, Cal/CardDAV) │
-   └────────────────────┘
-             │
-             ▼
-     ┌───────────────┐
-     │   Postfix     │  ← SMTP in/out, DKIM, spam filters
-     └───────────────┘
+    │
+    │ HTTPS (ActiveSync, JMAP, Web)
+    ▼
+   ┌───────────────┐
+   │   Nginx   │ ← TLS termination + proxy
+   └───────────────┘
+       │
+       ▼
+   ┌───────────────┐
+   │   SOGo   │ ← Webmail, CalDAV, CardDAV, EAS gateway
+   └───────────────┘
+       │
+  ┌────────────────────┐
+  │ Cyrus IMAP (Mail, JMAP, Cal/CardDAV) │
+  └────────────────────┘
+       │
+       ▼
+   ┌───────────────┐
+   │  Postfix   │ ← SMTP in/out, DKIM, spam filters
+   └───────────────┘
 
 ```
 
 ```mermaid
 graph TD
-    Client_Mail["邮件客户端 (Outlook/Apple)"] --> |SMTP 587/465| Postfix
-    Client_Web[Web浏览器] -->|HTTPS 443| Nginx
-    Client_Mobile["手机 (iOS/Android)"] -->|ActiveSync| Nginx
+  Client_Mail["邮件客户端 (Outlook/Apple)"] --> |SMTP 587/465| Postfix
+  Client_Web[Web浏览器] -->|HTTPS 443| Nginx
+  Client_Mobile["手机 (iOS/Android)"] -->|ActiveSync| Nginx
 
-    subgraph "Mail Server Stack"
-        Nginx -->|Proxy /SOGo| SOGo
-        Nginx -->|Proxy /jmap| Cyrus((Cyrus IMAP))
-        
-        Postfix -->|LMTP Socket| Cyrus
-        Postfix -->|SQL Auth/Lookup| DB[(PostgreSQL)]
-        
-        Cyrus -->|Read/Write Mail| Storage[Mail Storage]
-        Cyrus -->|SQL Auth| DB
-        
-        SOGo -->|IMAP/SMTP| Local_Loop[Localhost]
-        SOGo -->|SQL Contacts/Cal| DB
-        
-        Local_Loop --> Postfix
-        Local_Loop --> Cyrus
-    end
+  subgraph "Mail Server Stack"
+    Nginx -->|Proxy /SOGo| SOGo
+    Nginx -->|Proxy /jmap| Cyrus((Cyrus IMAP))
+    
+    Postfix -->|LMTP Socket| Cyrus
+    Postfix -->|SQL Auth/Lookup| DB[(PostgreSQL)]
+    
+    Cyrus -->|Read/Write Mail| Storage[Mail Storage]
+    Cyrus -->|SQL Auth| DB
+    
+    SOGo -->|IMAP/SMTP| Local_Loop[Localhost]
+    SOGo -->|SQL Contacts/Cal| DB
+    
+    Local_Loop --> Postfix
+    Local_Loop --> Cyrus
+  end
 ```
 
 更新后的架构
 ```mermaid
 graph TD
-    %% --- External World ---
-    subgraph "Public Internet"
-        External_Senders["外部发件人<br />(Gmail/Outlook)"]
-        Roaming_Users["移动/桌面用户<br />(手机/PC)"]
-    end
+  %% --- External World ---
+  subgraph "Public Internet"
+    External_Senders["外部发件人<br />(Gmail/Outlook)"]
+    Roaming_Users["移动/桌面用户<br />(手机/PC)"]
+  end
 
-    %% --- Cloud Infrastructure ---
-    subgraph "Cloud VPS (Backup MX)"
-        PMG["Proxmox Mail Gateway<br />(MX Priority 20)"]
-        note_pmg[功能: 杀毒/反垃圾/维护期缓存队列]
-    end
+  %% --- Cloud Infrastructure ---
+  subgraph "Cloud VPS (Backup MX)"
+    PMG["Proxmox Mail Gateway<br />(MX Priority 20)"]
+    note_pmg[功能: 杀毒/反垃圾/维护期缓存队列]
+  end
 
-    %% --- Local IDC ---
-    subgraph "Local IDC (Trusted Network)"
-        
-        %% Entry Points
-        Firewall[防火墙/路由映射]
-        Nginx["Nginx Reverse Proxy<br />(SSL Offloading)"]
-        
-        %% Mail Core
-        Postfix["Postfix MTA<br />(SMTP/Routing/BCC)"]
-        Cyrus["Cyrus IMAP<br />(Storage/JMAP/Sieve)"]
-        
-        %% Groupware & DB
-        SOGo["SOGo Groupware<br />(Webmail/EAS/CalDAV)"]
-        Postgres[(PostgreSQL)]
-        
-        %% Identity
-        AD["Active Directory<br />(User Auth/Aliases)"]
-        
-        %% Automation
-        Welcome_Script["Python Welcome Script<br />(Crontab)"]
-        
-        %% Storage Logic
-        Shadow_Mailbox["Shadow Mailbox<br />(Audit/Archive)"]
-        User_Mailbox[User Mailboxes]
-    end
+  %% --- Local IDC ---
+  subgraph "Local IDC (Trusted Network)"
+    
+    %% Entry Points
+    Firewall[防火墙/路由映射]
+    Nginx["Nginx Reverse Proxy<br />(SSL Offloading)"]
+    
+    %% Mail Core
+    Postfix["Postfix MTA<br />(SMTP/Routing/BCC)"]
+    Cyrus["Cyrus IMAP<br />(Storage/JMAP/Sieve)"]
+    
+    %% Groupware & DB
+    SOGo["SOGo Groupware<br />(Webmail/EAS/CalDAV)"]
+    Postgres[(PostgreSQL)]
+    
+    %% Identity
+    AD["Active Directory<br />(User Auth/Aliases)"]
+    
+    %% Automation
+    Welcome_Script["Python Welcome Script<br />(Crontab)"]
+    
+    %% Storage Logic
+    Shadow_Mailbox["Shadow Mailbox<br />(Audit/Archive)"]
+    User_Mailbox[User Mailboxes]
+  end
 
-    %% --- Connections: Incoming Mail Flow ---
-    External_Senders -- "1. 正常投递 (MX 10)" --> Firewall
-    External_Senders -- "2. IDC断网时 (MX 20)" --> PMG
-    PMG -.-> |"3. 维护结束自动回传 (SMTP)"| Firewall
-    
-    Firewall -- "Port 25 (SMTP)" --> Postfix
-    Firewall -- "Port 443 (HTTPS)" --> Nginx
-    
-    %% --- Connections: User Access ---
-    Roaming_Users -- "HTTPS (ActiveSync/JMAP)" --> Nginx
-    Roaming_Users -- "IMAP/SMTP (TLS)" --> Firewall
+  %% --- Connections: Incoming Mail Flow ---
+  External_Senders -- "1. 正常投递 (MX 10)" --> Firewall
+  External_Senders -- "2. IDC断网时 (MX 20)" --> PMG
+  PMG -.-> |"3. 维护结束自动回传 (SMTP)"| Firewall
+  
+  Firewall -- "Port 25 (SMTP)" --> Postfix
+  Firewall -- "Port 443 (HTTPS)" --> Nginx
+  
+  %% --- Connections: User Access ---
+  Roaming_Users -- "HTTPS (ActiveSync/JMAP)" --> Nginx
+  Roaming_Users -- "IMAP/SMTP (TLS)" --> Firewall
 
-    %% --- Connections: Internal Logic ---
-    Nginx -- "Proxy /SOGo" --> SOGo
-    Nginx -- "Proxy /jmap" --> Cyrus
-    
-    SOGo -- "IMAP/SMTP" --> Postfix
-    SOGo -- "Contacts/Cal Data" --> Postgres
-    
-    Postfix -- "LMTP (Socket)" --> Cyrus
-    Cyrus -- "Read/Write" --> User_Mailbox
+  %% --- Connections: Internal Logic ---
+  Nginx -- "Proxy /SOGo" --> SOGo
+  Nginx -- "Proxy /jmap" --> Cyrus
+  
+  SOGo -- "IMAP/SMTP" --> Postfix
+  SOGo -- "Contacts/Cal Data" --> Postgres
+  
+  Postfix -- "LMTP (Socket)" --> Cyrus
+  Cyrus -- "Read/Write" --> User_Mailbox
 
-    %% --- Connections: The Specific Requirements ---
-    
-    %% 1. Shadow Copy Logic
-    Postfix -- "Always BCC (Copy)" --> Cyrus
-    Cyrus -- "Deliver" --> Shadow_Mailbox
-    
-    %% 2. AD Integration (LDAP)
-    Postfix -.-> |"Query Aliases/Recipients"| AD
-    Cyrus -.-> |"SASL Auth (Password)"| AD
-    SOGo -.-> |"Auth & Global Address Book"| AD
-    
-    %% 3. Welcome Script Logic
-    Welcome_Script -.-> |"1. Query New Users"| AD
-    Welcome_Script -- "2. Send Email (SMTP)" --> Postfix
-    Postfix -- "3. Trigger Mailbox Creation" --> Cyrus
+  %% --- Connections: The Specific Requirements ---
+  
+  %% 1. Shadow Copy Logic
+  Postfix -- "Always BCC (Copy)" --> Cyrus
+  Cyrus -- "Deliver" --> Shadow_Mailbox
+  
+  %% 2. AD Integration (LDAP)
+  Postfix -.-> |"Query Aliases/Recipients"| AD
+  Cyrus -.-> |"SASL Auth (Password)"| AD
+  SOGo -.-> |"Auth & Global Address Book"| AD
+  
+  %% 3. Welcome Script Logic
+  Welcome_Script -.-> |"1. Query New Users"| AD
+  Welcome_Script -- "2. Send Email (SMTP)" --> Postfix
+  Postfix -- "3. Trigger Mailbox Creation" --> Cyrus
 ```
 
 再次更新架构
 ```mermaid
 graph TD
-    %% --- 样式定义 (Styling) ---
-    classDef public fill:#f4f4f4,stroke:#666,stroke-width:1px,color:#333;
-    classDef gateway fill:#ff9800,stroke:#e65100,stroke-width:3px,color:white,font-weight:bold;
-    classDef internal fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
-    classDef storage fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#333;
-    classDef firewall fill:#607d8b,stroke:#37474f,stroke-width:2px,color:white;
+  %% --- 样式定义 (Styling) ---
+  classDef public fill:#f4f4f4,stroke:#666,stroke-width:1px,color:#333;
+  classDef gateway fill:#ff9800,stroke:#e65100,stroke-width:3px,color:white,font-weight:bold;
+  classDef internal fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
+  classDef storage fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#333;
+  classDef firewall fill:#607d8b,stroke:#37474f,stroke-width:2px,color:white;
 
-    %% --- 外部区域 (External) ---
-    subgraph "Public Internet"
-        direction TB
-        Ext_Senders["External Senders<br />(Gmail / Outlook)"]:::public
-        Ext_Receivers["External Receivers"]:::public
-        Roaming_Users["Roaming Users<br />(Mobile / Laptop)"]:::public
-    end
+  %% --- 外部区域 (External) ---
+  subgraph "Public Internet"
+    direction TB
+    Ext_Senders["External Senders<br />(Gmail / Outlook)"]:::public
+    Ext_Receivers["External Receivers"]:::public
+    Roaming_Users["Roaming Users<br />(Mobile / Laptop)"]:::public
+  end
 
-    %% --- 本地 IDC 机房 (Local IDC) ---
-    subgraph "Local IDC Infrastructure"
-        direction TB
-        
-        %% 边界层
-        FW["🔥 Firewall / Router<br />(NAT Mapping)"]:::firewall
-
-        %% 核心网关层 (The Gatekeeper)
-        PMG{{"🛡️ Proxmox Mail Gateway<br />(Anti-Spam / Anti-Virus / Stats)"}}:::gateway
-
-        %% 内部信任网络 (Internal Trust Zone)
-        subgraph "Trusted Internal Network"
-            direction TB
-            
-            %% 接入层
-            Nginx["Nginx Proxy<br />(SSL Offloading / JMAP)"]:::internal
-            
-            %% 邮件核心 (MTA & Storage)
-            Postfix["Postfix MTA<br />(Internal Routing / Shadow Copy)"]:::internal
-            Cyrus["Cyrus IMAP<br />(Mail Storage / JMAP Core)"]:::storage
-            
-            %% 协作与数据
-            SOGo["SOGo Groupware<br />(Webmail / ActiveSync)"]:::internal
-            DB[("PostgreSQL<br />(Contacts / Calendars)")]:::storage
-            
-            %% 身份与自动化
-            AD["Active Directory (AD)<br />(User Auth / Groups)"]:::storage
-            Scripts["Python Automation<br />(Welcome Mail / Sync Rules)"]:::internal
-        end
-    end
-
-    %% ================= 连线逻辑 (Connections) =================
-
-    %% --- 1. 入站邮件流 (Inbound: Red Lines) ---
-    %% 外部 -> 防火墙 -> PMG -> Postfix -> Cyrus
-    Ext_Senders -- "1. SMTP (Port 25)" --> FW
-    FW -- "2. Port Forward (Int IP)" --> PMG
-    PMG -- "3. Clean Mail (Scan OK)" --> Postfix
-    Postfix -- "4. LMTP Delivery" --> Cyrus
-    linkStyle 0,1,2,3 stroke:#d32f2f,stroke-width:2px;
-
-    %% --- 2. 出站邮件流 (Outbound: Blue Lines) ---
-    %% 内部 -> Postfix -> PMG -> 防火墙 -> 外部
-    SOGo -- "1. User Send" --> Postfix
-    Scripts -- "1. Auto Send" --> Postfix
-    Postfix -- "2. Relay Host (All Traffic)" --> PMG
-    PMG -- "3. Signed & Scanned" --> FW
-    FW -- "4. Deliver to Internet" --> Ext_Receivers
-    linkStyle 4,5,6,7,8 stroke:#1976d2,stroke-width:2px;
-
-    %% --- 3. 用户访问流 (Access: Green Lines) ---
-    Roaming_Users -- "HTTPS (443)" --> FW
-    FW -- "Forward" --> Nginx
-    Nginx -- "Proxy /SOGo" --> SOGo
-    Nginx -- "Proxy /jmap" --> Cyrus
-    linkStyle 9,10,11,12 stroke:#388e3c,stroke-width:2px;
-
-    %% --- 4. 内部集成与审计 (Internal Logic: Dotted Lines) ---
-    %% 身份认证
-    PMG -.-> |"LDAP (Block Interns)"| AD
-    Postfix -.-> |"LDAP (Verify Users)"| AD
-    SOGo -.-> |"Auth"| AD
+  %% --- 本地 IDC 机房 (Local IDC) ---
+  subgraph "Local IDC Infrastructure"
+    direction TB
     
-    %% 审计归档 (Shadow Copy)
-    Postfix -.-> |"Always BCC (Hidden)"| Cyrus
-    
-    %% 数据库
-    SOGo --- DB
+    %% 边界层
+    FW["🔥 Firewall / Router<br />(NAT Mapping)"]:::firewall
+
+    %% 核心网关层 (The Gatekeeper)
+    PMG{{"🛡️ Proxmox Mail Gateway<br />(Anti-Spam / Anti-Virus / Stats)"}}:::gateway
+
+    %% 内部信任网络 (Internal Trust Zone)
+    subgraph "Trusted Internal Network"
+      direction TB
+      
+      %% 接入层
+      Nginx["Nginx Proxy<br />(SSL Offloading / JMAP)"]:::internal
+      
+      %% 邮件核心 (MTA & Storage)
+      Postfix["Postfix MTA<br />(Internal Routing / Shadow Copy)"]:::internal
+      Cyrus["Cyrus IMAP<br />(Mail Storage / JMAP Core)"]:::storage
+      
+      %% 协作与数据
+      SOGo["SOGo Groupware<br />(Webmail / ActiveSync)"]:::internal
+      DB[("PostgreSQL<br />(Contacts / Calendars)")]:::storage
+      
+      %% 身份与自动化
+      AD["Active Directory (AD)<br />(User Auth / Groups)"]:::storage
+      Scripts["Python Automation<br />(Welcome Mail / Sync Rules)"]:::internal
+    end
+  end
+
+  %% ================= 连线逻辑 (Connections) =================
+
+  %% --- 1. 入站邮件流 (Inbound: Red Lines) ---
+  %% 外部 -> 防火墙 -> PMG -> Postfix -> Cyrus
+  Ext_Senders -- "1. SMTP (Port 25)" --> FW
+  FW -- "2. Port Forward (Int IP)" --> PMG
+  PMG -- "3. Clean Mail (Scan OK)" --> Postfix
+  Postfix -- "4. LMTP Delivery" --> Cyrus
+  linkStyle 0,1,2,3 stroke:#d32f2f,stroke-width:2px;
+
+  %% --- 2. 出站邮件流 (Outbound: Blue Lines) ---
+  %% 内部 -> Postfix -> PMG -> 防火墙 -> 外部
+  SOGo -- "1. User Send" --> Postfix
+  Scripts -- "1. Auto Send" --> Postfix
+  Postfix -- "2. Relay Host (All Traffic)" --> PMG
+  PMG -- "3. Signed & Scanned" --> FW
+  FW -- "4. Deliver to Internet" --> Ext_Receivers
+  linkStyle 4,5,6,7,8 stroke:#1976d2,stroke-width:2px;
+
+  %% --- 3. 用户访问流 (Access: Green Lines) ---
+  Roaming_Users -- "HTTPS (443)" --> FW
+  FW -- "Forward" --> Nginx
+  Nginx -- "Proxy /SOGo" --> SOGo
+  Nginx -- "Proxy /jmap" --> Cyrus
+  linkStyle 9,10,11,12 stroke:#388e3c,stroke-width:2px;
+
+  %% --- 4. 内部集成与审计 (Internal Logic: Dotted Lines) ---
+  %% 身份认证
+  PMG -.-> |"LDAP (Block Interns)"| AD
+  Postfix -.-> |"LDAP (Verify Users)"| AD
+  SOGo -.-> |"Auth"| AD
+  
+  %% 审计归档 (Shadow Copy)
+  Postfix -.-> |"Always BCC (Hidden)"| Cyrus
+  
+  %% 数据库
+  SOGo --- DB
 ```
 
 要求通信加密
 ```mermaid
 graph TD
-    %% --- 样式定义 (Styling) ---
-    classDef public fill:#f4f4f4,stroke:#666,stroke-width:1px,color:#333;
-    classDef gateway fill:#ff9800,stroke:#e65100,stroke-width:3px,color:white,font-weight:bold;
-    classDef internal fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
-    classDef storage fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#333;
-    classDef firewall fill:#607d8b,stroke:#37474f,stroke-width:2px,color:white;
+  %% --- 样式定义 (Styling) ---
+  classDef public fill:#f4f4f4,stroke:#666,stroke-width:1px,color:#333;
+  classDef gateway fill:#ff9800,stroke:#e65100,stroke-width:3px,color:white,font-weight:bold;
+  classDef internal fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
+  classDef storage fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#333;
+  classDef firewall fill:#607d8b,stroke:#37474f,stroke-width:2px,color:white;
 
-    %% --- 外部区域 (External) ---
-    subgraph "Public Internet"
-        direction TB
-        Ext_Senders["External MTAs<br />(Gmail / Outlook)"]:::public
-        Ext_Receivers["External Receivers"]:::public
-        Roaming_Users["Roaming Users<br />(Mobile / Laptop)"]:::public
-    end
+  %% --- 外部区域 (External) ---
+  subgraph "Public Internet"
+    direction TB
+    Ext_Senders["External MTAs<br />(Gmail / Outlook)"]:::public
+    Ext_Receivers["External Receivers"]:::public
+    Roaming_Users["Roaming Users<br />(Mobile / Laptop)"]:::public
+  end
 
-    %% --- 本地 IDC 机房 (Local IDC) ---
-    subgraph "Local IDC Infrastructure"
-        direction TB
-        
-        %% 边界层
-        FW["🔥 Firewall / Router<br />(Port Mapping & SSL Termination)"]:::firewall
-
-        %% 核心网关层 (The Gatekeeper)
-        PMG{{"🛡️ Proxmox Mail Gateway<br />(Enforced TLS / Anti-Virus)"}}:::gateway
-
-        %% 内部信任网络 (Internal Trust Zone)
-        subgraph "Trusted Internal Network"
-            direction TB
-            
-            %% 接入层
-            Nginx["Nginx Proxy<br />(Port 443 Only)"]:::internal
-            
-            %% 邮件核心 (MTA & Storage)
-            Postfix["Postfix MTA<br />(TLS Enabled)"]:::internal
-            Cyrus["Cyrus IMAP<br />(IMAPS / JMAP)"]:::storage
-            
-            %% 协作与数据
-            SOGo["SOGo Groupware"]:::internal
-            DB[("PostgreSQL")]:::storage
-            AD["Active Directory"]:::storage
-            Scripts["Python Automation"]:::internal
-        end
-    end
-
-    %% ================= 连线逻辑 (Connections) =================
-
-    %% --- 1. 入站邮件流 (Inbound: Red Lines) ---
-    %% 外部 MTA -> 防火墙 -> PMG -> Postfix -> Cyrus
-    Ext_Senders -- "SMTP 25 (STARTTLS Encrypted)" --> FW
-    FW -- "Forward (TLS)" --> PMG
-    PMG -- "Internal Relay (TLS)" --> Postfix
-    Postfix -- "LMTP (Secure Socket)" --> Cyrus
-    linkStyle 0,1,2,3 stroke:#d32f2f,stroke-width:2px;
-
-    %% --- 2. 出站邮件流 (Outbound: Blue Lines) ---
-    %% 内部 -> Postfix -> PMG -> 防火墙 -> 外部
-    SOGo -- "Submission (587 TLS)" --> Postfix
-    Scripts -- "Submission (587 TLS)" --> Postfix
-    Postfix -- "Relay Host (TLS)" --> PMG
-    PMG -- "SMTP 25 (STARTTLS Enforced)" --> FW
-    FW -- "Deliver to Internet (TLS)" --> Ext_Receivers
-    linkStyle 4,5,6,7,8 stroke:#1976d2,stroke-width:2px;
-
-    %% --- 3. 客户端加密访问流 (Secure Client Access: Green Lines) ---
-    %% 漫游用户 -> 防火墙 (加密端口)
-    Roaming_Users -- "SMTPS (465) / Submission (587)" --> FW
-    Roaming_Users -- "IMAPS (993) / HTTPS (443)" --> FW
+  %% --- 本地 IDC 机房 (Local IDC) ---
+  subgraph "Local IDC Infrastructure"
+    direction TB
     
-    %% 防火墙分发
-    FW -- "Forward (443)" --> Nginx
-    FW -- "Forward (993/465)" --> Postfix
-    
-    %% 内部转发
-    Nginx -- "Proxy (TLS/Local)" --> SOGo
-    Nginx -- "Proxy (TLS/Local)" --> Cyrus
-    linkStyle 9,10,11,12,13,14 stroke:#388e3c,stroke-width:2px;
+    %% 边界层
+    FW["🔥 Firewall / Router<br />(Port Mapping & SSL Termination)"]:::firewall
 
-    %% --- 4. 内部集成 (Dotted Lines) ---
-    PMG -.-> |"LDAPS (Secure 636)"| AD
-    Postfix -.-> |"LDAPS (Secure 636)"| AD
-    SOGo -.-> |"LDAPS (Secure 636)"| AD
-    SOGo --- DB
+    %% 核心网关层 (The Gatekeeper)
+    PMG{{"🛡️ Proxmox Mail Gateway<br />(Enforced TLS / Anti-Virus)"}}:::gateway
+
+    %% 内部信任网络 (Internal Trust Zone)
+    subgraph "Trusted Internal Network"
+      direction TB
+      
+      %% 接入层
+      Nginx["Nginx Proxy<br />(Port 443 Only)"]:::internal
+      
+      %% 邮件核心 (MTA & Storage)
+      Postfix["Postfix MTA<br />(TLS Enabled)"]:::internal
+      Cyrus["Cyrus IMAP<br />(IMAPS / JMAP)"]:::storage
+      
+      %% 协作与数据
+      SOGo["SOGo Groupware"]:::internal
+      DB[("PostgreSQL")]:::storage
+      AD["Active Directory"]:::storage
+      Scripts["Python Automation"]:::internal
+    end
+  end
+
+  %% ================= 连线逻辑 (Connections) =================
+
+  %% --- 1. 入站邮件流 (Inbound: Red Lines) ---
+  %% 外部 MTA -> 防火墙 -> PMG -> Postfix -> Cyrus
+  Ext_Senders -- "SMTP 25 (STARTTLS Encrypted)" --> FW
+  FW -- "Forward (TLS)" --> PMG
+  PMG -- "Internal Relay (TLS)" --> Postfix
+  Postfix -- "LMTP (Secure Socket)" --> Cyrus
+  linkStyle 0,1,2,3 stroke:#d32f2f,stroke-width:2px;
+
+  %% --- 2. 出站邮件流 (Outbound: Blue Lines) ---
+  %% 内部 -> Postfix -> PMG -> 防火墙 -> 外部
+  SOGo -- "Submission (587 TLS)" --> Postfix
+  Scripts -- "Submission (587 TLS)" --> Postfix
+  Postfix -- "Relay Host (TLS)" --> PMG
+  PMG -- "SMTP 25 (STARTTLS Enforced)" --> FW
+  FW -- "Deliver to Internet (TLS)" --> Ext_Receivers
+  linkStyle 4,5,6,7,8 stroke:#1976d2,stroke-width:2px;
+
+  %% --- 3. 客户端加密访问流 (Secure Client Access: Green Lines) ---
+  %% 漫游用户 -> 防火墙 (加密端口)
+  Roaming_Users -- "SMTPS (465) / Submission (587)" --> FW
+  Roaming_Users -- "IMAPS (993) / HTTPS (443)" --> FW
+  
+  %% 防火墙分发
+  FW -- "Forward (443)" --> Nginx
+  FW -- "Forward (993/465)" --> Postfix
+  
+  %% 内部转发
+  Nginx -- "Proxy (TLS/Local)" --> SOGo
+  Nginx -- "Proxy (TLS/Local)" --> Cyrus
+  linkStyle 9,10,11,12,13,14 stroke:#388e3c,stroke-width:2px;
+
+  %% --- 4. 内部集成 (Dotted Lines) ---
+  PMG -.-> |"LDAPS (Secure 636)"| AD
+  Postfix -.-> |"LDAPS (Secure 636)"| AD
+  SOGo -.-> |"LDAPS (Secure 636)"| AD
+  SOGo --- DB
 ```
 
 更新
-1. MTA 流量 (Port 25): 强制经过 PMG 清洗。
+1. MTA 流量 (Port 25): 强制经过 PMG 清洗. 
 
-2. 客户端流量 (Port 465/587/993): 绕过 PMG，直达 Postfix/Cyrus 进行 SASL 认证（因为 PMG 通常不处理终端用户认证），但发出的邮件会回流给 PMG 签名。
+2. 客户端流量 (Port 465/587/993): 绕过 PMG, 直达 Postfix/Cyrus 进行 SASL 认证 (因为 PMG 通常不处理终端用户认证) , 但发出的邮件会回流给 PMG 签名. 
 
-3. 全链路加密: 明确标注了 STARTTLS, SMTPS, IMAPS, LDAPS。
+3. 全链路加密: 明确标注了 STARTTLS, SMTPS, IMAPS, LDAPS. 
 
 ```mermaid
 flowchart TD
-    %% ================= 样式定义 (Styling) =================
-    classDef external fill:#f8f9fa,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5;
-    classDef edge fill:#fff3e0,stroke:#e65100,stroke-width:2px;
-    classDef secure fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
-    classDef storage fill:#eceff1,stroke:#455a64,stroke-width:2px;
+  %% ================= 样式定义 (Styling) =================
+  classDef external fill:#f8f9fa,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5;
+  classDef edge fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+  classDef secure fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
+  classDef storage fill:#eceff1,stroke:#455a64,stroke-width:2px;
+  
+  %% ================= 外部世界 (Internet) =================
+  subgraph Internet ["☁️ Public Internet (Untrusted)"]
+    direction TB
+    External_MTA("🌍 External MTAs<br />(Gmail/Outlook)"):::external
+    Roaming_Client("📱 Roaming Clients<br />(Outlook/iPhone)"):::external
+  end
+
+  %% ================= 边界防护层 (Edge / DMZ) =================
+  subgraph Edge_Layer ["🔒 Edge Security Zone (DMZ)"]
+    direction TB
+    Firewall("🔥 Firewall / NAT<br />(Ports: 25, 443, 465, 587, 993)"):::edge
+    PMG("🛡️ Proxmox Mail Gateway<br />(MTA Traffic Filter)"):::edge
+  end
+
+  %% ================= 内部核心层 (Internal) =================
+  subgraph Internal_LAN ["🏢 Trusted Internal LAN"]
+    direction TB
     
-    %% ================= 外部世界 (Internet) =================
-    subgraph Internet ["☁️ Public Internet (Untrusted)"]
-        direction TB
-        External_MTA("🌍 External MTAs<br />(Gmail/Outlook)"):::external
-        Roaming_Client("📱 Roaming Clients<br />(Outlook/iPhone)"):::external
-    end
+    %% 代理与路由
+    Nginx("🌐 Nginx Proxy<br />(Webmail / JMAP)"):::secure
+    Postfix("xx Postfix MTA<br />(SASL Auth / Routing)"):::secure
+    
+    %% 存储与业务
+    Cyrus("mailbox Cyrus IMAP<br />(Mail Store)"):::storage
+    SOGo("📅 SOGo Groupware<br />(Contacts / Cal)"):::storage
+    
+    %% 身份源
+    AD("🔑 Active Directory<br />(Identity Source)"):::storage
+  end
 
-    %% ================= 边界防护层 (Edge / DMZ) =================
-    subgraph Edge_Layer ["🔒 Edge Security Zone (DMZ)"]
-        direction TB
-        Firewall("🔥 Firewall / NAT<br />(Ports: 25, 443, 465, 587, 993)"):::edge
-        PMG("🛡️ Proxmox Mail Gateway<br />(MTA Traffic Filter)"):::edge
-    end
+  %% ================= 1. 收信链路 (MTA Incoming) =================
+  %% 外部 MTA -> 防火墙 -> PMG -> Postfix -> Cyrus
+  External_MTA == "SMTP 25 (STARTTLS)" ==> Firewall
+  Firewall == "NAT to PMG" ==> PMG
+  PMG == "Clean Mail (TLS)" ==> Postfix
+  Postfix -.->|"LMTP (Local)"| Cyrus
+  linkStyle 0,1,2,3 stroke:#d32f2f,stroke-width:3px;
 
-    %% ================= 内部核心层 (Internal) =================
-    subgraph Internal_LAN ["🏢 Trusted Internal LAN"]
-        direction TB
-        
-        %% 代理与路由
-        Nginx("🌐 Nginx Proxy<br />(Webmail / JMAP)"):::secure
-        Postfix("xx Postfix MTA<br />(SASL Auth / Routing)"):::secure
-        
-        %% 存储与业务
-        Cyrus("mailbox Cyrus IMAP<br />(Mail Store)"):::storage
-        SOGo("📅 SOGo Groupware<br />(Contacts / Cal)"):::storage
-        
-        %% 身份源
-        AD("🔑 Active Directory<br />(Identity Source)"):::storage
-    end
+  %% ================= 2. 客户端发信链路 (Client Submission) =================
+  %% 客户端 -> 防火墙 -> Postfix (认证) -> PMG (签名/扫描) -> Internet
+  Roaming_Client -- "SMTPS 465 / Submission 587" --> Firewall
+  Firewall -- "NAT to Postfix" --> Postfix
+  Postfix -- "Relay (TLS)" --> PMG
+  PMG -- "SMTP 25 (Signed)" --> Firewall
+  Firewall -- "Send" --> Internet
+  linkStyle 4,5,6,7,8 stroke:#1565c0,stroke-width:2px;
 
-    %% ================= 1. 收信链路 (MTA Incoming) =================
-    %% 外部 MTA -> 防火墙 -> PMG -> Postfix -> Cyrus
-    External_MTA == "SMTP 25 (STARTTLS)" ==> Firewall
-    Firewall == "NAT to PMG" ==> PMG
-    PMG == "Clean Mail (TLS)" ==> Postfix
-    Postfix -.->|"LMTP (Local)"| Cyrus
-    linkStyle 0,1,2,3 stroke:#d32f2f,stroke-width:3px;
+  %% ================= 3. 客户端收信与访问 (Client Access) =================
+  %% 客户端读取邮件 (IMAPS) 和 Webmail (HTTPS)
+  Roaming_Client -- "IMAPS 993 / HTTPS 443" --> Firewall
+  Firewall -- "NAT to Nginx" --> Nginx
+  Firewall -- "NAT to Cyrus" --> Cyrus
+  Nginx -- "Proxy" --> SOGo
+  linkStyle 9,10,11,12 stroke:#2e7d32,stroke-width:2px;
 
-    %% ================= 2. 客户端发信链路 (Client Submission) =================
-    %% 客户端 -> 防火墙 -> Postfix (认证) -> PMG (签名/扫描) -> Internet
-    Roaming_Client -- "SMTPS 465 / Submission 587" --> Firewall
-    Firewall -- "NAT to Postfix" --> Postfix
-    Postfix -- "Relay (TLS)" --> PMG
-    PMG -- "SMTP 25 (Signed)" --> Firewall
-    Firewall -- "Send" --> Internet
-    linkStyle 4,5,6,7,8 stroke:#1565c0,stroke-width:2px;
-
-    %% ================= 3. 客户端收信与访问 (Client Access) =================
-    %% 客户端读取邮件 (IMAPS) 和 Webmail (HTTPS)
-    Roaming_Client -- "IMAPS 993 / HTTPS 443" --> Firewall
-    Firewall -- "NAT to Nginx" --> Nginx
-    Firewall -- "NAT to Cyrus" --> Cyrus
-    Nginx -- "Proxy" --> SOGo
-    linkStyle 9,10,11,12 stroke:#2e7d32,stroke-width:2px;
-
-    %% ================= 4. 内部认证链路 (LDAPS) =================
-    PMG -.-> |"LDAPS 636"| AD
-    Postfix -.-> |"LDAPS 636"| AD
-    SOGo -.-> |"LDAPS 636"| AD
-    Cyrus -.-> |"SASL -> LDAPS"| AD
-    linkStyle 13,14,15,16 stroke:#607d8b,stroke-width:1px,stroke-dasharray: 3 3;
+  %% ================= 4. 内部认证链路 (LDAPS) =================
+  PMG -.-> |"LDAPS 636"| AD
+  Postfix -.-> |"LDAPS 636"| AD
+  SOGo -.-> |"LDAPS 636"| AD
+  Cyrus -.-> |"SASL -> LDAPS"| AD
+  linkStyle 13,14,15,16 stroke:#607d8b,stroke-width:1px,stroke-dasharray: 3 3;
 ```
 
 最新架构
@@ -450,97 +450,97 @@ flowchart TD
 需考虑的问题: 
 当前哪些服务集成了邮件服务? 该如何处理
 
-架构图亮点：
-- 🟣 紫色虚线区域 (Feature Zone): 专门展示了你要求的“静默归档 (Shadow Copy)”和“自动化欢迎脚本”。
-- 🔴 红色流 (Inbound): 外部邮件如何经过 PMG 清洗后进入内部。
-- 🔵 蓝色流 (Outbound): 内部发信如何经过 Postfix 认证，再转给 PMG 签名出网。
-- 🟢 绿色流 (Access): 用户如何安全读取邮件。
+架构图亮点: 
+- 🟣 紫色虚线区域 (Feature Zone): 专门展示了你要求的"静默归档 (Shadow Copy)"和"自动化欢迎脚本". 
+- 🔴 红色流 (Inbound): 外部邮件如何经过 PMG 清洗后进入内部. 
+- 🔵 蓝色流 (Outbound): 内部发信如何经过 Postfix 认证, 再转给 PMG 签名出网. 
+- 🟢 绿色流 (Access): 用户如何安全读取邮件. 
 
 ```mermaid
 flowchart TD
-    %% ================= 样式定义 (Styling) =================
-    classDef public fill:#f5f5f5,stroke:#999,stroke-width:1px,color:#333;
-    classDef firewall fill:#455a64,stroke:#263238,stroke-width:2px,color:#fff;
-    classDef pmg fill:#ff9800,stroke:#e65100,stroke-width:3px,color:#fff,font-weight:bold;
-    classDef core fill:#2196f3,stroke:#0d47a1,stroke-width:2px,color:#fff;
-    classDef storage fill:#4caf50,stroke:#1b5e20,stroke-width:2px,color:#fff;
-    classDef feature fill:#9c27b0,stroke:#4a148c,stroke-width:2px,stroke-dasharray: 5 5,color:#fff;
+  %% ================= 样式定义 (Styling) =================
+  classDef public fill:#f5f5f5,stroke:#999,stroke-width:1px,color:#333;
+  classDef firewall fill:#455a64,stroke:#263238,stroke-width:2px,color:#fff;
+  classDef pmg fill:#ff9800,stroke:#e65100,stroke-width:3px,color:#fff,font-weight:bold;
+  classDef core fill:#2196f3,stroke:#0d47a1,stroke-width:2px,color:#fff;
+  classDef storage fill:#4caf50,stroke:#1b5e20,stroke-width:2px,color:#fff;
+  classDef feature fill:#9c27b0,stroke:#4a148c,stroke-width:2px,stroke-dasharray: 5 5,color:#fff;
 
-    %% ================= 1. 外部世界 (Public Internet) =================
-    subgraph Internet ["☁️ Public Internet"]
-        direction TB
-        Sender("🌍 External Senders<br />(Gmail/Outlook)"):::public
-        Roaming("📱 Roaming User<br />(Client App)"):::public
-    end
+  %% ================= 1. 外部世界 (Public Internet) =================
+  subgraph Internet ["☁️ Public Internet"]
+    direction TB
+    Sender("🌍 External Senders<br />(Gmail/Outlook)"):::public
+    Roaming("📱 Roaming User<br />(Client App)"):::public
+  end
 
-    %% ================= 2. 边界层 (Edge / DMZ) =================
-    subgraph DMZ ["🔒 Local IDC Edge"]
-        FW("🔥 Firewall / NAT Router<br />[Ports: 25, 465, 587, 993, 443]"):::firewall
-        PMG("🛡️ Proxmox Mail Gateway<br />[Anti-Spam | Anti-Virus | Stats]"):::pmg
-    end
+  %% ================= 2. 边界层 (Edge / DMZ) =================
+  subgraph DMZ ["🔒 Local IDC Edge"]
+    FW("🔥 Firewall / NAT Router<br />[Ports: 25, 465, 587, 993, 443]"):::firewall
+    PMG("🛡️ Proxmox Mail Gateway<br />[Anti-Spam | Anti-Virus | Stats]"):::pmg
+  end
 
-    %% ================= 3. 内部核心层 (Trusted LAN) =================
-    subgraph LAN ["🏢 Internal Trusted Network"]
-        direction TB
-        
-        %% 核心服务
-        Nginx("🌐 Nginx Proxy<br />(SSL Offloading)"):::core
-        Postfix("📮 Postfix MTA<br />(Routing & Auth)"):::core
-        
-        %% 存储服务
-        subgraph Cyrus_Cluster ["📦 Cyrus IMAP Server"]
-            direction TB
-            User_Box("User Mailboxes<br />(INBOX)"):::storage
-            Shadow_Box("🗄️ Shadow Archive<br />(Audit Copy)"):::feature
-        end
-        
-        SOGo("📅 SOGo Groupware"):::storage
-        AD("🔑 Active Directory"):::storage
-
-        %% 特性服务 (Features)
-        Welcome_Bot("🤖 Python Welcome Bot<br />(Auto-Send Script)"):::feature
-    end
-
-    %% ================= 4. 连线逻辑 (Traffic Flows) =================
-
-    %% --- A. 入站流 (Inbound - Red) ---
-    %% 外部 -> PMG -> Postfix -> User Mailbox
-    Sender == "SMTP 25 (TLS)" ==> FW
-    FW == "NAT to PMG" ==> PMG
-    PMG == "Clean Mail (25)" ==> Postfix
-    Postfix == "LMTP Delivery" ==> User_Box
-    linkStyle 0,1,2,3 stroke:#f44336,stroke-width:3px;
-
-    %% --- B. 出站流 (Outbound - Blue) ---
-    %% 用户/脚本 -> Postfix -> PMG -> 外部
-    Roaming -- "SMTPS 465 / Sub 587" --> FW
-    FW -- "NAT to Postfix" --> Postfix
-    Welcome_Bot -- "SMTP (Local)" --> Postfix
-    SOGo -- "SMTP (Local)" --> Postfix
+  %% ================= 3. 内部核心层 (Trusted LAN) =================
+  subgraph LAN ["🏢 Internal Trusted Network"]
+    direction TB
     
-    Postfix -- "Relay for DKIM/Scan" --> PMG
-    PMG -- "SMTP 25 (Signed)" --> FW
-    FW -- "Send to Internet" --> Internet
-    linkStyle 4,5,6,7,8,9,10 stroke:#2196f3,stroke-width:2px;
+    %% 核心服务
+    Nginx("🌐 Nginx Proxy<br />(SSL Offloading)"):::core
+    Postfix("📮 Postfix MTA<br />(Routing & Auth)"):::core
+    
+    %% 存储服务
+    subgraph Cyrus_Cluster ["📦 Cyrus IMAP Server"]
+      direction TB
+      User_Box("User Mailboxes<br />(INBOX)"):::storage
+      Shadow_Box("🗄️ Shadow Archive<br />(Audit Copy)"):::feature
+    end
+    
+    SOGo("📅 SOGo Groupware"):::storage
+    AD("🔑 Active Directory"):::storage
 
-    %% --- C. 特性流: 邮件归档 (Feature - Purple) ---
-    %% 只要经过 Postfix，都会分叉一份到 Shadow Box
-    Postfix -.-> |"🟣 Always BCC (Transparent)"| Shadow_Box
-    linkStyle 11 stroke:#9c27b0,stroke-width:2px,stroke-dasharray: 5 5;
+    %% 特性服务 (Features)
+    Welcome_Bot("🤖 Python Welcome Bot<br />(Auto-Send Script)"):::feature
+  end
 
-    %% --- D. 访问流: 读信与网页 (Access - Green) ---
-    Roaming -- "IMAPS 993 / HTTPS 443" --> FW
-    FW -- "NAT" --> Nginx
-    FW -- "NAT" --> User_Box
-    Nginx --> SOGo
-    Nginx --> User_Box
-    linkStyle 12,13,14,15,16 stroke:#4caf50,stroke-width:2px;
+  %% ================= 4. 连线逻辑 (Traffic Flows) =================
 
-    %% --- E. 认证流 (Auth - Grey) ---
-    Postfix -.-> AD
-    PMG -.-> AD
-    SOGo -.-> AD
-    Welcome_Bot -.-> AD
+  %% --- A. 入站流 (Inbound - Red) ---
+  %% 外部 -> PMG -> Postfix -> User Mailbox
+  Sender == "SMTP 25 (TLS)" ==> FW
+  FW == "NAT to PMG" ==> PMG
+  PMG == "Clean Mail (25)" ==> Postfix
+  Postfix == "LMTP Delivery" ==> User_Box
+  linkStyle 0,1,2,3 stroke:#f44336,stroke-width:3px;
+
+  %% --- B. 出站流 (Outbound - Blue) ---
+  %% 用户/脚本 -> Postfix -> PMG -> 外部
+  Roaming -- "SMTPS 465 / Sub 587" --> FW
+  FW -- "NAT to Postfix" --> Postfix
+  Welcome_Bot -- "SMTP (Local)" --> Postfix
+  SOGo -- "SMTP (Local)" --> Postfix
+  
+  Postfix -- "Relay for DKIM/Scan" --> PMG
+  PMG -- "SMTP 25 (Signed)" --> FW
+  FW -- "Send to Internet" --> Internet
+  linkStyle 4,5,6,7,8,9,10 stroke:#2196f3,stroke-width:2px;
+
+  %% --- C. 特性流: 邮件归档 (Feature - Purple) ---
+  %% 只要经过 Postfix, 都会分叉一份到 Shadow Box
+  Postfix -.-> |"🟣 Always BCC (Transparent)"| Shadow_Box
+  linkStyle 11 stroke:#9c27b0,stroke-width:2px,stroke-dasharray: 5 5;
+
+  %% --- D. 访问流: 读信与网页 (Access - Green) ---
+  Roaming -- "IMAPS 993 / HTTPS 443" --> FW
+  FW -- "NAT" --> Nginx
+  FW -- "NAT" --> User_Box
+  Nginx --> SOGo
+  Nginx --> User_Box
+  linkStyle 12,13,14,15,16 stroke:#4caf50,stroke-width:2px;
+
+  %% --- E. 认证流 (Auth - Grey) ---
+  Postfix -.-> AD
+  PMG -.-> AD
+  SOGo -.-> AD
+  Welcome_Bot -.-> AD
 ```
 
 
@@ -550,28 +550,28 @@ flowchart TD
 sogo.conf
 ```
 {
-  "WOWorkersCount": 10,
-  "SOGoIMAPServer": "imaps://127.0.0.1:993",
-  "SOGoSMTPServer": "127.0.0.1",
-  "SOGoMailDomain": "yourdomain.com",
-  "SOGoSieveServer": "sieve://127.0.0.1:4190",
-  "SOGoMailingMechanism": "smtp",
-  "SOGoUserSources": [
-    {
-      "type": "sql",
-      "id": "directory",
-      "viewURL": "postgresql://sogo:sogo@127.0.0.1/sogo/sogo_users",
-      "canAuthenticate": true,
-      "isAddressBook": true
-    }
-  ],
-  "SOGoCalendarDefaultRoles": ["PublicViewer"],
-  "SOGoAppointmentSendEMailNotifications": true,
-  "SOGoDraftsFolderName": "Drafts",
-  "SOGoSentFolderName": "Sent",
-  "SOGoTrashFolderName": "Trash",
-  "SOGoMailShowSubscribedFoldersOnly": true,
-  "SOGoEnableEMailAlarms": true
+ "WOWorkersCount": 10,
+ "SOGoIMAPServer": "imaps://127.0.0.1:993",
+ "SOGoSMTPServer": "127.0.0.1",
+ "SOGoMailDomain": "yourdomain.com",
+ "SOGoSieveServer": "sieve://127.0.0.1:4190",
+ "SOGoMailingMechanism": "smtp",
+ "SOGoUserSources": [
+  {
+   "type": "sql",
+   "id": "directory",
+   "viewURL": "postgresql://sogo:sogo@127.0.0.1/sogo/sogo_users",
+   "canAuthenticate": true,
+   "isAddressBook": true
+  }
+ ],
+ "SOGoCalendarDefaultRoles": ["PublicViewer"],
+ "SOGoAppointmentSendEMailNotifications": true,
+ "SOGoDraftsFolderName": "Drafts",
+ "SOGoSentFolderName": "Sent",
+ "SOGoTrashFolderName": "Trash",
+ "SOGoMailShowSubscribedFoldersOnly": true,
+ "SOGoEnableEMailAlarms": true
 }
 ```
 
@@ -588,34 +588,34 @@ GRANT ALL PRIVILEGES ON DATABASE sogo TO sogo;
 ⚙️ Step 3 — Integrate with nginx
 ```
 server {
-    listen 443 ssl;
-    server_name mail.yourdomain.com;
+  listen 443 ssl;
+  server_name mail.yourdomain.com;
 
-    ssl_certificate /etc/letsencrypt/live/mail.yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/mail.yourdomain.com/privkey.pem;
+  ssl_certificate /etc/letsencrypt/live/mail.yourdomain.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/mail.yourdomain.com/privkey.pem;
 
-    # Webmail
-    location /SOGo {
-        proxy_pass http://127.0.0.1:20000/SOGo;
-        proxy_set_header Host $host;
-        proxy_set_header x-webobjects-server-protocol https;
-        proxy_set_header x-webobjects-remote-host $remote_addr;
-        proxy_set_header x-webobjects-server-name $server_name;
-    }
+  # Webmail
+  location /SOGo {
+    proxy_pass http://127.0.0.1:20000/SOGo;
+    proxy_set_header Host $host;
+    proxy_set_header x-webobjects-server-protocol https;
+    proxy_set_header x-webobjects-remote-host $remote_addr;
+    proxy_set_header x-webobjects-server-name $server_name;
+  }
 
-    # EAS endpoint
-    location /Microsoft-Server-ActiveSync {
-        proxy_pass http://127.0.0.1:20000/Microsoft-Server-ActiveSync;
-        proxy_set_header Host $host;
-        proxy_set_header x-webobjects-server-protocol https;
-        proxy_set_header x-webobjects-remote-host $remote_addr;
-        proxy_set_header x-webobjects-server-name $server_name;
-    }
+  # EAS endpoint
+  location /Microsoft-Server-ActiveSync {
+    proxy_pass http://127.0.0.1:20000/Microsoft-Server-ActiveSync;
+    proxy_set_header Host $host;
+    proxy_set_header x-webobjects-server-protocol https;
+    proxy_set_header x-webobjects-remote-host $remote_addr;
+    proxy_set_header x-webobjects-server-name $server_name;
+  }
 
-    # JMAP proxy (from previous setup)
-    location /jmap {
-        proxy_pass http://127.0.0.1:8080/jmap;
-    }
+  # JMAP proxy (from previous setup)
+  location /jmap {
+    proxy_pass http://127.0.0.1:8080/jmap;
+  }
 }
 
 ✅ Step 6 — Verify Everything
@@ -670,9 +670,9 @@ smtpd_sasl_type = cyrus
 smtpd_sasl_path = smtpd
 smtpd_sasl_security_options = noanonymous
 smtpd_recipient_restrictions =
-    permit_sasl_authenticated,
-    permit_mynetworks,
-    reject_unauth_destination
+  permit_sasl_authenticated,
+  permit_mynetworks,
+  reject_unauth_destination
 
 ```
 
@@ -699,11 +699,11 @@ httpallowplaintext: no
 cyrus.conf
 ```
 SERVICES {
-  imap      cmd="imapd" listen="imap" prefork=0
-  imaps     cmd="imapd -s" listen="imaps" prefork=0
-  lmtp      cmd="lmtpd" listen="lmtp" prefork=0
-  sieve     cmd="timsieved" listen="sieve" prefork=0
-  http      cmd="httpd" listen="localhost:8080" prefork=0
+ imap   cmd="imapd" listen="imap" prefork=0
+ imaps   cmd="imapd -s" listen="imaps" prefork=0
+ lmtp   cmd="lmtpd" listen="lmtp" prefork=0
+ sieve   cmd="timsieved" listen="sieve" prefork=0
+ http   cmd="httpd" listen="localhost:8080" prefork=0
 }
 
 ```

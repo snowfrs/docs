@@ -13,9 +13,9 @@ The initial value of a semaphore depends on the problem at hand. Usually, we use
 * 2 semaphore types
 * 3 semaphore implementation
 * 4 process synchornization
-  + 4.1 Deadlock Avoidance
-  + 4.2 Avoiding Starvation
-  + 4.3 Priority Inversion
+ + 4.1 Deadlock Avoidance
+ + 4.2 Avoiding Starvation
+ + 4.3 Priority Inversion
 * 5 Kernel Parameters to set semaphore limits
 
 ### semaphore operations
@@ -39,7 +39,7 @@ A counting semaphore is again an integer value, which an rang over an unrestrict
 
 An implementation with no busy waiting requires an integer value (to hold semaphore value) and a pointer to the next process in the waiting list. The list consists of processes that are put to sleep on the  operation. The kernel uses two additional operations:  and , to command the processes.
 
-We can think of semaphore implementation as a critical section problem since we don’t want more than one process accessing the semaphore variable concurrently.
+We can think of semaphore implementation as a critical section problem since we don't want more than one process accessing the semaphore variable concurrently.
 
 ### process synchornization
 
@@ -47,7 +47,7 @@ We can think of semaphore implementation as a critical section problem since we 
 
 ### Avoiding Starvation
 
-A famous starvation example is the **Dining Philosophers** problem, which we’ll cover in the following sections. In this problem, five philosophers are sitting around a circular table. They share five chopsticks. Each philosopher either think or eat. To eat, a philosopher needs two chopsticks.
+A famous starvation example is the **Dining Philosophers** problem, which we'll cover in the following sections. In this problem, five philosophers are sitting around a circular table. They share five chopsticks. Each philosopher either think or eat. To eat, a philosopher needs two chopsticks.
 
 #### Priority Inversion
 

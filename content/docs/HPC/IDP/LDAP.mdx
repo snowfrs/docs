@@ -115,9 +115,9 @@ authconfig --enablesssd --enablesssdauth --enableldap --enableldapauth --ldapser
 
 #umask
 ~] cat /etc/pam.d/system-auth
-session     optional      pam_oddjob_mkhomedir.so umask=0022
+session   optional   pam_oddjob_mkhomedir.so umask=0022
 ~] cat /etc/pam.d/password-auth
-session     optional      pam_oddjob_mkhomedir.so umask=0022
+session   optional   pam_oddjob_mkhomedir.so umask=0022
 ```
 
 sssd.conf

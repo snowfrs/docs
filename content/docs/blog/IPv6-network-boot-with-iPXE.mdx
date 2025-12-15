@@ -7,12 +7,12 @@ tags: ipv6 iPXE
 IPv6地址获取主要分为以下几种
 
 IPv6地址获取方式
-|      N/A         |预设闸道	|地址分配	|DNS    |
+|   N/A     |预设闸道	|地址分配	|DNS  |
 |:--------------|:---------|:--------|:------|
-|**手动配置**    |**手动**	 |**手动**  |**手动**|
-|SLAAC RDNSS	|RA	       |RA        |RA       |
-|SLAAC DHCPv6	|RA        |RA        |DHCP     |
-|Stateful DHCPv6|RA	       |DHCP      |DHCP     |
+|**手动配置**  |**手动**	 |**手动** |**手动**|
+|SLAAC RDNSS	|RA	    |RA    |RA    |
+|SLAAC DHCPv6	|RA    |RA    |DHCP   |
+|Stateful DHCPv6|RA	    |DHCP   |DHCP   |
 
 
 **`RA`**: Router Advertisement
@@ -63,17 +63,17 @@ Other is important bit, as it tells the target host that (non-address related) c
 ```txt
 interface eth0
 {
-        AdvSendAdvert on;
-        MinRtrAdvInterval 30;
-        MaxRtrAdvInterval 100;
-        AdvManagedFlag on;
-        AdvOtherConfigFlag on;
-        prefix 3ffe:501:ffff:100::/64
-        {
-                AdvOnLink on;
-                AdvAutonomous on;
-                AdvRouterAddr off;
-        };
+    AdvSendAdvert on;
+    MinRtrAdvInterval 30;
+    MaxRtrAdvInterval 100;
+    AdvManagedFlag on;
+    AdvOtherConfigFlag on;
+    prefix 3ffe:501:ffff:100::/64
+    {
+        AdvOnLink on;
+        AdvAutonomous on;
+        AdvRouterAddr off;
+    };
 
 };
 ```
@@ -96,7 +96,7 @@ option dhcp6.preference 255;
 option dhcp6.info-refresh-time 21600;
 dhcpv6-lease-file-name "/var/lib/dhcpd/dhcpd6.leases";
 
-option dhcp6.name-servers 2001:4860:4860::8888;  # Use Google's Public DNS Server
+option dhcp6.name-servers 2001:4860:4860::8888; # Use Google's Public DNS Server
 option dhcp6.domain-search "test.example.com","example.com";
 option dhcp6.user-class code 15 = string;
 option dhcp6.vendor-class-data code 16 = string;
@@ -104,28 +104,28 @@ option dhcp6.bootfile-url code 59 = string;
 option dhcp6.client-arch-type code 61 = array of unsigned integer 16;
 
 if exists dhcp6.user-class and
-        substring(option dhcp6.user-class, 2, 4) = "iPXE" {
-        option dhcp6.bootfile-url "http://[3ffe:501:ffff:100::1]/start.ipxe";
+    substring(option dhcp6.user-class, 2, 4) = "iPXE" {
+    option dhcp6.bootfile-url "http://[3ffe:501:ffff:100::1]/start.ipxe";
 } else {
-        if option dhcp6.client-arch-type = 00:00 {
-         option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/undionly.kpxe"; # Standard PC BIOS
-        } elsif option dhcp6.client-arch-type = 00:06 {
-         option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/ipxe.efi"; # 32-bit x86 EFI
-        } elsif option dhcp6.client-arch-type = 00:07 {
-         option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/ipxe.efi"; # 64-bit x86 EFI
-        } elsif option dhcp6.client-arch-type = 00:09 {
-         option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/ipxe.efi"; # 64-bit x86 EFI(obsolete)
-        } elsif option dhcp6.client-arch-type = 00:0a {
-         option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/ipxe.efi"; # 32-bit ARM EFI
-        } elsif option dhcp6.client-arch-type = 00:0b {
-         option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/arm64.efi"; # 64-bit ARM EFI
-        } 
+    if option dhcp6.client-arch-type = 00:00 {
+     option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/undionly.kpxe"; # Standard PC BIOS
+    } elsif option dhcp6.client-arch-type = 00:06 {
+     option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/ipxe.efi"; # 32-bit x86 EFI
+    } elsif option dhcp6.client-arch-type = 00:07 {
+     option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/ipxe.efi"; # 64-bit x86 EFI
+    } elsif option dhcp6.client-arch-type = 00:09 {
+     option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/ipxe.efi"; # 64-bit x86 EFI(obsolete)
+    } elsif option dhcp6.client-arch-type = 00:0a {
+     option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/ipxe.efi"; # 32-bit ARM EFI
+    } elsif option dhcp6.client-arch-type = 00:0b {
+     option dhcp6.bootfile-url "tftp://[3ffe:501:ffff:100::1]/arm64.efi"; # 64-bit ARM EFI
+    } 
 }
 
 subnet6 3ffe:501:ffff:100::/64 {
-        range6 3ffe:501:ffff:100::10 3ffe:501:ffff:100::50;
-        range6 3ffe:501:ffff:100:: temporary;
-        prefix6 3ffe:501:ffff:100:: 3ffe:501:ffff:111:: /64;
+    range6 3ffe:501:ffff:100::10 3ffe:501:ffff:100::50;
+    range6 3ffe:501:ffff:100:: temporary;
+    prefix6 3ffe:501:ffff:100:: 3ffe:501:ffff:111:: /64;
 }
 
 ```
@@ -137,16 +137,16 @@ flags默认是IPv4 仅支持IPv4; 修改为IPv6后同时支持IPv6和IPv4
 ```txt
 service tftp
 {
-        socket_type             = dgram
-        protocol                = udp
-        wait                    = yes
-        user                    = root
-        server                  = /usr/sbin/in.tftpd
-        server_args             = -s /var/lib/tftpboot
-        disable                 = no
-        per_source              = 11
-        cps                     = 100 2
-        flags                   = IPv6
+    socket_type       = dgram
+    protocol        = udp
+    wait          = yes
+    user          = root
+    server         = /usr/sbin/in.tftpd
+    server_args       = -s /var/lib/tftpboot
+    disable         = no
+    per_source       = 11
+    cps           = 100 2
+    flags          = IPv6
 }
 ```
 
@@ -179,12 +179,12 @@ set keep-san 1
 :start
 menu iPXE Boot Menu
 item
-item --gap --      -------Advanced configuration -----------
-item --key 0 localhdd   [0] Local HDD
-item --key 2 linux      [2] Linux Install
-item --gap --            ---------------------------
+item --gap --   -------Advanced configuration -----------
+item --key 0 localhdd  [0] Local HDD
+item --key 2 linux   [2] Linux Install
+item --gap --      ---------------------------
 
-choose --default  ${menu-default} --timeout 30000 target && goto ${target}
+choose --default ${menu-default} --timeout 30000 target && goto ${target}
 
 ##### Main Items ########
 :localhdd
@@ -192,7 +192,7 @@ exit
 
 :linux
 menu Linux Menu
-item redhat74   RedHat74
+item redhat74  RedHat74
 
 choose target && goto ${target}
 
@@ -200,16 +200,16 @@ choose target && goto ${target}
 echo Install Red Hat 7.4
 set centos_url ${boot-url}/linux/redhat/7.4
 iseq ${platform} efi && goto centos_efi || goto centos_legacy
-        :centos_efi
-        echo Starting Install RedHat (UEFI)
-        kernel ${centos_url}/images/pxeboot/vmlinuz initrd=initrd.img inst.loglevel=debug repo=${centos_url} noipv4 ip=dhcp6
-        initrd ${centos_url}/images/pxeboot/initrd.img
-        boot
-        :centos_legacy
-        echo Starting Install CentOS (Legacy BIOS)
-        kernel ${centos_url}/images/pxeboot/vmlinuz  initrd=initrd.img repo=${centos_url}
-        initrd ${centos_url}/images/pxeboot/initrd.img
-        boot
+    :centos_efi
+    echo Starting Install RedHat (UEFI)
+    kernel ${centos_url}/images/pxeboot/vmlinuz initrd=initrd.img inst.loglevel=debug repo=${centos_url} noipv4 ip=dhcp6
+    initrd ${centos_url}/images/pxeboot/initrd.img
+    boot
+    :centos_legacy
+    echo Starting Install CentOS (Legacy BIOS)
+    kernel ${centos_url}/images/pxeboot/vmlinuz initrd=initrd.img repo=${centos_url}
+    initrd ${centos_url}/images/pxeboot/initrd.img
+    boot
 
 ```
 

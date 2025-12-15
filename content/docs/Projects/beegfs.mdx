@@ -7,7 +7,7 @@ title: "BeeGFS"
 
 :::warning
 **⚠️ 警告 (Warning)** <br />
-Warning Mirroring is not a replacement for backups. If files are accidentally deleted or overwritten by a user or process, mirroring won’t help you to bring the old file back. You are still responsible for doing regular backups of your important bits.
+Warning Mirroring is not a replacement for backups. If files are accidentally deleted or overwritten by a user or process, mirroring won't help you to bring the old file back. You are still responsible for doing regular backups of your important bits.
 :::
 
 
@@ -26,18 +26,18 @@ Warning Mirroring is not a replacement for backups. If files are accidentally de
 
 # Hardware
  - 3x H3C R4900G7 physical servers, with each
-    - Intel® Xeon® 6505P *2
-    - 32G DDR5-6400 RDIMM *8
-    - NVME DISK(Storage) *14
-    - NVME DISK(Metadata) *2
-    - Intel E810 100G NIC
+  - Intel® Xeon® 6505P *2
+  - 32G DDR5-6400 RDIMM *8
+  - NVME DISK(Storage) *14
+  - NVME DISK(Metadata) *2
+  - Intel E810 100G NIC
  - DELL S5232F 100G Network Switch
 
 # Software
  - RockyLinux 9
  - BeeGFS 8.X
  - ext4 (beegfs meta)
-    - ext4格式化时候inode要注意
+  - ext4格式化时候inode要注意
  - XFS (beegfs storage)
  - RoCE v2 (BeeGFS对RMDA的支持远好于TCP)
 
@@ -68,7 +68,7 @@ systemctl enable --now beegfs-meta
 ```bash
 beegfs-storage.conf
 
-# 你有 14 块盘，至少需要 14 个线程，建议更多
+# 你有 14 块盘, 至少需要 14 个线程, 建议更多
 tuneNumWorkers = 128
 # 针对 100G 网络
 connMaxInternodeNum = 64

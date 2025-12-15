@@ -1,15 +1,15 @@
 ---
 title: Yubikey使用总结
 tags:
-  - yubikey
-  - pgp
-  - ssh
+ - yubikey
+ - pgp
+ - ssh
 date: 2018-01-13 20:00:00
 ---
 
 # Yubikey介绍
 
-[官方](https://www.yubico.com/support/knowledge-base/categories/articles/what-is-a-yubikey/)是这样介绍Yubikey的：
+[官方](https://www.yubico.com/support/knowledge-base/categories/articles/what-is-a-yubikey/)是这样介绍Yubikey的: 
 
 > A YubiKey is a small hardware device that offers two-factor authentication with a simple touch of a button. YubiKeys are built strong enough for the largest enterprises, while remaining simple enough for anyone to use. The YubiKey NEO offers both contact (USB) and contactless (NFC, MIFARE) communications. YubiKeys can support FIDO U2F, Yubico-OTP, OATH-OTP, OATH-HOTP, OATH-TOTP, OpenPGP, and PIV, and one security key can support an unlimited number of applications without the need for drivers, client software, or batteries. 
 
@@ -17,28 +17,28 @@ date: 2018-01-13 20:00:00
 
 ## U2F
 
-Yubikey的U2F功能开箱即用。
+Yubikey的U2F功能开箱即用. 
 
 ## OTP
 
-OTP 功能开箱即用 一次一密，需要联网认证，官方有提供认证服务器，当然也可以自己搭建认证服务器。
+OTP 功能开箱即用 一次一密, 需要联网认证, 官方有提供认证服务器, 当然也可以自己搭建认证服务器. 
 
-- **OTP**: `KEY_ID+AES(AES_KEY, SECRET, COUNT++)`即生成的密码包含明文的KEY_ID和对称加密的SECRET和计数器。第一次使用前需要把KEY_ID，AES_KEY，SECRET提交至验证服务器（Yubico提供或者自己搭建），之后应用程序每次通过服务器验证密码的可靠性（解码后SECRET对应、COUNT增大（防止重放攻击））。
-- **Static**: 静态密码。顾名思义，每次生成固定的一串密码。
-- **Challenge-Response**: `HMAC(SECRET, INPUT)`即可以通过HID接口给定一个输入，输入HMAC的计算结果。输入需要本地代码实现。
-- **HOTP**: `HMAC(SECRET, COUNTER++)`算法与Challenge-Response类似，然而使用累加计数器代替了输入，并且HTOP是一个[标准协议](https://twofactorauth.org/)，许多网站和设备都兼容该标准。
+- **OTP**: `KEY_ID+AES(AES_KEY, SECRET, COUNT++)`即生成的密码包含明文的KEY_ID和对称加密的SECRET和计数器. 第一次使用前需要把KEY_ID, AES_KEY, SECRET提交至验证服务器 (Yubico提供或者自己搭建) , 之后应用程序每次通过服务器验证密码的可靠性 (解码后SECRET对应, COUNT增大 (防止重放攻击)) . 
+- **Static**: 静态密码. 顾名思义, 每次生成固定的一串密码. 
+- **Challenge-Response**: `HMAC(SECRET, INPUT)`即可以通过HID接口给定一个输入, 输入HMAC的计算结果. 输入需要本地代码实现. 
+- **HOTP**: `HMAC(SECRET, COUNTER++)`算法与Challenge-Response类似, 然而使用累加计数器代替了输入, 并且HTOP是一个[标准协议](https://twofactorauth.org/), 许多网站和设备都兼容该标准. 
 
-每个Yubikey都有两个slot，出厂时默认OTP配置在slot 1，短按操作即可触发OTP认证; slot 2可配置 `静态密码` `Challenge-Response` `HOTP` 中的一种，长按(2-5s)可触发。
+每个Yubikey都有两个slot, 出厂时默认OTP配置在slot 1, 短按操作即可触发OTP认证; slot 2可配置 `静态密码` `Challenge-Response` `HOTP` 中的一种, 长按(2-5s)可触发. 
 
-注意: yubikey的短按和长按不是指纹识别。
+注意: yubikey的短按和长按不是指纹识别. 
 
 ## PGP
 
-PGP （Pretty Good Privacy）可能是世界上最优秀的非对称加密工具，公私钥体系真正避免了对称加密会带了的密钥泄漏的问题。而且基于去中心的模型，绕过了 CA，让每个人都能接触到 WOT （Web of Trust）。而 GPG （GNU Privacy Guard）则是 PGP 的开源 GNU 实现。
+PGP (Pretty Good Privacy) 可能是世界上最优秀的非对称加密工具, 公私钥体系真正避免了对称加密会带了的密钥泄漏的问题. 而且基于去中心的模型, 绕过了 CA, 让每个人都能接触到 WOT (Web of Trust) . 而 GPG (GNU Privacy Guard) 则是 PGP 的开源 GNU 实现. 
 
-我们需要把3个PGP子密钥放到key里并使用，实现一定的安全性。
+我们需要把3个PGP子密钥放到key里并使用, 实现一定的安全性. 
 
-3个子密钥分别是： 
+3个子密钥分别是: 
 
 `S (Signing)` 
 
@@ -46,9 +46,9 @@ PGP （Pretty Good Privacy）可能是世界上最优秀的非对称加密工具
 
 `A (Authentication)` 
 
-分别实现**签名**、**加密**、**认证**功能。建议主密钥只用来生成子密钥使用，生成子密钥后，请先备份好所有的私钥；然后将3个子密钥导入yubikey。从安全角度讲，最好直接在yubikey里生成子密钥，因为yubikey里的密钥是取不出的。但是，凡是都有万一，万一你的yubikey丢了......  所以，事先离线备份下私钥。
+分别实现**签名**, **加密**, **认证**功能. 建议主密钥只用来生成子密钥使用, 生成子密钥后, 请先备份好所有的私钥; 然后将3个子密钥导入yubikey. 从安全角度讲, 最好直接在yubikey里生成子密钥, 因为yubikey里的密钥是取不出的. 但是, 凡是都有万一, 万一你的yubikey丢了...... 所以, 事先离线备份下私钥. 
 
-如何生成密钥对？以linux为例 
+如何生成密钥对? 以linux为例 
 
 ## 生成密钥对
 
@@ -59,22 +59,22 @@ This is free software: you are free to change and redistribute it.
 There is NO WARRANTY, to the extent permitted by law.
 
 Please select what kind of key you want:
-   (1) RSA and RSA (default)
-   (2) DSA and Elgamal
-   (3) DSA (sign only)
-   (4) RSA (sign only)
+  (1) RSA and RSA (default)
+  (2) DSA and Elgamal
+  (3) DSA (sign only)
+  (4) RSA (sign only)
 Your selection? 1
 ## 这里选择默认的RSA密钥对
 RSA keys may be between 1024 and 4096 bits long.
 What keysize do you want? (2048) 4096
-## 我们选择RSA 4096 bit 如果你用的是NEO，请选择2048 bit
+## 我们选择RSA 4096 bit 如果你用的是NEO, 请选择2048 bit
 Requested keysize is 4096 bits
 Please specify how long the key should be valid.
-         0 = key does not expire
-      &lt;n&gt;  = key expires in n days
-      &lt;n&gt;w = key expires in n weeks
-      &lt;n&gt;m = key expires in n months
-      &lt;n&gt;y = key expires in n years
+     0 = key does not expire
+   &lt;n&gt; = key expires in n days
+   &lt;n&gt;w = key expires in n weeks
+   &lt;n&gt;m = key expires in n months
+   &lt;n&gt;y = key expires in n years
 Key is valid for? (0) 1y
 ## 有效期 这个随意
 Key expires at Sat 12 Jan 2019 09:15:37 PM CST
@@ -86,7 +86,7 @@ Real name: linux
 Email address: linux@linuxorg.com
 Comment: 
 You selected this USER-ID:
-    "linux <linux@linuxorg.com>"
+  "linux <linux@linuxorg.com>"
 
 Change (N)ame, (C)omment, (E)mail or (O)kay/(Q)uit? o
 ## 个人信息填写
@@ -99,48 +99,48 @@ gpg: key 00EFA8162571FB59 marked as ultimately trusted
 gpg: revocation certificate stored as '/home/linux/.gnupg/openpgp-revocs.d/FC65EF983F06878DCD0B626D00EFA8162571FB59.rev'
 public and secret key created and signed.
 
-pub   rsa4096 2018-01-12 [SC] [expires: 2019-01-12]
-      FC65EF983F06878DCD0B626D00EFA8162571FB59
-uid                      linux <linux@linuxorg.com>
-sub   rsa4096 2018-01-12 [E] [expires: 2019-01-12]
+pub  rsa4096 2018-01-12 [SC] [expires: 2019-01-12]
+   FC65EF983F06878DCD0B626D00EFA8162571FB59
+uid           linux <linux@linuxorg.com>
+sub  rsa4096 2018-01-12 [E] [expires: 2019-01-12]
 ## 创建过程结束
-## 上面生成了加密子密钥，标识为E；我们开始生成其他的两个密钥
+## 上面生成了加密子密钥, 标识为E; 我们开始生成其他的两个密钥
 
 $gpg2 --expert --edit-key 2571FB59
 gpg: checking the trustdb
-gpg: marginals needed: 3  completes needed: 1  trust model: pgp
-gpg: depth: 0  valid:   2  signed:   0  trust: 0-, 0q, 0n, 0m, 0f, 2u
+gpg: marginals needed: 3 completes needed: 1 trust model: pgp
+gpg: depth: 0 valid:  2 signed:  0 trust: 0-, 0q, 0n, 0m, 0f, 2u
 gpg: next trustdb check due at 2019-01-12
-sec  rsa4096/00EFA8162571FB59
-     created: 2018-01-12  expires: 2019-01-12  usage: SC  
-     trust: ultimate      validity: ultimate
-ssb  rsa4096/51EFF717B45316A7
-     created: 2018-01-12  expires: 2019-01-12  usage: E   
+sec rsa4096/00EFA8162571FB59
+   created: 2018-01-12 expires: 2019-01-12 usage: SC 
+   trust: ultimate   validity: ultimate
+ssb rsa4096/51EFF717B45316A7
+   created: 2018-01-12 expires: 2019-01-12 usage: E  
 [ultimate] (1). linux <linux@linuxorg.com>
-     
+   
 gpg> addkey
 Please select what kind of key you want:
-   (3) DSA (sign only)
-   (4) RSA (sign only)
-   (5) Elgamal (encrypt only)
-   (6) RSA (encrypt only)
-   (7) DSA (set your own capabilities)
-   (8) RSA (set your own capabilities)
-  (10) ECC (sign only)
-  (11) ECC (set your own capabilities)
-  (12) ECC (encrypt only)
-  (13) Existing key
+  (3) DSA (sign only)
+  (4) RSA (sign only)
+  (5) Elgamal (encrypt only)
+  (6) RSA (encrypt only)
+  (7) DSA (set your own capabilities)
+  (8) RSA (set your own capabilities)
+ (10) ECC (sign only)
+ (11) ECC (set your own capabilities)
+ (12) ECC (encrypt only)
+ (13) Existing key
 Your selection? 4
 ## 选择算法 这里仍然选择RSA
 RSA keys may be between 1024 and 4096 bits long.
 What keysize do you want? (2048) 4096
 Requested keysize is 4096 bits
 Please specify how long the key should be valid.
-         0 = key does not expire
-      &lt;n&gt;  = key expires in n days
-      &lt;n&gt;w = key expires in n weeks
-      &lt;n&gt;m = key expires in n months
-      &lt;n&gt;y = key expires in n years
+     0 = key does not expire
+   &lt;n&gt; = key expires in n days
+   &lt;n&gt;w = key expires in n weeks
+   &lt;n&gt;m = key expires in n months
+   &lt;n&gt;y = key expires in n years
 Key is valid for? (0) 1y
 Key expires at Sat 12 Jan 2019 09:23:41 PM CST
 Is this correct? (y/N) y
@@ -150,77 +150,77 @@ some other action (type on the keyboard, move the mouse, utilize the
 disks) during the prime generation; this gives the random number
 generator a better chance to gain enough entropy.
 ## 需要输入密码才能创建子密钥
-sec  rsa4096/00EFA8162571FB59
-     created: 2018-01-12  expires: 2019-01-12  usage: SC  
-     trust: ultimate      validity: ultimate
-ssb  rsa4096/51EFF717B45316A7
-     created: 2018-01-12  expires: 2019-01-12  usage: E   
-ssb  rsa4096/7FD895A29DBC18B5
-     created: 2018-01-12  expires: 2019-01-12  usage: S   
+sec rsa4096/00EFA8162571FB59
+   created: 2018-01-12 expires: 2019-01-12 usage: SC 
+   trust: ultimate   validity: ultimate
+ssb rsa4096/51EFF717B45316A7
+   created: 2018-01-12 expires: 2019-01-12 usage: E  
+ssb rsa4096/7FD895A29DBC18B5
+   created: 2018-01-12 expires: 2019-01-12 usage: S  
 [ultimate] (1). linux <linux@linuxorg.com>
 ## 此时一个子密钥是E标识 另一个是S标识 下面继续生成A标识
 gpg> addkey
 Please select what kind of key you want:
-   (3) DSA (sign only)
-   (4) RSA (sign only)
-   (5) Elgamal (encrypt only)
-   (6) RSA (encrypt only)
-   (7) DSA (set your own capabilities)
-   (8) RSA (set your own capabilities)
-  (10) ECC (sign only)
-  (11) ECC (set your own capabilities)
-  (12) ECC (encrypt only)
-  (13) Existing key
+  (3) DSA (sign only)
+  (4) RSA (sign only)
+  (5) Elgamal (encrypt only)
+  (6) RSA (encrypt only)
+  (7) DSA (set your own capabilities)
+  (8) RSA (set your own capabilities)
+ (10) ECC (sign only)
+ (11) ECC (set your own capabilities)
+ (12) ECC (encrypt only)
+ (13) Existing key
 Your selection? 8
 
 Possible actions for a RSA key: Sign Encrypt Authenticate 
 Current allowed actions: Sign Encrypt 
 
-   (S) Toggle the sign capability
-   (E) Toggle the encrypt capability
-   (A) Toggle the authenticate capability
-   (Q) Finished
+  (S) Toggle the sign capability
+  (E) Toggle the encrypt capability
+  (A) Toggle the authenticate capability
+  (Q) Finished
 
 Your selection? s
 
 Possible actions for a RSA key: Sign Encrypt Authenticate 
 Current allowed actions: Encrypt 
 
-   (S) Toggle the sign capability
-   (E) Toggle the encrypt capability
-   (A) Toggle the authenticate capability
-   (Q) Finished
+  (S) Toggle the sign capability
+  (E) Toggle the encrypt capability
+  (A) Toggle the authenticate capability
+  (Q) Finished
 
 Your selection? e
 
 Possible actions for a RSA key: Sign Encrypt Authenticate 
 Current allowed actions: 
 
-   (S) Toggle the sign capability
-   (E) Toggle the encrypt capability
-   (A) Toggle the authenticate capability
-   (Q) Finished
+  (S) Toggle the sign capability
+  (E) Toggle the encrypt capability
+  (A) Toggle the authenticate capability
+  (Q) Finished
 
 Your selection? a
-## 以上是取消 S E 标识，添加 A 标识
+## 以上是取消 S E 标识, 添加 A 标识
 Possible actions for a RSA key: Sign Encrypt Authenticate 
 Current allowed actions: Authenticate 
 
-   (S) Toggle the sign capability
-   (E) Toggle the encrypt capability
-   (A) Toggle the authenticate capability
-   (Q) Finished
+  (S) Toggle the sign capability
+  (E) Toggle the encrypt capability
+  (A) Toggle the authenticate capability
+  (Q) Finished
 
 Your selection? q
 RSA keys may be between 1024 and 4096 bits long.
 What keysize do you want? (2048) 4096
 Requested keysize is 4096 bits
 Please specify how long the key should be valid.
-         0 = key does not expire
-      &lt;n&gt;  = key expires in n days
-      &lt;n&gt;w = key expires in n weeks
-      &lt;n&gt;m = key expires in n months
-      &lt;n&gt;y = key expires in n years
+     0 = key does not expire
+   &lt;n&gt; = key expires in n days
+   &lt;n&gt;w = key expires in n weeks
+   &lt;n&gt;m = key expires in n months
+   &lt;n&gt;y = key expires in n years
 Key is valid for? (0) 1y
 Key expires at Sat 12 Jan 2019 09:25:34 PM CST
 Is this correct? (y/N) y
@@ -230,19 +230,19 @@ some other action (type on the keyboard, move the mouse, utilize the
 disks) during the prime generation; this gives the random number
 generator a better chance to gain enough entropy.
 
-sec  rsa4096/00EFA8162571FB59
-     created: 2018-01-12  expires: 2019-01-12  usage: SC  
-     trust: ultimate      validity: ultimate
-ssb  rsa4096/51EFF717B45316A7
-     created: 2018-01-12  expires: 2019-01-12  usage: E   
-ssb  rsa4096/7FD895A29DBC18B5
-     created: 2018-01-12  expires: 2019-01-12  usage: S   
-ssb  rsa4096/C24EC8048C9A9DC4
-     created: 2018-01-12  expires: 2019-01-12  usage: A   
+sec rsa4096/00EFA8162571FB59
+   created: 2018-01-12 expires: 2019-01-12 usage: SC 
+   trust: ultimate   validity: ultimate
+ssb rsa4096/51EFF717B45316A7
+   created: 2018-01-12 expires: 2019-01-12 usage: E  
+ssb rsa4096/7FD895A29DBC18B5
+   created: 2018-01-12 expires: 2019-01-12 usage: S  
+ssb rsa4096/C24EC8048C9A9DC4
+   created: 2018-01-12 expires: 2019-01-12 usage: A  
 [ultimate] (1). linux <linux@linuxorg.com>
 gpg> save
 
-## 至此，我们需要的3个子密钥全部生成完成。
+## 至此, 我们需要的3个子密钥全部生成完成. 
 ## 主密钥指纹 	00EFA8162571FB59
 ## 加密子密钥指纹 51EFF717B45316A7
 ## 签名子密钥指纹 7FD895A29DBC18B5
@@ -251,60 +251,60 @@ gpg> save
 $gpg2 --list-keys
 /home/linux/.gnupg/pubring.kbx
 --------------------------------
-pub   rsa4096 2018-01-12 [SC] [expires: 2019-01-12]
-      FC65EF983F06878DCD0B626D00EFA8162571FB59
-uid           [ultimate] linux <linux@linuxorg.com>
-sub   rsa4096 2018-01-12 [E] [expires: 2019-01-12]
-sub   rsa4096 2018-01-12 [S] [expires: 2019-01-12]
-sub   rsa4096 2018-01-12 [A] [expires: 2019-01-12]
+pub  rsa4096 2018-01-12 [SC] [expires: 2019-01-12]
+   FC65EF983F06878DCD0B626D00EFA8162571FB59
+uid      [ultimate] linux <linux@linuxorg.com>
+sub  rsa4096 2018-01-12 [E] [expires: 2019-01-12]
+sub  rsa4096 2018-01-12 [S] [expires: 2019-01-12]
+sub  rsa4096 2018-01-12 [A] [expires: 2019-01-12]
 
 ## 看的更清楚一点
 $gpg2 --list-keys --keyid-format LONG
 /home/linux/.gnupg/pubring.kbx
 --------------------------------
-pub   rsa4096/00EFA8162571FB59 2018-01-12 [SC]
-      FC65EF983F06878DCD0B626D00EFA8162571FB59
-uid                 [ultimate] linux <linux@linuxorg.com>
-sub   rsa4096/51EFF717B45316A7 2018-01-12 [E] [expires: 2019-01-12]
-sub   rsa4096/7FD895A29DBC18B5 2018-01-12 [S] [expires: 2019-01-12]
-sub   rsa4096/C24EC8048C9A9DC4 2018-01-12 [A] [expires: 2019-01-12]
-## 这里有个问题，我的主密钥是1年有效期，难不成每年都来一套？ 
+pub  rsa4096/00EFA8162571FB59 2018-01-12 [SC]
+   FC65EF983F06878DCD0B626D00EFA8162571FB59
+uid         [ultimate] linux <linux@linuxorg.com>
+sub  rsa4096/51EFF717B45316A7 2018-01-12 [E] [expires: 2019-01-12]
+sub  rsa4096/7FD895A29DBC18B5 2018-01-12 [S] [expires: 2019-01-12]
+sub  rsa4096/C24EC8048C9A9DC4 2018-01-12 [A] [expires: 2019-01-12]
+## 这里有个问题, 我的主密钥是1年有效期, 难不成每年都来一套? 
 $ gpg2 --expert --edit-key 2571FB59
-sec  rsa4096/00EFA8162571FB59
-     created: 2018-01-12  expires: 2019-01-12  usage: SC  
-     trust: ultimate      validity: ultimate
-ssb  rsa4096/51EFF717B45316A7
-     created: 2018-01-12  expires: 2019-01-12  usage: E   
-ssb  rsa4096/7FD895A29DBC18B5
-     created: 2018-01-12  expires: 2019-01-12  usage: S   
-ssb  rsa4096/C24EC8048C9A9DC4
-     created: 2018-01-12  expires: 2019-01-12  usage: A   
+sec rsa4096/00EFA8162571FB59
+   created: 2018-01-12 expires: 2019-01-12 usage: SC 
+   trust: ultimate   validity: ultimate
+ssb rsa4096/51EFF717B45316A7
+   created: 2018-01-12 expires: 2019-01-12 usage: E  
+ssb rsa4096/7FD895A29DBC18B5
+   created: 2018-01-12 expires: 2019-01-12 usage: S  
+ssb rsa4096/C24EC8048C9A9DC4
+   created: 2018-01-12 expires: 2019-01-12 usage: A  
 [ultimate] (1). linux <linux@linuxorg.com>
 
 gpg> expire 
 Changing expiration time for the primary key.
 Please specify how long the key should be valid.
-         0 = key does not expire
-      &lt;n&gt;  = key expires in n days
-      &lt;n&gt;w = key expires in n weeks
-      &lt;n&gt;m = key expires in n months
-      &lt;n&gt;y = key expires in n years
+     0 = key does not expire
+   &lt;n&gt; = key expires in n days
+   &lt;n&gt;w = key expires in n weeks
+   &lt;n&gt;m = key expires in n months
+   &lt;n&gt;y = key expires in n years
 Key is valid for? (0) 0
 Key does not expire at all
 Is this correct? (y/N) y
 
-sec  rsa4096/00EFA8162571FB59
-     created: 2018-01-12  expires: never       usage: SC  
-     trust: ultimate      validity: ultimate
-ssb  rsa4096/51EFF717B45316A7
-     created: 2018-01-12  expires: 2019-01-12  usage: E   
-ssb  rsa4096/7FD895A29DBC18B5
-     created: 2018-01-12  expires: 2019-01-12  usage: S   
-ssb  rsa4096/C24EC8048C9A9DC4
-     created: 2018-01-12  expires: 2019-01-12  usage: A   
+sec rsa4096/00EFA8162571FB59
+   created: 2018-01-12 expires: never    usage: SC 
+   trust: ultimate   validity: ultimate
+ssb rsa4096/51EFF717B45316A7
+   created: 2018-01-12 expires: 2019-01-12 usage: E  
+ssb rsa4096/7FD895A29DBC18B5
+   created: 2018-01-12 expires: 2019-01-12 usage: S  
+ssb rsa4096/C24EC8048C9A9DC4
+   created: 2018-01-12 expires: 2019-01-12 usage: A  
 [ultimate] (1). linux <linux@linuxorg.com>
 gpg> save
-## 好了，这样主密钥永不过期。每年只需要更新子密钥即可。
+## 好了, 这样主密钥永不过期. 每年只需要更新子密钥即可. 
 
 ```
 
@@ -346,11 +346,11 @@ require-cross-certification
 $gpg2 --armor --output public.asc --export 2571fb59
 ## 导出主密钥公钥
 $gpg2 --armor --output private.asc --export-secret-keys 2571fb59
-##  导出主密钥私钥 需要提供密码
+## 导出主密钥私钥 需要提供密码
 $gpg2 --armor --output private-subkeys.asc --export-secret-subkeys 2571fb59
 ## 导出子密钥私钥 需要提供密码
 
-## 然后把这三个文件放到一个你认为安全的地方，比如加密后放到Dropbox，存到U盘锁在抽屉里...
+## 然后把这三个文件放到一个你认为安全的地方, 比如加密后放到Dropbox, 存到U盘锁在抽屉里...
 ```
 ## 上传公钥
 
@@ -358,15 +358,15 @@ $gpg2 --armor --output private-subkeys.asc --export-secret-subkeys 2571fb59
 $gpg2 --keyserver hkp://pgp.mit.edu --send-keys 2571fb59
 ```
 
-这样就把公钥信息上传到`pgp.mit.edu`，通过交换机制，所有公钥服务器最终都会有你的公钥信息。
+这样就把公钥信息上传到`pgp.mit.edu`, 通过交换机制, 所有公钥服务器最终都会有你的公钥信息. 
 
 ## 设置OPENPGP卡
 
 yubikey 有3个密码 PIN, admin PIN, reset code
 
-**默认PIN密码：123456**
+**默认PIN密码: 123456**
 
-**默认admin PIN密码： 12345678**
+**默认admin PIN密码: 12345678**
 
 请牢记
 
@@ -404,15 +404,15 @@ Your selection? q
 gpg/card> q
 ```
 
-错误解析：
+错误解析: 
 
 gpg2 --import 提示错误 permission denied
 
-解决： `echo "export GPG_TTY=$(tty)"  >> ~/.bashrc`
+解决: `echo "export GPG_TTY=$(tty)" >> ~/.bashrc`
 
-gpg2 --card-edit  当change PIN时候提示错误
+gpg2 --card-edit 当change PIN时候提示错误
 
-解决： 
+解决: 
 
 使用命令 `gpg2 --pinentry-mode loopback --card-edit`
 
@@ -424,39 +424,39 @@ gpg2 --card-edit  当change PIN时候提示错误
 
 ```
 $gpg2 --edit-key 2571fb59
-sec  rsa4096/00EFA8162571FB59
-     created: 2018-01-12  expires: never       usage: SC  
-     trust: ultimate      validity: ultimate
-ssb  rsa4096/51EFF717B45316A7
-     created: 2018-01-12  expires: 2019-01-12  usage: E   
-ssb  rsa4096/7FD895A29DBC18B5
-     created: 2018-01-12  expires: 2019-01-12  usage: S   
-ssb  rsa4096/C24EC8048C9A9DC4
-     created: 2018-01-12  expires: 2019-01-12  usage: A   
+sec rsa4096/00EFA8162571FB59
+   created: 2018-01-12 expires: never    usage: SC 
+   trust: ultimate   validity: ultimate
+ssb rsa4096/51EFF717B45316A7
+   created: 2018-01-12 expires: 2019-01-12 usage: E  
+ssb rsa4096/7FD895A29DBC18B5
+   created: 2018-01-12 expires: 2019-01-12 usage: S  
+ssb rsa4096/C24EC8048C9A9DC4
+   created: 2018-01-12 expires: 2019-01-12 usage: A  
 [ultimate] (1). linux <linux@linuxorg.com>
 gpg> key 1
 
-sec  rsa4096/00EFA8162571FB59
-     created: 2018-01-12  expires: never       usage: SC  
-     trust: ultimate      validity: ultimate
+sec rsa4096/00EFA8162571FB59
+   created: 2018-01-12 expires: never    usage: SC 
+   trust: ultimate   validity: ultimate
 ssb* rsa4096/51EFF717B45316A7
-     created: 2018-01-12  expires: 2019-01-12  usage: E   
-ssb  rsa4096/7FD895A29DBC18B5
-     created: 2018-01-12  expires: 2019-01-12  usage: S   
-ssb  rsa4096/C24EC8048C9A9DC4
-     created: 2018-01-12  expires: 2019-01-12  usage: A   
+   created: 2018-01-12 expires: 2019-01-12 usage: E  
+ssb rsa4096/7FD895A29DBC18B5
+   created: 2018-01-12 expires: 2019-01-12 usage: S  
+ssb rsa4096/C24EC8048C9A9DC4
+   created: 2018-01-12 expires: 2019-01-12 usage: A  
 [ultimate] (1). linux <linux@linuxorg.com>
 ## 此时注意看 多了一个* 表示此key被选中
 gpg> keytocard 
 Please select where to store the key:
-   (2) Encryption key
+  (2) Encryption key
 Your selection? 2
 
 ## 导入后 再次执行 key 1 反选
 
 ## 依次导入key 2 和 key 3
 gpg> save
-## 这样就可以了 私钥信息不能提取出来，这就是为什么钥先备份再导入的原因
+## 这样就可以了 私钥信息不能提取出来, 这就是为什么钥先备份再导入的原因
 ```
 
 ### 测试
@@ -476,7 +476,7 @@ $gpg2 --card-status
 
 ### Yubikey重置
 
-方法一：
+方法一: 
 
 ```
 $gpg2 --card-edit
@@ -485,7 +485,7 @@ Admin commands are allowed
 gpg/card> factory-reset
 ```
 
-方法二：
+方法二: 
 
 [官方文档](https://www.yubico.com/support/knowledge-base/categories/articles/reset-applet-yubikey/#resetapplet)
 
@@ -498,18 +498,18 @@ $gpg2 --export-ssh-key 2571fb59
 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC3PSouOM2gALjoHMroM6p/FdH5FmUXju7p5mnGBGVEIRhq9f8GHsoBjzmFw3gkM+tc7bvThmSVM9jFk0E1C5lE//jNRAzm94OWO1g2MBwEBeaNUsa1CEipgxOl5EnRLr+0hAr65TgQ9iVbxJRP/q9l8jx+4/zangzD76Bu0dc4kVtJsoiGvnvtfIjvAqQMzZw1Sbws7EDmbGCa2+93eTjlVoba9zA6lx8DOeRMjZ0fOXstlGxVWj52JA2Y+ZySAQR4FQUOub7rklxNnYg6dckP9cCtJ6x9r8VtHzcpjUy16pmGZIjLFc+5r0wEYbsR2v6xB0G/mf3g+qPNZ3uMlqSYhUNnINMbh1cbVsTqaXQzWtcJP9k4+LaAzglRgV0jSCCQou3yb0MKmMPgUHtYwqeffHQk78CAWbWz3k+uXxFmx0WN++P5jj19p72llm820erfl2lG9zG5AUCyc/BV52FPefyNU3AQRi99+dN5qt2dMOTQ2YhpAzgL7Pj5D5zk3qck7HGrT3uu90mnguPRkAA+MuZivdWapE3lW/a4GXeWYslIEBKcqyHsODt4cC+RAflLE5bTTaWqemaCeYgPGtVjjjfQbZVkKOfdujRsrKM1f4ruujaxYSSzx4ahOsPem76zfJ8sSjgVshoJBBMAvN+7u+tOLqjgv6DtdT6whMjhLw== openpgp:0x8C9A9DC4
 ```
 
-上面命令输出的即是SSH格式的PGP认证信息。 将以上信息输出到 `~/.ssh/id_rsa.pub`，然后复制到目标机器的`authorized_keys`， 即可利用PGP实现SSH认证。
+上面命令输出的即是SSH格式的PGP认证信息. 将以上信息输出到 `~/.ssh/id_rsa.pub`, 然后复制到目标机器的`authorized_keys`, 即可利用PGP实现SSH认证. 
 
 ```
 $gpg2 --export-ssh-key 2571fb59 >> ~/.ssh/id_rsa.pub
 $ssh-copy-id [user@]hostname
 ```
 
-事实上还是ssh的功能，默认的ssh认证使用的是ssh-agent，这里只不过使用gpg-agent代替ssh-agent完成认证。
+事实上还是ssh的功能, 默认的ssh认证使用的是ssh-agent, 这里只不过使用gpg-agent代替ssh-agent完成认证. 
 
-要通过gpg-agent实现ssh-agent的功能，还需要编辑两个文件
+要通过gpg-agent实现ssh-agent的功能, 还需要编辑两个文件
 
-Shell rc文件  `~/.bashrc` 或者 `~/.zshrc`
+Shell rc文件 `~/.bashrc` 或者 `~/.zshrc`
 
 ```
 # for GPG
@@ -555,7 +555,7 @@ $sudo pacman -S libu2f-host
 $yaourt -S libu2f-server pam_u2f
 ```
 
-配置：
+配置: 
 
 注册设备
 
@@ -563,7 +563,7 @@ $yaourt -S libu2f-server pam_u2f
 pamu2fcfg -u&lt;username&gt;
 ```
 
-这时 Yubikey 上的LED会闪烁提示，轻触 输出格式如下
+这时 Yubikey 上的LED会闪烁提示, 轻触 输出格式如下
 
 `&lt;username&gt;:<KeyHandle1>,<UserKey1>`
 
@@ -600,7 +600,7 @@ nouserok
 Set to enable authentication attempts to succeed even if the user trying to authenticate is not found inside authfile or if authfile is missing/malformed.
 
 openasuser 
-Setuid to the authenticating user when opening the authfile. Useful when the user’s home is stored on an NFS volume mounted with the root_squash option (which maps root to nobody which will not be able to read the file).
+Setuid to the authenticating user when opening the authfile. Useful when the user's home is stored on an NFS volume mounted with the root_squash option (which maps root to nobody which will not be able to read the file).
 
 alwaysok 
 Set to enable all authentication attempts to succeed (aka presentation mode).
@@ -609,7 +609,7 @@ max_devices=n_devices
 Maximum number of devices allowed per user (default is 24). Devices specified in the authentication file that exceed this value will be ignored.
 
 interactive 
-Set to prompt a message and wait before testing the presence of a U2F device. Recommended if your device doesn’t have tactile trigger.
+Set to prompt a message and wait before testing the presence of a U2F device. Recommended if your device doesn't have tactile trigger.
 
 [prompt=your prompt here] 
 Set individual prompt message for interactive mode. Watch the square brackets around this parameter to get spaces correctly recognized by PAM.

@@ -209,25 +209,25 @@ new
 
 * 匹配 \*.example.com 
 
-    `ansible '*.example.com' --list-hosts`
+  `ansible '*.example.com' --list-hosts`
 
 * 匹配以 `s` 开头的主机或主机组 
 
-    `ansible 's*' --list-hosts`
+  `ansible 's*' --list-hosts`
 
 ### 通配符组合匹配
 
 * 匹配包含 `*.example.com` 但不包含 `*.lab.exampl.ecom`的主机或主机组
 
-    `ansible '*.example.com,!*.lab.example.com' --list-hosts`
+  `ansible '*.example.com,!*.lab.example.com' --list-hosts`
 
 * 匹配属于db组同时属于london组的主机
 
-    `ansible 'db,&london' --list-hosts`
+  `ansible 'db,&london' --list-hosts`
 
 * 匹配在london组或者boston组, 同时在prod组 但不在lb组中的主机
 
-    `ansible 'london,boston,&prod,!lb' --list-hosts`
+  `ansible 'london,boston,&prod,!lb' --list-hosts`
 
 ### 正则表达式匹配
 
@@ -240,4 +240,4 @@ new
 * `ansible ungrouped --limit srv1.example.com --list-hosts`
 * `ansible ungrouped --limit @retry_hosts.txt --list-hosts` 
 
-    retry\_hosts.txt里预先定义内容
+  retry\_hosts.txt里预先定义内容

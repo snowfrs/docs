@@ -1,7 +1,7 @@
 ---
 title: "RouterOS-default-rules"
 ---
-Mikrotik 的 RouterBoard 硬件产品默认都有带有配置良好的防火墙规则，x86/CHR 设备默认不带防火墙规则。 如果你不小心删掉了防火墙规则，或者需要还原默认防火墙规则，可以导入以下配置:
+Mikrotik 的 RouterBoard 硬件产品默认都有带有配置良好的防火墙规则, x86/CHR 设备默认不带防火墙规则. 如果你不小心删掉了防火墙规则, 或者需要还原默认防火墙规则, 可以导入以下配置:
 
 ```
 /interface list
@@ -61,4 +61,4 @@ add action=accept chain=forward comment="defconf: accept all that matches ipsec 
 add action=drop chain=forward comment="defconf: drop everything else not coming from LAN" in-interface-list=!LAN
 ```
 
-规则提取自 RouterOS 7.1.1，更新于 2021年12月31日。
+规则提取自 RouterOS 7.1.1, 更新于 2021年12月31日. 
