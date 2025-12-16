@@ -1,7 +1,6 @@
 {
     "title": "Cloud Computing",
     "pages": [
-        "index",
         "OpenStack",
         "AWS",
         "GCP",

@@ -1,0 +1,44 @@
+---
+title: "ZFS Cheatsheet"
+---
+
+```bash
+zfs get all tank
+
+
+zfs set userquota@ithelpdesk=1T tank/scratch
+
+zfs get userquota@ithelpdesk tank/scratch
+
+zfs set userquota@ithelpdesk=none tank/scratch
+
+
+
+zfs userspace tank/scratch
+
+zfs userspace -o name,used,quota -S used zpool0/scratch
+
+
+
+zpool status -v zpool0
+pool: zpool0
+state: ONLINE
+scan: scrub repaired 0B in 00:07:06 with 0 errors on Fri Sep 1 13:13:07 2023
+config:
+
+NAME STATE READ WRITE CKSUM
+zpool0 ONLINE 0 0 0
+raidz2-0 ONLINE 0 0 0
+334dab2b-1c8a-46df-adc9-1625f107b7b7 ONLINE 0 0 0
+3f38566d-e39e-4c40-940c-98bacdb3b98d ONLINE 0 0 0
+46cd9275-f83a-4d74-9807-51efb7bff729 ONLINE 0 0 0
+5c446f7e-5c17-4676-819f-cca8f72363de ONLINE 0 0 0
+raidz2-1 ONLINE 0 0 0
+542b3d01-3c29-4b16-aab8-ec4703272891 ONLINE 0 0 0
+f76a1e9c-98ac-41ee-ac87-cfe1614fb7f0 ONLINE 0 0 0
+929a890f-0fae-48a0-9f01-b46bf6cdf165 ONLINE 0 0 0
+27195919-c467-49ee-8614-0de6c3fee75e ONLINE 0 0 0
+spares
+b0da01d8-dfe5-4074-87c4-2c87492f7765 AVAIL
+
+```

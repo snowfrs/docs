@@ -1,7 +1,6 @@
 {
     "title": "Kubernetes",
     "pages": [
-        "index",
-        "01. K8S"
+        "01-K8S"
     ]
 }

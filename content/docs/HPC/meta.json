@@ -1,19 +1,25 @@
 {
     "pages": [
-        "index",
-        "---Compute---",
-        "Slurm",
-        "Scheduler",
-        "Training",
         "---Storage---",
-        "Storage",
         "NetApp",
         "TrueNAS",
-        "---System---",
-        "OS",
+        "ZFS",
+        "Lustre",
+        "CubeFS",
+        "BeeGFS",
+        "---Batch System---",
+        "Slurm",
+        "Scheduler",
+        "---Operating System---",
+        "EL10",
+        "EL9",
+        "EL8",
         "SmartOS",
-        "SoftwareEnv",
-        "IDP",
-        "SSO"
+        "---SoftwareEnv---",
+        "EasyBuild",
+        "---IDP---",
+        "SSO",
+        "---Training---",
+        "Training"
     ]
 }
