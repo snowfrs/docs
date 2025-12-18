@@ -1,0 +1,82 @@
+---
+title: "update-alternatives"
+---
+
+## 手动更新
+```bash
+# update-alternatives --config jre_openjdk
+
+There are 2 programs which provide 'jre_openjdk'.
+
+  Selection    Command
+-----------------------------------------------
+*  1           java-1.8.0-openjdk.x86_64 (/usr/lib/jvm/java-1.8.0-openjdk-1.8.0.472.b08-1.el8.x86_64/jre)
+ + 2           java-21-openjdk.x86_64 (/usr/lib/jvm/java-21-openjdk-21.0.9.0.10-1.el8.x86_64)
+
+Enter to keep the current selection[+], or type selection number: 2
+```
+
+## 自动更新
+使用 Ansible 管理 update-alternatives 是自动化配置环境(如切换 Java 版本、Python 版本或 GCC)的标准做法.
+
+可以使用 Ansible 内置的 community.general.alternatives 模块来实现.
+
+* 1. 安装必要的集合
+首先, 确保你的环境中安装了 `community.general` 集合, 因为 `alternatives` 模块包含在其中:
+```bash
+ansible-galaxy collection install community.general
+```
+
+* 2. Ansible Playbook 示例
+以下是一个完整的 Playbook 示例, 演示如何安装一个新的 Python 版本并将其设置为系统默认值.
+```yaml
+- name: 在 Rocky 8 中配置 update-alternatives
+  hosts: all
+  become: yes
+  tasks:
+    - name: 注册 alternatives 项目 (类似 --install)
+      community.general.alternatives:
+        name: python3
+        path: /usr/bin/python3.9
+        link: /usr/bin/python3
+        priority: 100
+      register: alt_install_result
+
+    - name: 设置特定的版本作为当前选择 (类似 --set)
+      community.general.alternatives:
+        name: python3
+        path: /usr/bin/python3.9
+      when: alt_install_result is succeeded
+
+    - name: 验证当前使用的版本
+      command: python3 --version
+      register: py_version
+      changed_when: false
+
+    - debug:
+        msg: "当前 Python 版本为: {{ py_version.stdout }}"
+```
+* 3. 核心参数详解
+
+| 参数 | 说明 |
+| --- | --- |
+| name | 统称名(Generic name), 如 java, python3, editor。 |
+| path | 实际可执行文件的路径(要切换到的目标文件)。 |
+| link | (可选) 系统软链接的位置，通常在 /usr/bin/ 下。如果该项已存在则无需重复定义。 |
+| priority | 优先级数字。在自动模式下，数字最大的将被选中。 |
+| state | present (默认) 表示添加/设置, absent 表示移除。 |
+
+4. 常见场景: 设置 Java 版本
+
+如果你在 Rocky 8 上安装了多个 JDK，可以这样切换：
+```yaml
+- name: 设置默认 Java
+  community.general.alternatives:
+    name: java
+    path: /usr/lib/jvm/java-21-openjdk-21.0.9.0.10-1.el8.x86_64/bin/java
+    priority: 200
+```
+
+注意事项
+* **权限**：由于 update-alternatives 修改系统级软链接，必须使用 become: yes.
+* **自动 vs 手动**：使用 Ansible 设置 path 会自动将该项目切换到“手动(manual)”模式, 并锁定在你指定的路径上。
