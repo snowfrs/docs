@@ -20,6 +20,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# sitemaps
+/public/sitemap*.xml
+/public/robots.txt
+
 # others
 .env*.local
 .vercel
