@@ -1,0 +1,174 @@
+---
+title: "Cgroups"
+---
+
+# Control Groups (cgroups)
+
+## 背景 (Background)
+Control Groups (通常简称为 **cgroups**) 是 Linux 内核的一项功能, 允许你将进程组织成层级化的组, 并以此为基础对资源 (CPU, 内存, 磁盘 I/O, 网络等) 的使用进行限制, 审计和隔离. 
+
+该项目最初由 Google 工程师于 2006 年开发 (当时称为 "process containers"), 随后在 2.6.24 内核版本中正式合并. cgroups 为现代容器化技术 (如 **Docker** 和 **Kubernetes**) 提供了最核心的资源管理底座. 
+
+## 核心功能 (Core Functions)
+Cgroups 主要提供以下四大关键能力: 
+1. **资源限制 (Resource Limiting)**: 为特定的进程组设置内存上限或 CPU 权重. 
+2. **优先级分配 (Prioritization)**: 通过配置确保某些关键组获得更多的 CPU 执行时间或磁盘 I/O 吞吐量. 
+3. **统计审计 (Accounting)**: 细粒度监控和报告每个进程组实际消耗的资源情况. 
+4. **控制 (Control)**: 可以实现对整个进程组的一键挂起 (Freezing), 重启或终止. 
+
+## Cgroup v1 vs. Cgroup v2
+随着技术演进, cgroups 实现了从 v1 到 v2 的重大架构升级. 
+
+### Cgroup v1 (旧版架构)
+- **多层级并存**: 每个资源控制器 (如 CPU, Memory) 都有自己独立的层级树. 
+- **管理复杂**: 进程可能同时处于不同层级树的不同节点中, 难以进行全局资源协调. 
+- **设计不一**: 不同控制器的配置项逻辑和行为不尽相同, 增加了运维负担. 
+
+### Cgroup v2 (统一架构)
+- **单一层级 (Unified Hierarchy)**: 所有资源控制器合并到同一个层级树下进行管理. 
+- **简化设计**: 资源配额在同一个组级别统一配置, 清晰展现容器的完整资源画像. 
+- **"无内点"原则 (No Internal Processes)**: 限制进程只能归属于叶子节点, 确保资源竞争仅发生在同级组之间. 
+- **eBPF 深度集成**: v2 在设计之初就考虑了与 eBPF 的配合, 从而极大地增强了监控与安全能力. 
+
+## 强制启用 Cgroup v2
+大多数现代发行版 (如 Fedora, Ubuntu 22.04+, Debian 11+) 已默认运行在 v2 模式. 如果你的系统仍在使用 v1 或混合模式, 可以通过修改内核启动参数来强制切换. 
+
+### 1. 修改启动参数
+编辑 GRUB 配置文件 (通常为 `/etc/default/grub`), 在 `GRUB_CMDLINE_LINUX_DEFAULT` 变量中添加: 
+
+```text
+systemd.unified_cgroup_hierarchy=1
+```
+
+若需彻底禁用 v1 控制器以构建纯净的 v2 环境, 可额外补充: 
+```text
+cgroup_no_v1=all
+```
+
+### 2. 更新引导并重启
+保存文件后, 根据发行版更新 GRUB 配置并重启系统: 
+
+```bash
+# Debian / Ubuntu 系
+sudo update-grub
+
+# RHEL / Rocky / Alma / CentOS / Fedora 系
+sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+
+# 重启生效
+sudo reboot
+```
+
+## 使用与操作指南
+
+### 1. 确认当前版本
+通过以下命令查看 cgroup 文件系统的类型: 
+```bash
+stat -fc %T /sys/fs/cgroup/
+```
+- `cgroup2fs`: 表示当前正在运行 Cgroup v2. 
+- `tmpfs`: 通常意味着仍在运行 Cgroup v1. 
+
+### 2. 手动创建与管理 (v2 示例)
+在 v2 中, 一切管理都通过 `/sys/fs/cgroup/` 下的目录操作来完成. 
+
+```bash
+# 创建一个新的组目录 'mygroup'
+mkdir /sys/fs/cgroup/mygroup
+
+# 向子组注册并启用 memory 和 cpu 控制能力
+echo "+memory +cpu" > /sys/fs/cgroup/cgroup.subtree_control
+
+# 为该组设置 50MB 的内存硬上限
+echo "50M" > /sys/fs/cgroup/mygroup/memory.max
+
+# 将当前 Shell 进程及其子进程移动到该组中
+echo $$ > /sys/fs/cgroup/mygroup/cgroup.procs
+```
+
+## 故障排查与性能监控
+
+### 1. 查看资源实时消耗
+直接读取对应组目录下的状态文件即可获取最新数据. 
+```bash
+# 查看组内当前的物理内存使用情况
+cat /sys/fs/cgroup/mygroup/memory.current
+
+# 查看 CPU 压力指标 (PSI), 这是 v2 评估性能瓶颈的神器
+cat /sys/fs/cgroup/mygroup/cpu.pressure
+```
+
+### 2. 结合 `systemd` 工具链
+在基于 systemd 的主机上, 每个服务单元 (Service Unit) 本质上就是一个 cgroup. 
+```bash
+# 可视化展示特定服务的 cgroup 层级树
+systemd-cgls -u my-service.service
+
+# 类似于 top 命名的交互式资源排行工具
+systemd-cgtop
+```
+
+### 3. 常见避坑指南
+- **权限问题**: 所有对 `/sys/fs/cgroup` 的写操作通常都需要 Root 权限. 
+- **删除失败**: 如果组内仍有残留的僵尸进程或活跃进程, 对应的目录将无法被删除. 
+- **模式冲突**: 强制混合使用 v1 和 v2 可能会导致 Kubernetes 或 Docker 等编排引擎出现底层逻辑冲突. 
+
+## Cgroup v2 控制器进阶解析
+
+### CPU 控制器
+v2 抛弃了 v1 复杂的周期参数, 简化为两大核心旋钮: 
+- **`cpu.weight`**: 进程组的权重比例 (默认 100), 权重越高, 在争抢 CPU 时获得的比例越大. 
+- **`cpu.max`**: 绝对配额限制. 格式为 `$MAX $PERIOD` (例如 `20000 100000` 表示在 100ms 周期内最多占用 20% 的单核 CPU). 
+
+### Memory 控制器
+v2 引入了更具弹性的渐进式管理: 
+- **`memory.low`**: "软保护"线, 内核会尽力保证组内内存不低于此值. 
+- **`memory.high`**: "节流"线, 超过此值后进程会被限速并强制回收内存, 但不会立即被 OOM 杀掉. 
+- **`memory.max`**: "死线", 一旦突破即刻触发 OOM Killer. 
+- **`memory.swap.max`**: 针对 Swap 交换分区的独立限额. 
+
+### IO 控制器
+- **`io.max`**: 设置每个块设备的 IOPS 和吞吐量限位. 
+  ```bash
+  # 限制特定设备 (8:0) 的读取带宽为 1MB/s
+  echo "8:0 rbps=1048576" > /sys/fs/cgroup/mygroup/io.max
+  ```
+
+## 生产力工具: `systemd-run`
+`systemd-run` 是最便捷的方式, 无需手动操作 `sysfs`, 直接通过参数运行受限任务. 
+
+```bash
+# 限制脚本最多使用 100MB 内存及 50% CPU 运行
+systemd-run --scope -p MemoryMax=100M -p CPUQuota=50% ./my-script.sh
+```
+
+## Cgroup Namespaces 与安全隔离
+为了确保容器间的资源视图互不可见, Linux 引入了 **Cgroup Namespaces**. 
+- 它为进程提供了虚拟化的 cgroup 层级视图. 
+- 容器内的进程只能看到属于自己的层级作为根节点 (`/`), 从而无法刺探宿主机或其他容器的资源配置, 极大地增强了系统的多租户安全性. 
+
+## 任务调度系统中的实践
+主流的编排和高性能计算调度系统都已深度支持 cgroup v2. 
+
+### 1. Kubernetes (K8s)
+自 1.25 版本起全面支持 v2, 推荐使用 `systemd` cgroup 驱动. 
+- 借助 `memory.high` 实现更平滑的 Pod 内存 QoS 策略. 
+- Kubelet 通过监控 `cpu.pressure` (PSI) 来进行更精准的驱逐策略判定. 
+
+### 2. Slurm (HPC)
+高性能计算调度器 Slurm 依靠 v2 插件实现了极强的作业包裹能力. 
+- 通过 `cgroup.conf` 自动在 `/sys/fs/cgroup/slurm/` 下为每个 Job 创建独立空间. 
+- 结合 GPU 插件, 能够精确管理单卡或多卡资源的分配与回收. 
+
+### 3. SGE (Grid Engine)
+SGE 及各类 Grid Engine 变种通过自定义 Shepherd 脚本接入 cgroup. 
+- 解决传统调度器无法清理 "双重 Fork" 进程的顽疾 —— 只要销毁对应的 cgroup 作用域, 任务产生的所有残留进程将被强制清理干净. 
+
+### 调度器集成对比
+
+| 特性项 | Kubernetes | Slurm | SGE / Grid Engine |
+| :--- | :--- | :--- | :--- |
+| **主驱动器** | systemd | cgroup/v2 插件 | Shepherd 脚本 / 辅助程序 |
+| **CPU 限制方式** | `cpu.max` | `cpu.max` / `cpuset` | `cpuset` |
+| **内存限制方式** | `memory.max / high` | `memory.max` | 逻辑兼容适配 |
+| **资源清理机制** | 自动 (Kubelet) | 自动 (Slurmd) | 手动挂钩或管理器清理 |
