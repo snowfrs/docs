@@ -1,0 +1,78 @@
+---
+title: "Ansible Galaxy: 社区资源与角色共享"
+description: "介绍 Ansible Galaxy 的使用方法, 如何利用社区 Roles 与 Collections 加速自动化流程."
+---
+
+**Ansible Galaxy** 是 Ansible 官方维护的社区资源库. 它类似于 Python 的 PyPI 或 Node.js 的 npm, 为全球开发者提供了一个分享、发现和下载可重用 Ansible 内容 (主要为 Roles 和 Collections) 的平台.
+
+## 1. 核心概念: Roles 与 Collections
+
+*   **Roles (角色)**: 传统的资源封装方式. 它将变量、任务、文件、模板按标准目录结构组织在一起, 解决特定的问题 (如安装并配置 Nginx).
+*   **Collections (集合)**: 现代的分发标准. 它可以包含多个 Roles、Modules、Plugins 以及对应的文档, 是目前 Ansible 生态推荐的模块化打包方式.
+
+---
+
+## 2. 常用命令行操作
+
+### 2.1 搜索与发现
+如果你需要配置一个 MySQL 数据库, 可以先搜索社区已经成熟的方案:
+```bash
+ansible-galaxy search mysql
+```
+
+### 2.2 安装资源
+从 Galaxy 下载并安装指定的角色或集合:
+```bash
+# 安装一个 Role
+ansible-galaxy install geerlingguy.mysql
+
+# 安装一个 Collection
+ansible-galaxy collection install community.docker
+```
+
+### 2.3 初始化本地结构
+当你准备编写一个符合标准、可复用的角色时, 使用初始化指令创建目录骨架:
+```bash
+ansible-galaxy init my_custom_role
+```
+
+---
+
+## 3. 依赖管理: `requirements.yml`
+
+在大型项目中, 不建议手动逐个安装依赖. 可以在项目根目录创建 `requirements.yml` 文件进行版本管理.
+
+```yaml
+---
+# roles 列表
+roles:
+  - name: geerlingguy.nginx
+    version: 3.1.1
+
+# collections 列表
+collections:
+  - name: community.general
+    version: ">=4.0.0"
+```
+
+执行以下命令即可一键安装所有依赖:
+```bash
+ansible-galaxy install -r requirements.yml
+```
+
+---
+
+## 4. 私有 Galaxy (Automation Hub)
+
+对于企业内部不便公开的自动化逻辑, 可以搭建内部的私有仓库, 或者使用 Red Hat 提供的 **Automation Hub**. 在配置中指定专属的镜像源路径, 即可实现安全可控的内部角色分发.
+
+---
+
+## 5. 质量评估建议
+
+在引入社区 Role 前, 建议关注以下指标:
+*   **Quality Score**: Galaxy 官方根据代码规范给出的评分.
+*   **GitHub Stars / Issues**: 反映该项目的活跃度与稳定性.
+*   **Platforms**: 确认该 Role 是否支持你当前使用的操作系统版本.
+
+> 善用外部资源不仅能减少 "重复造轮子", 还能通过参考社区顶级专家的代码结构, 快速提升自身的 Playbook 编写水平.

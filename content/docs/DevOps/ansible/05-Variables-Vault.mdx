@@ -1,0 +1,71 @@
+---
+title: "变量优先级、Facts 深度挖掘与加密"
+description: "深入解析 Ansible 变量的层级覆盖逻辑、Facts 缓存机制、魔法变量以及生产环境下的敏感数据加密方案."
+---
+
+变量是实现 Ansible 动态感知环境差异的核心. 在复杂的生产环境中, 深刻理解变量的优先级顺序和 Facts 采集机制, 是避免配置冲突和环境漂移的关键.
+
+## 1. 变量优先级 (Variable Precedence)
+
+Ansible 定义了超过 16 个层级的变量覆盖逻辑. 为了便于工程化实践, 建议掌握以下五个核心梯队 (从高到低):
+
+1.  **命令行参数 (-e / --extra-vars)**: 绝对最高. 用于在运行时临时覆盖所有逻辑.
+2.  **Playbook 内部变量**: 包在 task 或 block 内部的 `vars`, 以及直接在 play 级别定义的 `vars`.
+3.  **Task 注册变量 (register)**: 动态捕获的任务输出.
+4.  **Inventory 与变量文件**: 包括 `host_vars/`, `group_vars/` 目录以及 `vars_files`.
+5.  **系统采集信息 (Facts)**: 自动检测到的底层硬件与系统属性.
+
+---
+
+## 2. Ansible Facts: 高级应用与优化
+
+### 2.1 性能优化: Facts 缓存
+在大规模存量节点中, 每次 `Gathering Facts` 可能耗时数秒. 可以通过配置缓存插件 (如 Redis 或 Json 文件) 将 Facts 持久化.
+```ini
+[defaults]
+fact_caching = jsonfile
+fact_caching_connection = /tmp/ansible_facts_cache
+fact_caching_timeout = 86400  # 缓存一天
+```
+
+### 2.2 自定义 Facts (Local Facts)
+可以将特定业务元数据存储在受控节点的 `/etc/ansible/facts.d/*.fact` (JSON 或 INI 格式). Ansible 会自动将其采集到 `ansible_local` 命名空间下.
+
+---
+
+## 3. 跨主机协同的核心: 魔法变量
+
+魔法变量允许当前 Pod 获取集群全局视角的元数据, 这是实现服务发现和动态集群建模的关键:
+
+*   **`hostvars`**: 允许读取其它主机的变量 (如 `{{ hostvars['db01']['ansible_eth0']['ipv4']['address'] }}`).
+*   **`groups['group_name']`**: 返回该组下所有主机名的列表.
+*   **`group_names`**: 返回当前主机所属的所有组名列表. 常用于 `when: "'web' in group_names"` 的逻辑判断.
+
+---
+
+## 4. 数据安全: Ansible Vault 高阶用法
+
+普通的 `ansible-vault` 加密整文件会导致 Git Diff 无法阅读. 
+
+### 4.1 变量级加密 (Inline Encryption)
+仅加密 YAML 中的某个 Value, 而保留 Key 为明文.
+```bash
+ansible-vault encrypt_string 'super_secret_password' --name 'db_password'
+```
+
+### 4.2 多密码管理 (Vault IDs)
+在多团队协作时, 可以使用不同的标签和密码管理不同的敏感数据:
+```bash
+ansible-playbook site.yml --vault-id dev@prompt --vault-id prod@/path/to/prod_pass.txt
+```
+
+---
+
+## 5. 变量注册与复合结构解析
+
+使用 `register` 获取任务返回的 JSON 对象后, 应当利用其属性进行精确控制:
+*   **`changed`**: 是否发生了变更.
+*   **`failed`**: 任务是否失败.
+*   **`stdout_lines`**: 将输出按行拆分的列表, 方便循环遍历.
+
+> 变量不仅是值的载体, 更是业务逻辑的抽象. 坚持在 `group_vars/all` 中定义默认值, 在 `host_vars/` 中定义差异化偏离, 是维护大型集群的黄金准则.

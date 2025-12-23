@@ -1,0 +1,62 @@
+---
+title: "Playbook 核心架构与工程化实践"
+description: "深入解析 Playbook 的任务委派、并行策略、执行控制以及 Handler 的高级触发机制."
+---
+
+Playbook 不仅仅是任务的堆砌, 它是一套完整的自动化编排引擎. 深刻理解任务的执行策略及跨主机协同机制, 是从 "脚本编写者" 进阶为 "架构设计者" 的关键.
+
+## 1. 执行策略 (Strategies)
+
+Ansible 默认按 Playbook 中的任务顺序执行, 但其横向分发逻辑可以通过 `strategy` 关键字控制:
+
+*   **linear (默认)**: 严格的同步模式. 任务 A 在所有节点完成后, 才会开始任务 B.
+*   **free**: 异步抢占模式. 每个节点会尽可能快地执行完所有任务, 不等待其它节点. 适用于各节点任务完全独立的场景.
+*   **serial (串行度控制)**: 用于滚动升级. 限制每次仅在 N 台或 N% 的主机上运行 Play. 
+    ```yaml
+    - name: Rolling Upgrade
+      hosts: web_servers
+      serial: "25%"  # 每次升级 25% 的机器, 降低业务风险
+    ```
+
+---
+
+## 2. 跨主机协作: 委派与本地执行
+
+在自动化工作流中, 有些任务需要在特定的主机上运行:
+
+### 2.1 delegate_to (任务委派)
+*   **场景**: 在升级 Web Node A 前, 需要向负载均衡器 (F5/Nginx) 请求摘除该节点. 此时任务在 Node A 的上下文运行, 但实际指令是在负载均衡器上执行的.
+
+### 2.2 run_once (仅执行一次)
+*   **场景**: 数据库初始化脚本. 尽管该 Play 涉及 10 台主机, 但该任务仅需在其中任意一台上运行一次即可.
+
+### 2.3 local_action
+*   **场景**: 在控制节点 (Master) 上执行操作, 如下载必要插件或清理本地临时文件.
+
+---
+
+## 3. Handlers 的深度控制
+
+Handlers 的触发机制遵循 **"累计触发、末尾执行"** 原则, 但在某些场景下需要更精细的操作:
+
+*   **强制执行 (Force Handlers)**: 默认如果任务中途失败, 已分配的 Handlers 将不再执行. 设置 `force_handlers: yes` 可以确保即使 Play 失败, 已标记为 `changed` 的服务依然能够重启.
+*   **即时冲刷 (meta: flush_handlers)**: 
+    ```yaml
+    tasks:
+      - name: Update Config
+        template: src=config.j2 dest=/etc/app.conf
+        notify: Restart App
+      - meta: flush_handlers  # 强制立即执行 Restart App, 而不是等到 Play 结束
+      - name: Verify App Status
+        uri: url=http://localhost/health
+    ```
+
+---
+
+## 4. 容错与错误忽略
+
+*   **ignore_errors**: 允许任务失败而不中断后续流程.
+*   **any_errors_fatal**: 如果集群中任何一个节点任务失败, 立即停止所有节点的执行. 适用于对一致性要求极高的核心组件升级.
+*   **failed_when**: 自定义失败逻辑. 例如: 返回码虽然是 0, 但输出包含了 "Error" 字符串, 此时标记为失败.
+
+> 回顾整个 Playbook 的设计, 开发者应当首先确定执行的边界 (Hosts) 和隔离范围 (Serial), 再利用 Meta 任务精准控制配置生效的时机, 从而构建健壮的流水线.

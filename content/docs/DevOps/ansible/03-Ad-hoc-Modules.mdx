@@ -1,0 +1,65 @@
+---
+title: "Ad-hoc 命令与核心模块深度解析"
+description: "解析 Ansible Ad-hoc 模式的执行机制, 深度对比 command/shell/raw 模块, 并详解文件、系统及软件包管理的核心模块参数."
+---
+
+Ad-hoc 是 Ansible 提供的一种非持久化的命令行执行模式. 尽管 Playbook 是生产环境的标准, 但深刻理解 Ad-hoc 以及各核心模块的参数细节, 是进行快速故障排查和编写高效任务的基础.
+
+## 1. 指令执行模块: 对比与选型
+
+在执行任意远程指令时, 必须根据任务属性在以下四个模块中做出精准选择:
+
+### 1.1 command (默认)
+*   **特性**: 安全, 不经过远程主机的 Shell 环境. 
+*   **限制**: **不支持管道 (`|`)、重定向 (`>`)、通告变量和通配符 (`*`)**.
+*   **示例**: `ansible web -m command -a "uptime"`
+
+### 1.2 shell
+*   **特性**: 调用远程主机的 `/bin/sh`. 支持完整的 Shell 特性.
+*   **代价**: 略微增加开销, 且面临 Shell 注入或环境变量副作用的风险.
+*   **示例**: `ansible web -m shell -a "ls /tmp/*.log | xargs rm -f"`
+
+### 1.3 raw (底层执行)
+*   **特性**: 直接通过 SSH 运行指令, **完全不依赖受控端的 Python 环境**.
+*   **场景**: 用于给刚安装完系统的、连 Python 都没有的空机安装 `python-minimal`.
+
+### 1.4 script
+*   **特性**: 在控制节点编写脚本, 自动传输到远程节点并在内存中运行.
+*   **场景**: 需要执行复杂的动态逻辑, 但又不想在远程节点留下脚本文件.
+
+---
+
+## 2. 文件精准操作模块
+
+### 2.1 copy vs fetch
+*   **copy**: 主控端推送文件到受控端 (支持 `backup=yes` 和 `content` 参数直接写入字符串).
+*   **fetch**: 从受控端拉取文件到主控端 (通常用于收集日志或备份文件). **注意: fetch 只能拉取文件, 无法拉取目录 (目录需先打包).**
+
+### 2.2 lineinfile vs replace vs blockinfile
+针对配置文件的修改, 应根据匹配维度选择模块:
+*   **lineinfile**: 针对单行. 用于确保某一行存在 (`state=present`) 或被删除. 支持 `regexp` 和 `backrefs`.
+*   **replace**: 针对全局替换. 类似于 `sed`, 用于将文中所有符合模式的 A 替换为 B.
+*   **blockinfile**: 针对多行块. 自动在匹配位置插入由 `# BEGIN ANSIBLE MANAGED BLOCK` 标记包裹的内容块, 方便后续维护.
+
+---
+
+## 3. 系统与包管理模块的高级参数
+
+### 3.1 yum / apt
+*   **`disablerepo` / `enablerepo`**: 临时切换源.
+*   **`list`**: 在 ad-hoc 模式下查询已安装的版本.
+*   **`update_cache`**: 是否执行 `yum makecache` 或 `apt update`.
+
+### 3.2 systemd / service
+*   **`daemon_reload`**: 当配置 Unit 文件修改后, 必须触发此动作.
+*   **`masked`**: 将服务屏蔽, 彻底防止被手动或其它服务激活.
+
+---
+
+## 4. 并行度控制 (Concurrency)
+
+执行 Ad-hoc 命令时, 可以通过 `-f` (forks) 参数动态调整并行规模:
+`ansible all -m ping -f 100` 
+在面对超大规模任务时, 合理的 Fork 数能显著缩短运维周期.
+
+> 在使用 `shell` 模块时应时刻保持警惕, 优先寻找具备幂等性的专用模块. 专用模块能够提供状态反馈和回滚保障, 这是裸脚本所不具备的核心价值.

@@ -1,0 +1,73 @@
+---
+title: "循环控制、条件分支与高级查询"
+description: "解析 Ansible 现代流控语法 loop 与 filter 的结合、when 复杂逻辑判断以及 lookup/query 查询引擎."
+---
+
+Ansible 的灵活性源自其强大的流控能力. 随着版本的演进, 现代 Ansible 已摒弃了繁琐的 `with_*` 指令, 转向更简洁的 `loop` 与 Jinja2 过滤器结合的模式.
+
+## 1. 现代循环机制: Loop 与过滤器
+
+### 1.1 `loop` 结合复杂对象
+循环不仅是遍历列表, 更多时候是处理嵌套结构或字典:
+
+```yaml
+- name: Iterate over dict
+  debug:
+    msg: "User {{ item.key }} is in group {{ item.value.group }}"
+  loop: "{{ users | dict2items }}"  # 使用过滤器转换为列表
+```
+
+### 1.2 组合循环 (Flattening & Product)
+处理嵌套列表时, 善用过滤器优于多层嵌套:
+*   `loop: "{{ list_a | flatten }}"`: 展开嵌套列表.
+*   `loop: "{{ users | product(environments) | list }}"`: 生成笛卡尔积, 适用于在每个环境下创建每个用户的场景.
+
+---
+
+## 2. 精确逻辑控制: When 与 Tests
+
+`when` 子句支持完整的 Jinja2 逻辑表达式, 并能通过 **Tests (测试算子)** 增强判断力.
+
+*   **版本判断**: `when: ansible_distribution_version is version('7.9', '>=')`.
+*   **文件属性判断**: `when: file_path is directory` 或 `when: file_path is exists`.
+*   **列表包含**: `when: '"admin" in user_roles'`.
+
+---
+
+## 3. 数据查询与编排: Lookup 与 Query
+
+`lookup` 插件是连接本地环境与 Ansible 执行链的桥梁 (通常在控制节点运行):
+
+*   **lookup vs query**: `lookup` 默认返回以逗号分隔的字符串, 而 `query` 始终返回一个列表 (更方便对接 `loop`).
+*   **读取 Redis/Etcd**: 可以在执行任务时实时从配置中心拉取最新配置.
+*   **搜索文件内容**: `{{ lookup('first_found', files_list) }}` 自动匹配并加载第一个存在的文件.
+
+---
+
+## 4. 健壮性策略: Block 与 Rescue
+
+模仿现代编程语言的 `try...except...finally` 结构, Ansible 提供了 **Block** 机制:
+
+```yaml
+- name: Crucial DB Tasks
+  block:
+    - name: Run complex SQL
+      shell: mysql < migration.sql
+  rescue:
+    - name: Rollback on failure
+      shell: mysql < rollback.sql
+  always:
+    - name: Cleanup temporary files
+      file: path=/tmp/migration.sql state=absent
+```
+这种结构不仅提高了任务的健壮性, 还能显著清晰化错误处理逻辑.
+
+---
+
+## 5. 条件触发的高级用法: Registered Results
+
+除了判断静态变量, 经常需要根据上一个任务的结果决定流向:
+*   `when: result_var is changed`: 仅在配置发生变更时执行同步动作.
+*   `when: result_var.rc == 0`: 基于返回码的逻辑.
+
+> 优秀的运维代码应当是 "逻辑闭环" 的. 利用 Block/Rescue 构建自愈能力, 利用现代 Loop 过滤器精简代码规模, 是高效自动化的标志.

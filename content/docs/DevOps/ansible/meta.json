@@ -1,0 +1,13 @@
+{
+    "title": "Ansible",
+    "pages": [
+        "01-Introduction",
+        "02-Inventory-Config",
+        "03-Ad-hoc-Modules",
+        "04-Playbooks",
+        "05-Variables-Vault",
+        "06-Logic-Loops-Conditionals",
+        "07-Advanced-Jinja2-Lint",
+        "08-Ansible-Galaxy"
+    ]
+}
