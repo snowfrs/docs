@@ -1,0 +1,789 @@
+---
+title: "Week 01: 容器运行时深度剖析与高可用初始化"
+description: "深入理解 CRI 标准, 容器生命周期管理以及集群引导过程中的关键技术环节."
+---
+
+## 1. 容器底座: CRI 与 OCI 标准剖析
+
+Kubernetes 不直接管理容器, 而是通过 **CRI (Container Runtime Interface)** 与底层的容器运行时进行交互. 理解这一层抽象是 SRE 深入排障的基础.
+
+### 1.1 架构层级: 从 Kubelet 到 runc
+1.  **Kubelet**: 发起 gRPC 请求到 CRI Shim.
+2.  **CRI Runtime (Containerd/CRI-O)**: 管理镜像映射和容器元数据.
+3.  **OCI Runtime (runc)**: 调用 Linux 内核 API (clone, setns, unshare) 执行最终的容器进程创建.
+
+### 1.2 关键机制: Cgroups V2 适配
+*   **为何统一 Cgroup Driver?** 
+    Kubelet 和容器运行时必须同时使用 `systemd` 或 `cgroupfs` 作为驱动. 混合使用会导致资源统计不准且系统不稳定.
+*   **生产建议**: 在现代 Linux 发行版中, 统一采用 `systemd` 以减少竞争.
+
+---
+
+## 2. 集群指挥部: 控制平面的核心逻辑
+
+### 2.1 API Server: 数据的唯一入口
+API Server 是唯一直接访问 Etcd 的组件. 它承担了认证、授权、准入控制及所有资源的缓存与过滤工作.
+
+### 2.2 Controller Manager 与 Scheduler
+*   **声明式控制环 (Control Loop)**: 理解 "Expectation vs Reality". 
+*   **调度策略**: 熟练掌握 Predicates (预选) 与 Priorities (优选) 的基本判别逻辑.
+
+---
+
+## 3. 实战指导: 基于 kubeadm 的高可用引导
+
+### 3.1 证书管理体系 (PKI)
+Kubernetes 依赖复杂的数字证书体系. 必须理清以下关键路径:
+*   **Front-Proxy**: 用于 API Aggregator 的双向 TLS 认证.
+*   **CA 轮转**: 掌握如何手动更新即将过期的 `/etc/kubernetes/pki` 下的证书.
+
+### 3.2 外部 Etcd vs 堆叠 Etcd
+*   **堆叠模式 (Stacked)**: 简单, 易于扩容, 但控制平面节点故障会直接影响数据层.
+*   **外部模式 (External)**: 数据层独立, 安全性与性能更高, 但管理成本翻倍.
+
+---
+
+## 4. 实战指南: Rocky Linux 9 部署 Kubernetes 高可用集群
+
+### 4.1 集群架构与环境规约
+
+在开始部署前, 请参考下表确认您的实验/生产环境配置. 本次实战采用 **Master-Worker 混部**模式, 旨在最大化利用三节点物理资源构建高可用集群.
+
+| 维度 | 配置项 | 详细规格 |
+| :--- | :--- | :--- |
+| **基础环境** | 操作系统 | Rocky Linux 9.x (Kernel 5.14+) |
+| | K8s 版本 | v1.35.0 (Timbernetes) |
+| | 容器运行时 | Containerd v1.7+ (SystemdCgroup) |
+| **节点信息** | k8s-node1 | 192.168.20.101 (Master / Worker) |
+| | k8s-node2 | 192.168.20.102 (Master / Worker) |
+| | k8s-node3 | 192.168.20.103 (Master / Worker) |
+| | **k8s-vip** | **192.168.20.104 (HA 控制面入口)** |
+| **网络规划** | Pod CIDR | 10.97.0.0/16 |
+| | Service CIDR | 10.96.0.0/16 |
+| | Proxy 模式 | **IPVS** (基于 ipset/ipvsadm) |
+| **技术栈集成** | CNI 插件 | Cilium (eBPF-native / KPR) |
+| | Ingress | Traefik v3.x (CRD-mode) |
+| | Service Mesh | Istio (Ambient / mTLS) |
+
+---
+
+### 4.2 环境基准配置 (所有节点)
+
+#### 主机名与解析
+设置静态主机名并配置 `/etc/hosts`:
+```bash
+hostnamectl set-hostname k8s-node1 # 分别设置为 node1, node2, node3
+cat >> /etc/hosts <<EOF
+192.168.20.101 k8s-node1
+192.168.20.102 k8s-node2
+192.168.20.103 k8s-node3
+192.168.20.104 k8s-vip # 控制平面虚拟 IP
+EOF
+```
+
+#### 系统加固与优化
+关闭 Swap (Kubelet 强制要求) 及 SELinux:
+```bash
+sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+sudo swapoff -a
+sudo setenforce 0
+sudo sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
+```
+
+配置防火墙放行 K8s 核心端口或临时关闭 (研发环境):
+```bash
+sudo systemctl stop firewalld && sudo systemctl disable firewalld
+```
+
+### 4.3 内核参数与传输层配置 (所有节点)
+
+加载驱动模块并开启 IPv4 转发:
+```bash
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+ip_vs
+ip_vs_rr
+ip_vs_wrr
+ip_vs_sh
+nf_conntrack
+EOF
+
+sudo modprobe overlay
+sudo modprobe br_netfilter
+sudo modprobe ip_vs
+sudo modprobe ip_vs_rr
+sudo modprobe ip_vs_wrr
+sudo modprobe ip_vs_sh
+sudo modprobe nf_conntrack
+
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+
+sudo sysctl --system
+
+# 安装 IPVS 基础工具
+sudo dnf install -y ipset ipvsadm
+```
+
+### 4.4 容器运行时: Containerd (所有节点)
+
+ Rocky Linux 9 使用 DNF 管理软件包:
+```bash
+sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+sudo dnf install -y containerd.io
+
+# 生成默认配置并进行生产级优化 (关键步骤)
+containerd config default | sudo tee /etc/containerd/config.toml >/dev/null
+
+# 1. 启用 SystemdCgroup (K8s 官方推荐)
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+
+# 2. 修改 sandbox_image 镜像仓库 (解决大陆无法访问 registry.k8s.io 问题)
+# 针对 v1.35, pause 镜像版本通常为 3.10, 建议使用阿里云镜像加速
+sudo sed -i 's|sandbox_image = ".*"|sandbox_image = "registry.aliyuncs.com/google_containers/pause:3.10"|g' /etc/containerd/config.toml
+
+sudo systemctl restart containerd && sudo systemctl enable containerd
+```
+
+### 4.5 安装 Kubernetes 组件与依赖
+
+根据节点在集群中承担的角色, 确定需要安装的软件包. 在本实战中, 所有节点均为混合角色, 因此均需执行全量安装.
+
+| 软件包 | Master 节点 | Worker 节点 | 功能描述 |
+| :--- | :---: | :---: | :--- |
+| **Kubeadm** | 必须 | 必须 | 集群引导、初始化、Token 管理及节点加入. |
+| **Kubelet** | 必须 | 必须 | 容器生命周期管理, 解析 PodSpec 并确保容器运行. |
+| **Kubectl** | 必须 | 可选 (建议) | 核心命令行工具, 用于与 API Server 通信与调试. |
+| **ipset/ipvsadm** | 必须 | 必须 | 支撑 kube-proxy 的 IPVS 转发模式, 处理负载均衡. |
+| **Containerd** | 必须 | 必须 | 容器运行时 (OCI Runtime), 实际执行容器进程. |
+
+配置官方仓库并执行全量安装 (所有节点):
+
+```bash
+cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
+[kubernetes]
+name=Kubernetes
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.35/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.35/rpm/repodata/repomd.xml.key
+EOF
+
+sudo dnf install -y kubelet kubeadm kubectl ipset ipvsadm --disableexcludes=kubernetes
+sudo systemctl enable --now kubelet
+```
+
+### 4.6 HA 负载均衡配置 (Keepalived & HAProxy)
+
+在控制平面实现高可用, 必须有一个能够漂移的 **VIP**. 既然您配置了 `192.168.20.104` 作为 `controlPlaneEndpoint`, 那么在初始化前必须确保该 IP 在当前节点是可达的.
+
+#### 1. 安装组件 (所有 Master 节点)
+```bash
+sudo dnf install -y keepalived haproxy
+```
+
+#### 2. 配置 HAProxy (所有 Master 节点)
+编辑 `/etc/haproxy/haproxy.cfg`, 用于反向代理到三个 Master 的 6443 端口:
+```text
+frontend k8s-api
+    bind *:16443
+    mode tcp
+    option tcplog
+    default_backend k8s-api-backend
+
+backend k8s-api-backend
+    mode tcp
+    option tcp-check
+    balance roundrobin
+    server k8s-node1 192.168.20.101:6443 check
+    server k8s-node2 192.168.20.102:6443 check
+    server k8s-node3 192.168.20.103:6443 check
+```
+*注: 这里让 HAProxy 监听 16443, 避免与本地 API Server 冲突.*
+
+#### 3. 配置 Keepalived (所有 Master 节点)
+编辑 `/etc/keepalived/keepalived.conf` (以 node1 为例):
+```text
+vrrp_instance VI_1 {
+    state MASTER          # node2/3 设置为 BACKUP
+    interface eth0        # 您的网卡名称
+    virtual_router_id 51
+    priority 100          # node2 设为 90, node3 设为 80
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass 1111
+    }
+    virtual_ipaddress {
+        192.168.20.104    # 您的 VIP
+    }
+}
+```
+
+启用并启动服务:
+```bash
+sudo systemctl enable --now haproxy keepalived
+```
+
+#### 4. 连通性预校验 (关键环节)
+在执行初始化前, 务必在 **node1** 确认负载均衡已生效. 如果此步失败, 后续 `init` 必报 `context deadline exceeded`.
+
+1. **检查 VIP**: `ip addr show | grep 192.168.20.104` (应能看到该 IP).
+2. **检查端口**: `telnet 127.0.0.1 16443` (应能连通, 证明 HAProxy 已启动).
+3. **SELinux 纠偏**: 如果 HAProxy 启动失败, 请确保已执行 `setenforce 0`.
+4. **内核放行**: 允许绑定非本地 IP (防止 VIP 漂移瞬间 LB 挂掉):
+   ```bash
+   echo "net.ipv4.ip_nonlocal_bind = 1" | sudo tee -a /etc/sysctl.conf
+   sudo sysctl -p
+   ```
+
+### 4.7 集群初始化与 HA 配置
+
+> **重要修正**: 由于我们引入了 HAProxy 监听 `16443`, `kubeadm-config.yaml` 中的 `controlPlaneEndpoint` 应指向 VIP 的 **16443** 端口 (或者如果您直接让 VIP 绑定在 6443, 请确保 LB 配置正确). 
+
+在 **k8s-node1** 上创建初始化配置文件 `kubeadm-config.yaml`:
+```yaml
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+kubernetesVersion: v1.35.0
+imageRepository: registry.aliyuncs.com/google_containers
+controlPlaneEndpoint: "192.168.20.104:16443" # 指向负载均衡端口
+networking:
+  podSubnet: "10.97.0.0/16"
+  serviceSubnet: "10.96.0.0/16"
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: ipvs
+```
+
+
+执行初始化:
+```bash
+sudo kubeadm init --config kubeadm-config.yaml --upload-certs
+```
+
+#### 加入其它 Master 节点
+初始化完成后, 在 **node1** 会生成带 `--control-plane` 标志的 join 命令, 在 **node2, node3** 上执行即可.
+
+#### 节点角色转换: 允许 Master 运行应用负载
+由于这三台机器既是 Master 也是 Worker, 需要移除节点上的污点 (Taint):
+```bash
+kubectl taint nodes --all node-role.kubernetes.io/control-plane-
+```
+
+### 4.7 验证集群状态
+```bash
+kubeadm init --config kubeadm-config.yaml --upload-certs
+[init] Using Kubernetes version: v1.35.0
+[preflight] Running pre-flight checks
+	[WARNING SystemVerification]: kernel release 5.14.0-570.55.1.el9_6.x86_64 is unsupported. Supported LTS versions from the 5.x series are 5.4, 5.10 and 5.15. Any 6.x version is also supported. For cgroups v2 support, the recommended version is 5.10 or newer
+[preflight] Pulling images required for setting up a Kubernetes cluster
+[preflight] This might take a minute or two, depending on the speed of your internet connection
+[preflight] You can also perform this action beforehand using 'kubeadm config images pull'
+[certs] Using certificateDir folder "/etc/kubernetes/pki"
+[certs] Generating "ca" certificate and key
+[certs] Generating "apiserver" certificate and key
+[certs] apiserver serving cert is signed for DNS names [k8s-node1 kubernetes kubernetes.default kubernetes.default.svc kubernetes.default.svc.cluster.local] and IPs [10.96.0.1 192.168.20.101 192.168.20.104]
+[certs] Generating "apiserver-kubelet-client" certificate and key
+[certs] Generating "front-proxy-ca" certificate and key
+[certs] Generating "front-proxy-client" certificate and key
+[certs] Generating "etcd/ca" certificate and key
+[certs] Generating "etcd/server" certificate and key
+[certs] etcd/server serving cert is signed for DNS names [k8s-node1 localhost] and IPs [192.168.20.101 127.0.0.1 ::1]
+[certs] Generating "etcd/peer" certificate and key
+[certs] etcd/peer serving cert is signed for DNS names [k8s-node1 localhost] and IPs [192.168.20.101 127.0.0.1 ::1]
+[certs] Generating "etcd/healthcheck-client" certificate and key
+[certs] Generating "apiserver-etcd-client" certificate and key
+[certs] Generating "sa" key and public key
+[kubeconfig] Using kubeconfig folder "/etc/kubernetes"
+W1225 16:44:05.324448  142317 endpoint.go:56] [endpoint] WARNING: port specified in controlPlaneEndpoint overrides bindPort in the controlplane address
+[kubeconfig] Writing "admin.conf" kubeconfig file
+W1225 16:44:05.368717  142317 endpoint.go:56] [endpoint] WARNING: port specified in controlPlaneEndpoint overrides bindPort in the controlplane address
+[kubeconfig] Writing "super-admin.conf" kubeconfig file
+[kubeconfig] Writing "kubelet.conf" kubeconfig file
+W1225 16:44:05.542045  142317 endpoint.go:56] [endpoint] WARNING: port specified in controlPlaneEndpoint overrides bindPort in the controlplane address
+[kubeconfig] Writing "controller-manager.conf" kubeconfig file
+W1225 16:44:05.720756  142317 endpoint.go:56] [endpoint] WARNING: port specified in controlPlaneEndpoint overrides bindPort in the controlplane address
+[kubeconfig] Writing "scheduler.conf" kubeconfig file
+[etcd] Creating static Pod manifest for local etcd in "/etc/kubernetes/manifests"
+[control-plane] Using manifest folder "/etc/kubernetes/manifests"
+[control-plane] Creating static Pod manifest for "kube-apiserver"
+[control-plane] Creating static Pod manifest for "kube-controller-manager"
+[control-plane] Creating static Pod manifest for "kube-scheduler"
+[kubelet-start] Writing kubelet environment file with flags to file "/var/lib/kubelet/kubeadm-flags.env"
+[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/instance-config.yaml"
+[patches] Applied patch of type "application/strategic-merge-patch+json" to target "kubeletconfiguration"
+[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"
+[kubelet-start] Starting the kubelet
+[wait-control-plane] Waiting for the kubelet to boot up the control plane as static Pods from directory "/etc/kubernetes/manifests"
+[kubelet-check] Waiting for a healthy kubelet at http://127.0.0.1:10248/healthz. This can take up to 4m0s
+[kubelet-check] The kubelet is healthy after 501.834926ms
+[control-plane-check] Waiting for healthy control plane components. This can take up to 4m0s
+[control-plane-check] Checking kube-apiserver at https://192.168.20.101:6443/livez
+[control-plane-check] Checking kube-controller-manager at https://127.0.0.1:10257/healthz
+[control-plane-check] Checking kube-scheduler at https://127.0.0.1:10259/livez
+[control-plane-check] kube-controller-manager is healthy after 504.163478ms
+[control-plane-check] kube-scheduler is healthy after 1.98641028s
+[control-plane-check] kube-apiserver is healthy after 3.501668409s
+[upload-config] Storing the configuration used in ConfigMap "kubeadm-config" in the "kube-system" Namespace
+[kubelet] Creating a ConfigMap "kubelet-config" in namespace kube-system with the configuration for the kubelets in the cluster
+[upload-certs] Storing the certificates in Secret "kubeadm-certs" in the "kube-system" Namespace
+[upload-certs] Using certificate key:
+00d5dde98a8c3b815de529fe24f658325d3b31150fae8efbd72cbc7baaf42ea2
+[mark-control-plane] Marking the node k8s-node1 as control-plane by adding the labels: [node-role.kubernetes.io/control-plane node.kubernetes.io/exclude-from-external-load-balancers]
+[mark-control-plane] Marking the node k8s-node1 as control-plane by adding the taints [node-role.kubernetes.io/control-plane:NoSchedule]
+[bootstrap-token] Using token: 7asjr6.3pocg3akvka3sscf
+[bootstrap-token] Configuring bootstrap tokens, cluster-info ConfigMap, RBAC Roles
+[bootstrap-token] Configured RBAC rules to allow Node Bootstrap tokens to get nodes
+[bootstrap-token] Configured RBAC rules to allow Node Bootstrap tokens to post CSRs in order for nodes to get long term certificate credentials
+[bootstrap-token] Configured RBAC rules to allow the csrapprover controller automatically approve CSRs from a Node Bootstrap Token
+[bootstrap-token] Configured RBAC rules to allow certificate rotation for all node client certificates in the cluster
+[bootstrap-token] Creating the "cluster-info" ConfigMap in the "kube-public" namespace
+[kubelet-finalize] Updating "/etc/kubernetes/kubelet.conf" to point to a rotatable kubelet client certificate and key
+[addons] Applied essential addon: CoreDNS
+W1225 16:44:11.233493  142317 endpoint.go:56] [endpoint] WARNING: port specified in controlPlaneEndpoint overrides bindPort in the controlplane address
+[addons] Applied essential addon: kube-proxy
+
+Your Kubernetes control-plane has initialized successfully!
+
+To start using your cluster, you need to run the following as a regular user:
+
+  mkdir -p $HOME/.kube
+  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+Alternatively, if you are the root user, you can run:
+
+  export KUBECONFIG=/etc/kubernetes/admin.conf
+
+You should now deploy a pod network to the cluster.
+Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+
+You can now join any number of control-plane nodes running the following command on each as root:
+
+  kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
+	--discovery-token-ca-cert-hash sha256:a926f40b153f1e1d818be1b2a40198edc6a0dd6f8bf4e1e8f25da3fdd938067e \
+	--control-plane --certificate-key 00d5dde98a8c3b815de529fe24f658325d3b31150fae8efbd72cbc7baaf42ea2
+
+Please note that the certificate-key gives access to cluster sensitive data, keep it secret!
+As a safeguard, uploaded-certs will be deleted in two hours; If necessary, you can use
+"kubeadm init phase upload-certs --upload-certs" to reload certs afterward.
+
+Then you can join any number of worker nodes by running the following on each as root:
+
+kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
+	--discovery-token-ca-cert-hash sha256:a926f40b153f1e1d818be1b2a40198edc6a0dd6f8bf4e1e8f25da3fdd938067e
+```
+
+---
+
+## 5. 深度解析: kubeadm init 初始化流程与镜像优化
+
+### 5.1 初始化全过程背后的核心步骤
+执行 `kubeadm init` 时, 内核与组件经历了一系列严密的原子操作:
+1.  **Pre-flight Checks**: 环境预检. 检查内核模块 (overlay/br_netfilter)、Swap 关闭状态、端口占用以及容器运行时的连通性.
+2.  **Generate Certificates (PKI)**: 在 `/etc/kubernetes/pki` 下生成全套 CA 及组件证书.
+3.  **Generate Kubeconfig**: 为组件 (Admin, Controller Manager, Scheduler, Kubelet) 生成访问 API Server 的凭证文件.
+4.  **Static Pod Manifests**: 在 `/etc/kubernetes/manifests` 创建 API Server、Controller Manager 和 Scheduler 的 YAML 定义. Kubelet 监测到该目录后会自动拉起这些核心组件.
+5.  **Wait for Control Plane**: Kubelet 等待静态 Pod 变为就绪状态.
+6.  **Upload Config & Mark Node**: 将 K8s 配置上传至集群内的 ConfigMap, 并将当前节点打上 `control-plane` 标签.
+7.  **Bootstrap Token**: 生成用于后续节点加入的单向身份验证令牌.
+8.  **Add-ons**: 部署 CoreDNS 和 kube-proxy 进行服务发现与流量转发.
+9.  **--upload-certs**: 将生成的证书加密后存入集群, 允许后续 Master 节点通过 Token 自动同步证书, 避免了手动拷贝证书的繁琐与风险.
+
+### 5.2 大陆环境镜像优化 (Offline/Proxy-free)
+默认情况下, `kubeadm` 会访问 `registry.k8s.io`, 这在大陆环境通常无法连接.
+
+*   **配置优化**: 如 4.6 节所示, 在 `ClusterConfiguration` 中设置 `imageRepository: registry.aliyuncs.com/google_containers`.
+*   **查看所需镜像列表**:
+    ```bash
+    kubeadm config images list --config kubeadm-config.yaml
+    ```
+*   **预拉取镜像 (建议首选)**: 为了避免在初始化过程中因网络波动导致 `init` 失败, 建议先进行离线预拉取:
+    ```bash
+    kubeadm config images pull --config kubeadm-config.yaml
+    ```
+    预拉取成功后, 后续的 `init` 过程将直接映射本地镜像, 速度与成功率大幅提升.
+
+---
+
+## 6. 云原生进阶生态集成: 为何选择这一套栈?
+
+在 v1.35 时代, 传统的选型正在向 **eBPF-native** 和 **Cloud-native First** 转型.
+
+#### 1. 网络层: Cilium (CNI)
+*   **技术深度**: 摒弃 Iptables 臃肿的规则链, 使用 eBPF 实现 **O(1)** 级的查询效率.
+*   **KPR (Kube-Proxy Replacement)**: 强烈建议在安装 Cilium 时开启 `kube-proxy-replacement=true`. 这将允许流量绕过 `kube-proxy`, 直接在内核驱动层处理 Service 转发, 显著降低在高并发请求下的 CPU 消耗.
+
+#### 2. 入口层: Traefik (Ingress Controller)
+*   **架构优势**: Traefik 并非像 Nginx 那样简单封装二进制, 而是原生为容器设计的. 
+*   **CRD 优先**: 它直接通过 Kubernetes CRD (IngressRoute) 定义路由逻辑, 避免了传统 Ingress 注解 (Annotation) 的混乱.
+*   **实时响应**: 支持真正的热加载, 无需为了配置生效而频繁 Reload 进程, 保证了长连接的稳定性.
+
+#### 3. 服务治理: Istio (Service Mesh)
+*   **关键价值**: 在多中心、零信任架构中提供双向 TLS (mTLS) 强制加密.
+*   **无感升级**: 推荐关注 Istio 的 **Ambient Mesh** (无代理模式), 它通过宿主机层的 ztunnel 替代了复杂的 Sidecar 注入, 极大简化了运维成本并降低了内存开销.
+
+> **架构深度**: 开启 IPVS 模式是优化 Service 转发性能的第一步. 随着集群规模扩大, 引入 Cilium 则能帮助系统从传统的 Netfilter 转发迁移到现代的 eBPF 转发, 实现真正意义上的线速计算与安全隔离.
+
+---
+
+## 7. 部署时序建议: 从内核到应用层
+
+针对您选择的 **Cilium + Traefik + Istio** 技术栈, 部署顺序遵循 "由内而外, 由底层到抽象" 的原则:
+
+### 1. 核心网络层 (CNI): Cilium (KPR 模式)
+为了发挥 Cilium 的最大性能, 建议在安装时完全取代 `kube-proxy`.
+
+*   **安装时机**: **`kubeadm init` 成功后立即执行**. 只有 CNI 就绪, Node 才会变为 `Ready`.
+*   **KPR 核心参数**:
+    ```bash
+    --set k8sServiceHost=192.168.20.104
+    --set k8sServicePort=16443 # 必须指向您的 HA 负载均衡端口
+    --set kubeProxyReplacement=true
+    ```
+    *详见第 10.2 节的完整 Helm 配置.*
+
+### 2. 入口管控层: Traefik (CRD 模式)
+*   **安装时机**: **节点状态变为 `Ready` 且已经有可用的持久化存储 (可选) 后**. 
+*   **架构价值**: Traefik 作为网关层, 负责将外部流量 (南北流量) 引入集群. 建议开启 `IngressRoute` 以获得比标准 Ingress 更强大的流量编排能力.
+
+### 3. 服务治理层: Istio (Ambient Mesh)
+*   **安装时机**: **基础集群与网关层 (Traefik) 运行稳定后**. 
+*   **Ambient 优势**: 无需为业务 Pod 注入 Sidecar, 通过宿主机层的 `ztunnel` 实现零信任加密和流量观测. 这是目前与 Cilium eBPF 栈配合最完美的治理方案.
+
+| 步骤 | 组件 | 处理阶段 | 核心观测指标 (SRE Checkpoints) |
+| :--- | :--- | :--- | :--- |
+| **Step 1** | **kubeadm init** | 基础设施初始化 | **16443** 端口可用性、VIP 漂移、CA 证书签发 |
+| **Step 2** | **Cilium** | 物理连通性层 | **10.97.0.0/16** 网段分配、KPR 模式开启、Node Ready |
+| **Step 3** | **Traefik** | 南北流量层 | 30080/30443 端口连通性、**IngressRoute** CRD 生效 |
+| **Step 4** | **Istio** | 东西流量层 | **Ambient** 模式启动、ztunnel 容器状态、mTLS 强制加密 |
+
+---
+
+## 8. 常见问题排查 (Troubleshooting)
+
+如果您在执行 `kubeadm init` 时遇到 `failed while waiting for the control plane to start` (Connection Refused), 请按以下优先级进行排查:
+
+### 8.1 检查 Static Pod 日志 (最终杀手锏)
+当 `kube-apiserver` 没起来时, `kubectl` 是无法使用的. 此时必须直接查看磁盘上的日志或使用容器工具:
+```bash
+# 查看 Kubelet 运行状态
+journalctl -xeu kubelet
+
+# 查看具体容器报错 (针对 Containerd)
+crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock ps -a
+# 找到状态为 Exited 的容器 ID (如 kube-apiserver)
+crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock logs <ID>
+```
+
+### 8.2 核心原因分析: Sandbox Image (Pause 镜像)
+**现象**: `crictl ps` 中没有运行中的容器, 只有不断重启的 `pause` 容器.
+**原因**: Containerd 默认从 `registry.k8s.io` 拉取 `pause` 镜像, 即便 `kubeadm` 设置了阿里云镜像, Containerd 内部的 CRI 插件仍会坚持原始路径.
+**修复**: 检查 `/etc/containerd/config.toml` 中的 `sandbox_image` 是否已指向 `registry.aliyuncs.com/google_containers/pause:3.10`.
+
+### 8.3 核心原因分析: VIP 连通性 (Context Deadline Exceeded)
+**现象**: `kube-apiserver` 健康检查通过, 后续报错 `unable to create ClusterRoleBinding: context deadline exceeded` 访问 VIP。
+**原因**: `kubeadm` 使用生成的 `admin.conf` 访问 VIP 时, HAProxy 可能认为后端 (node2, node3) 异常而拒绝服务, 或本地路由无法回环访问 VIP。
+
+**修复方案**:
+1. **最小化 LB 范围**: 第一次执行 `init` 时, 建议 `/etc/haproxy/haproxy.cfg` 暂时只保留 `server k8s-node1`。等待首个 Master 加入后再补齐 node2, node3。
+2. **强制放行回环流量**: 确保 `16443` 没有被 `iptables` 或 `nftables` 的规则丢弃。
+3. **连通性测试**: 在执行 `init` 前, 尝试手工测试: 
+   ```bash
+   # 如果返回 403/401(Unauthorized) 证明链路通了; 如果直接 Timeout 则必挂
+   curl -k https://192.168.20.104:16443/livez
+   ```
+
+### 8.4 网络通信: 监听端口冲突
+**检查**: 确保核心端口没有被占用.
+*   API Server: `6443`
+*   Etcd: `2379`, `2380`
+*   Kubelet: `10248`, `10250`
+
+### 8.5 集群重置 (清理现场)
+如果排障后需要重新初始化, 请务必执行彻底清理:
+```bash
+sudo kubeadm reset -f
+sudo rm -rf /etc/kubernetes /var/lib/etcd /var/lib/kubelet $HOME/.kube
+# 重启网络插件残留 (可选)
+sudo ip link delete cni0
+sudo ip link delete flannel.1
+```
+
+---
+
+## 9. 本周任务清单
+
+### 1. 内核模块预校验
+在初始化集群前, 必须确保以下两个关键内核模块已加载并生效:
+
+*   **`overlay`**: 
+    - **原理**: 容器存储驱动的基础. 它允许内核通过联合挂载 (Union Mount) 将只读的镜像层与可写的容器层合并, 为容器提供统一的文件视图.
+    - **验证**: `lsmod | grep overlay`
+*   **`br_netfilter`**:
+    - **原理**: 允许 Linux 网桥 (Bridge) 流量经过 Netfilter 框架处理. 这是 Kubernetes 实现 Service (iptables/ipvs) 和 NetworkPolicy 的前提. 如果未开启, 同主机或跨主机的 Pod 流量将无法触发正确的转发与过滤规则.
+    - **验证**: `lsmod | grep br_netfilter` 且确认 `/proc/sys/net/bridge/bridge-nf-call-iptables` 为 1.
+
+### 2. Cgroup V2 与 Driver 深度验证
+
+在 Rocky Linux 9 中, 系统默认已启用 Cgroup V2. 必须确保底层内核协议与上层运行时驱动完全一致.
+
+#### 2.1 OS 层面: 确认 Cgroup V2 是否开启
+执行以下命令, 如果输出为 `cgroup2fs`, 则表示系统运行在 V2 模式:
+```bash
+stat -fc %T /sys/fs/cgroup/
+```
+
+#### 2.2 运行时层面: 统一使用 Systemd 驱动
+为了提高生产环境稳定性, 必须在 Containerd 和 Kubelet 中同步开启 `systemd` 驱动.
+
+*   **Containerd 配置文件校验**:
+    ```bash
+    grep -i "SystemdCgroup" /etc/containerd/config.toml
+    # 预期输出: SystemdCgroup = true
+    ```
+*   **Kubelet 配置文件校验**:
+    ```bash
+    cat /var/lib/kubelet/config.yaml | grep cgroupDriver
+    # 预期输出: cgroupDriver: systemd
+    ```
+*   **实时状态确认**:
+    ```bash
+    # 查看 Kubelet 运行参数
+    ps -ef | grep kubelet | grep cgroup-driver
+    
+    # 查看容器运行时检测到的 Cgroup 状态
+    crictl info | jq '.compute.cgroupDriver' # 或者直接使用 grep -i cgroup
+    ```
+
+### 3. 集群引导实战
+1.  **HA 初始化**: 使用 kubeadm 部署一个 3-Master 的 HA 集群.
+2.  **内核观测**: 使用 `crictl ps` 和 `crictl inspect` 观察底层容器在 `/sys/fs/cgroup` 下对应的资源目录, 验证其受控程度.
+
+> **关键提醒**: 在生产环境初始化时, 务必预留足够的 `--pod-network-cidr`, 建议使用 /16 及以上的私有大网段, 以免后期因可用 IP 地址耗尽而导致集群瘫痪或被迫进行代价极高的全量迁移.
+
+---
+
+## 10. 进阶组件实战部署 (Step-by-Step)
+
+在集群控制平面稳定后, 按照以下步骤依次安装核心生态组件:
+
+### 10.1 前置准备: 包管理器 Helm
+在 **k8s-node1** 上安装官方 Helm 3:
+```bash
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# 验证安装
+helm version
+```
+
+### 10.2 阶段一: Cilium (CNI) 取代 Kube-proxy
+这是实现 eBPF 高性能转发的关键一步。
+
+1. **安装 Cilium**:
+   ```bash
+   helm repo add cilium https://charts.cilium.io
+   helm repo update
+   
+   helm install cilium cilium/cilium --version 1.18.5 \
+     --namespace kube-system \
+     --set k8sServiceHost=192.168.20.104 \
+     --set k8sServicePort=16443 \
+     --set kubeProxyReplacement=true \
+     --set ipam.operator.clusterPoolIPv4PodCIDRList={10.97.0.0/16} \
+     --set hubble.enabled=true \
+     --set hubble.relay.enabled=true \
+     --set hubble.ui.enabled=true
+   ```
+
+> **升级**: 如果您已安装旧版本 (如 1.16), 可通过 `helm upgrade` 命令并配合同样的 `--set` 参数实现无损升级至 1.18.5. 升级后, Cilium Agent 会自动滚动重启以重新加载内核 eBPF 模块.
+
+```bash
+helm upgrade cilium cilium/cilium --version 1.18.5 \
+  --namespace kube-system \
+  --set k8sServiceHost=192.168.20.104 \
+  --set k8sServicePort=16443 \
+  --set kubeProxyReplacement=true \
+  --set ipam.operator.clusterPoolIPv4PodCIDRList={10.97.0.0/16} \
+  --set hubble.enabled=true \
+  --set hubble.relay.enabled=true \
+  --set hubble.ui.enabled=true
+Release "cilium" has been upgraded. Happy Helming!
+NAME: cilium
+LAST DEPLOYED: Fri Dec 26 09:56:53 2025
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 2
+TEST SUITE: None
+NOTES:
+You have successfully installed Cilium with Hubble Relay and Hubble UI.
+
+Your release version is 1.18.5.
+
+For any further help, visit https://docs.cilium.io/en/v1.18/gettinghelp
+```
+
+```bash
+helm upgrade cilium cilium/cilium --version 1.18.5 \
+  --namespace kube-system \
+∙ --reuse-values \
+  --set prometheus.enabled=true \
+  --set operator.prometheus.enabled=true \
+  --set hubble.metrics.enabled="{dns,drop,tcp,flow,icmp,http}" \
+  --set hubble.metrics.enableOpenMetrics=true
+
+Release "cilium" has been upgraded. Happy Helming!
+NAME: cilium
+LAST DEPLOYED: Fri Dec 26 11:23:10 2025
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 3
+TEST SUITE: None
+NOTES:
+You have successfully installed Cilium with Hubble Relay and Hubble UI.
+
+Your release version is 1.18.5.
+
+For any further help, visit https://docs.cilium.io/en/v1.18/gettinghelp
+```
+
+2. **状态验证**:
+   下载 Cilium CLI 并检查:
+   ```bash
+   cilium status --wait
+   # 确认 KubeProxyReplacement 状态为 "True"
+   # 下载 Cilium CLI: https://github.com/cilium/cilium-cli/releases
+   ```
+   
+具体输出:
+```bash
+   cilium status --wait
+    /¯¯\
+ /¯¯\__/¯¯\    Cilium:             OK
+ \__/¯¯\__/    Operator:           OK
+ /¯¯\__/¯¯\    Envoy DaemonSet:    OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        disabled
+
+DaemonSet              cilium                   Desired: 3, Ready: 3/3, Available: 3/3
+DaemonSet              cilium-envoy             Desired: 3, Ready: 3/3, Available: 3/3
+Deployment             cilium-operator          Desired: 2, Ready: 2/2, Available: 2/2
+Deployment             hubble-relay             Desired: 1, Ready: 1/1, Available: 1/1
+Deployment             hubble-ui                Desired: 1, Ready: 1/1, Available: 1/1
+Containers:            cilium                   Running: 3
+                       cilium-envoy             Running: 3
+                       cilium-operator          Running: 2
+                       clustermesh-apiserver
+                       hubble-relay             Running: 1
+                       hubble-ui                Running: 1
+Cluster Pods:          4/4 managed by Cilium
+Helm chart version:    1.18.5
+Image versions         cilium             quay.io/cilium/cilium:v1.18.5@sha256:2c92fb05962a346eaf0ce11b912ba434dc10bd54b9989e970416681f4a069628: 3
+                       cilium-envoy       quay.io/cilium/cilium-envoy:v1.34.12-1765374555-6a93b0bbba8d6dc75b651cbafeedb062b2997716@sha256:3108521821c6922695ff1f6ef24b09026c94b195283f8bfbfc0fa49356a156e1: 3
+                       cilium-operator    quay.io/cilium/operator-generic:v1.18.5@sha256:36c3f6f14c8ced7f45b40b0a927639894b44269dd653f9528e7a0dc363a4eb99: 2
+                       hubble-relay       quay.io/cilium/hubble-relay:v1.18.5@sha256:17212962c92ff52384f94e407ffe3698714fcbd35c7575f67f24032d6224e446: 1
+                       hubble-ui          quay.io/cilium/hubble-ui-backend:v0.13.3@sha256:db1454e45dc39ca41fbf7cad31eec95d99e5b9949c39daaad0fa81ef29d56953: 1
+                       hubble-ui          quay.io/cilium/hubble-ui:v0.13.3@sha256:661d5de7050182d495c6497ff0b007a7a1e379648e60830dd68c4d78ae21761d: 1
+```
+
+3. **清理残留 (实现纯净 eBPF 模式)**:
+   在物理移除 `kube-proxy` 前, 请务必执行以下 "最终校验", 确保 Cilium 已经 100% 接管流量:
+
+   *   **最终校验**:
+       ```bash
+       # 检查 KPR 状态 (预期为 True 或 Strict)
+       kubectl -n kube-system exec ds/cilium -- cilium status | grep KubeProxyReplacement
+       
+       # 检查 Service 列表 (确保能看到 K8s Service 对应的 BPF 映射)
+       kubectl -n kube-system exec ds/cilium -- cilium service list
+       ```
+
+   *   **删除 K8s 资源**:
+       ```bash
+       kubectl -n kube-system delete ds kube-proxy
+       kubectl -n kube-system delete cm kube-proxy
+
+       # ds, DaemonSet
+       # cm, ConfigMap
+       ```
+
+   *   **清理节点内核规则 (所有节点执行)**:
+       如果您之前使用的是 IPVS 模式:
+       ```bash
+       sudo ipvsadm -C
+       ```
+       如果您使用的是 Iptables 模式:
+       ```bash
+       # 警告: 仅清除 Kubernetes 相关的链, 避免误删 OS 自定义规则
+       iptables-save | grep -v KUBE | sudo iptables-restore
+       ```
+
+   *   **进阶优化 (防止 kubeadm upgrade 自动恢复)**:
+       编辑集群配置, 将 `kubeProxy` 的架构定义移除或禁用, 确保未来升级集群时不会被自动重新安装。
+       ```bash
+       kubectl edit cm kubeadm-config -n kube-system
+       # 在 ClusterConfiguration 中移除 kubeProxy 相关定义
+       ```
+
+   > **架构深度**: 此时您的集群已彻底摆脱了传统的 Netfilter/Iptables 链条。所有的 Service 负载均衡都在网卡 XDP 或内核 TC 层由 eBPF 程序高效执行, 实现了真正的 "无 Proxy" 架构。
+
+### 10.3 阶段二: Traefik v3 入口网关
+1. **安装 Traefik**:
+   ```bash
+   helm repo add traefik https://traefik.github.io/charts
+   helm repo update
+   
+   helm install traefik traefik/traefik \
+     --namespace traefik-system --create-namespace \
+     --set ingressClass.enabled=true \
+     --set ingressClass.isDefaultClass=true
+   ```
+2. **验证部署**:
+   ```bash
+   kubectl get pods -n traefik-system
+   # 确认所有 Pod 运行正常后, 可以通过 NodePort 访问 Dashboard (需要自行创建 IngressRoute 暴露)
+   ```
+
+   > **(南北流量控制)**: 建议在生产环境中将 Traefik 部署为 `DaemonSet`, 并利用 `nodeSelector` 将其固定在特定的 "边缘节点" 上, 配合物理负载均衡器实现极致稳定的流量入口。
+
+### 10.4 阶段三: Istio Ambient (无代理) 服务网格
+1. **安装 istioctl**:
+   ```bash
+   curl -L https://istio.io/downloadIstio | sh -
+   cd istio-*
+   export PATH=$PWD/bin:$PATH
+   ```
+2. **部署 Ambient Profile**:
+   ```bash
+   istioctl install --set profile=ambient -y
+   ```
+3. **纳管命名空间**:
+   ```bash
+   kubectl label namespace default istio.io/dataplane-mode=ambient
+   ```
+
+4. **架构校验 (Ambient 模式)**:
+   ```bash
+   # 检查宿主机上的数据面代理 (ztunnel)
+   kubectl get pods -n istio-system -l app=ztunnel
+   
+   # 观察业务 Pod 是否已被无感纳管 (无需重启 Pod)
+   istioctl proxy-status
+   ```
+
+   > **架构深度 (Cilium + Istio Ambient)**: 在此架构下, Cilium 的 eBPF 负责集群内部的高效路由 (L3/L4), 而 Istio 的 Ambient 模式则通过 `ztunnel` 负责 L7 策略 (如双向 TLS、重试、熔断)。两者相辅相成, 彻底告别了传统网格繁琐的 Sidecar 性能瓶颈。
+
+---
