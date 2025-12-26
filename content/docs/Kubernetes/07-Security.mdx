@@ -1,0 +1,58 @@
+---
+title: "Kubernetes 安全: 多层级的纵深防御"
+description: "从 RBAC, 网络策略到 Pod 安全标准, 系统性构建 Kubernetes 的安全防线."
+---
+
+Kubernetes 的安全模型被称为 **4C 模型**: Cloud, Cluster, Container, Code. 在集群层面, 我们需要从身份认证、访问控制和底层隔离三个维度建立防线.
+
+## 1. 访问控制: 4A 流程
+
+任何对 API Server 的请求都必须经过三个阶段:
+
+1.  **Authentication (认证)**: "你是谁?" (Token, 证书, 合成账号).
+2.  **Authorization (授权)**: "你能做什么?" (RBAC 机制).
+3.  **Admission Control (准入控制)**: "你的请求合规吗?" (验证镜像来源, 注入配置).
+
+### RBAC (基于角色的访问控制)
+*   **Role / ClusterRole**: 定义权限 (能对哪些资源做哪些操作).
+*   **RoleBinding / ClusterRoleBinding**: 绑定身份 (将权限赋予 User 或 ServiceAccount).
+
+---
+
+## 2. 网络安全: Network Policy
+
+默认情况下, K8s 集群内的所有 Pod 都是互通的 (扁平化网络).
+**Network Policy** 充当了 Pod 级别的分布式防火墙:
+*   **Ingress 规则**: 谁能访问我?
+*   **Egress 规则**: 我能访问谁?
+*   **白名单机制**: 生产环境应遵循 "默认拒绝 (Default Deny)" 策略, 仅显式放通必要的业务流量.
+
+---
+
+## 3. 计算安全: Pod 安全标准
+
+为了防止容器逃逸和非法提权, 我们应严格限制 Pod 的特权:
+*   **Privileged**: 禁止运行特权容器.
+*   **HostNetwork/HostPID**: 限制访问宿主机资源.
+*   **AllowPrivilegeEscalation**: 防止子进程获取比父进程更高的权限.
+
+*注: 传统的 PodSecurityPolicy 已被废弃, 现在推荐使用内置的 **Pod Security Admission (PSA)**.*
+
+---
+
+## 4. 镜像与运行时安全
+
+*   **镜像扫描**: 在 CI/CD 阶段扫描 CVE 漏洞.
+*   **运行时合规**: 使用 **Falco** 等工具识别异常系统调用 (例如: 生产环境容器突然发起了 ssh 连接).
+*   **机密管理**: 敏感信息 (Password, API Key) 严禁明文存放在 YAML 中, 应使用 **K8s Secret** 并配合 KMS 加密落盘.
+
+---
+
+## 5. 零信任架构 (Zero Trust)
+
+单纯依靠边界防护已不足够. 现代 K8s 安全倾向于构建零信任网络:
+*   使用 **mTLS** 进行 Pod 间的双向加密通信.
+*   精细到每个 Service 的身份校验.
+*   结合 Service Mesh (Istio/Linkerd) 实现强大的安全治理.
+
+> 安全不是一个单一的产品, 而是从认证到运行时的闭环. 坚持 "最小特权原则 (Least Privilege)" 是防御的核心.

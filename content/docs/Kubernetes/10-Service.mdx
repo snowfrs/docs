@@ -1,0 +1,65 @@
+---
+title: "深入理解 Service: K8s 服务发现与负载均衡"
+description: "解析 Service 的底层工作原理, ClusterIP、NodePort、LoadBalancer 的应用场景, 以及 kube-proxy 的转发逻辑."
+---
+
+Pod 是有生命周期的, 它的 IP 会随着重启和重建而改变. 为了解决 "如何稳定地访问一组 Pod" 的问题, Kubernetes 引入了 **Service** 这一抽象逻辑.
+
+## 1. Service 的灵魂: 虚拟 IP (VIP)
+
+Service 并不是一个真实的实体 (比如它不是一个 Pod 或进程), 而是一条存在于节点网络栈中的 **路由规则**.
+
+### 核心解耦: Label Selector
+Service 通过 `selector` 匹配具有特定 Label 的 Pod. 这些匹配到的 Pod IP 会被记录在 **Endpoints (或 EndpointSlice)** 对象中.
+
+---
+
+## 2. kube-proxy: 流量分发的幕后黑手
+
+每个工作节点上都运行着 `kube-proxy`, 它负责实现 Service 的 VIP. 目前有两种主流工作模式:
+
+*   **iptables 模式 (默认)**: 灵活但性能在超大规模时会下降. 它通过拦截发送到 VIP 的包, 利用 DNAT 规则将其随机转发到后端 Pod.
+*   **IPVS 模式**: 性能更高, 支持更丰富的调度算法 (如最少连接). 它是专门为负载均衡设计的内核模块.
+
+---
+
+## 3. Service 类型 (ServiceTypes)
+
+根据访问需求的不同, Service 分为四种类型:
+
+### 1. ClusterIP (默认)
+*   **作用**: 仅在集群内部可访问.
+*   **场景**: 数据库、内部 API 交互.
+
+### 2. NodePort
+*   **作用**: 在每个节点上开启一个静态端口 (通常 32000-32767).
+*   **场景**: 开发调试, 或者在没有外部负载均衡器时简单暴露服务.
+
+### 3. LoadBalancer
+*   **作用**: 配合公有云 (AWS, GCP, 阿里云) 的 LB 控制器动态创建一个外部负载均衡器.
+*   **场景**: 生产环境暴露正式服务的标准方式.
+
+### 4. Headless Service (无头服务)
+*   **定义**: 设置 `clusterIP: None`.
+*   **作用**: 不分配 VIP. DNS 解析会直接返回所有后端 Pod 的 A 记录.
+*   **场景**: 有状态应用 (如 Kafka, MongoDB), 需要直接访问特定的 Pod 实例.
+
+---
+
+## 4. 服务发现 (DNS)
+
+Kubernetes 内置了 CoreDNS 组件. 每个 Service 都会获得一个全限定域名 (FQDN):
+`<service-name>.<namespace>.svc.cluster.local`
+
+这种机制使得开发者可以硬编码服务名, 而不需要关心具体 IP 是什么.
+
+---
+
+## 5. ExternalName 与多级负载均衡
+
+*   **ExternalName**: 将集群内的服务名映射到外部域名 (如 `my-db.aliyun.com`). 方便在迁移过程中保持代码一致性.
+*   **Ingress 与 Service 的配合**: 
+    *   **Service (L4)**: 负责内部转发和 VIP.
+    *   **Ingress (L7)**: 负责域名路由、SSL 卸载.
+
+> Service 解决了分布式系统中的 "连接稳定性" 问题. 只要 Label 匹配, 无论 Pod 如何漂移, 流量总能精准触达目的端.

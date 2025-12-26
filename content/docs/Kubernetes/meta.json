@@ -1,6 +1,20 @@
 {
     "title": "Kubernetes",
     "pages": [
-        "01-K8S"
+        "K8s-Learing-Plan",
+        "01-K8S",
+        "02-CNI",
+        "03-Ingress",
+        "04-Runtime",
+        "05-CSI",
+        "06-Scheduling",
+        "07-Security",
+        "08-Cgroups",
+        "09-Pod",
+        "10-Service",
+        "12-Deployment",
+        "13-HPA",
+        "14-RBAC",
+        "99-Cheatsheet"
     ]
 }

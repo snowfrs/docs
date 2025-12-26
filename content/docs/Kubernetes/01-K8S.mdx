@@ -1,4 +1,94 @@
 ---
-title: "01.Kubernetes"
+title: "Kubernetes 核心架构与核心术语指南"
+description: "深入了解 Kubernetes 的设计哲学, 核心组件架构, 以及 Pod、Service、Deployment 等核心资源对象的内涵."
 ---
 
+Kubernetes (K8s) 是一个跨主机的容器编排平台, 旨在自动化容器化应用程序的部署、扩展和管理. 它的核心价值在于提供了一套**声明式 (Declarative)** 的系统设计范式, 以及对基础设施的深度抽象.
+
+## 1. 核心架构: Control Plane 与 Nodes
+
+Kubernetes 遵循典型的 主从 (Master-Worker) 架构, 现在更准确地称为 **Control Plane** 与 **Nodes**.
+
+### Control Plane (控制面/管理节点)
+控制面是集群的 "大脑", 负责全局决策以及检测和响应集群事件.
+*   **kube-apiserver**: 集群的唯一入口, 所有的资源配置、查询都通过它进行. 它还是各组件交互的枢纽, 遵循 RESTful 风格.
+*   **etcd**: 高可用的分布式键值存储, 是 K8s 的 "数据库". 它存储了整个集群的状态, 是唯一的真理来源 (Source of Truth).
+*   **kube-scheduler**: 决策 Pod 应该运行在哪个 Node 上. 它通过预选 (Predicate) 和优选 (Priority) 算法实现最优调度.
+*   **kube-controller-manager**: 运行控制器进程, 负责执行调谐循环 (Reconciliation Loop), 确保集群的实际状态趋于期望状态.
+
+### Nodes (工作节点)
+运行实际的业务容器.
+*   **kubelet**: 驻扎在节点上的 "大管家", 负责维护容器的生命周期, 并与 API Server 通信汇报节点状态.
+*   **kube-proxy**: 实现 Service 的关键. 它维护节点上的网络规则 (iptables 或 IPVS), 实现请求的流量负载均衡.
+*   **Container Runtime**: 实际运行容器的引擎 (如 containerd).
+
+---
+
+## 2. 核心概念与术语速查
+
+### 工作负载管理
+*   **Pod**: K8s 的最小原子调度单位. 一个 Pod 内可以包含多个紧耦合的容器, 它们共享同一个 Network Namespace, IP 以及存储卷.
+*   **Deployment**: 定义无状态应用的最佳方式. 它管理多个 Pod 副本 (ReplicaSet), 支持滚动更新 (Rolling Update) 和版本回滚.
+*   **StatefulSet**: 用于管理有状态应用 (如数据库). 它保证 Pod 有固定的网络标识 (Hostname) 和持久化存储绑定.
+*   **Job & CronJob**: 用于执行一次性任务或定时任务.
+
+### 服务发现与负载均衡
+*   **Service**: 由于 Pod 是易逝的 (Ephemeral), Service 提供了持久的虚拟 IP (VIP). 它通过 **Label Selector** 匹配后端 Pod.
+*   **Ingress**: 暴露集群内部 HTTP/HTTPS 服务的入口, 提供 L7 层路由转发能力.
+
+### 资源识别与配置
+*   **Namespace**: 逻辑隔离. 在同一个物理集群中划分出多个虚拟资源池 (如 dev, test, prod).
+*   **Label (标签)**: 键值对, 用于组织、分类和筛选对象. 它是 K8s 中耦合度最低、灵活性最高的筛选机制.
+*   **Annotation (注解)**: 与 Label 类似, 但主要存储非标识性元数据, 常用于第三方工具配置 (如监控、日志等).
+*   **ConfigMap & Secret**: 用于解耦环境配置. ConfigMap 存储普通配置, Secret 存储敏感信息 (如密码、Token).
+
+### 存储抽象
+*   **Volume**: 定义数据卷的存储位置.
+*   **Persistent Volume (PV)**: 管理员预分配的存储资源.
+*   **Persistent Volume Claim (PVC)**: 用户对存储的需求声明 (如 "我需要 10G RWO 类型的盘").
+
+---
+
+## 3. 深度解析: 为什么 Pods 之间可以直接通信?
+
+在 Kubernetes 的网络架构中, 强制要求实现 **"IP-per-Pod"** 模型. 这种模型规定了 Pod 间通信必须遵循以下原则:
+
+### 核心三原则 (No-NAT Principle)
+1.  **Pod 到 Pod 的通信**: 任意两个 Pod 之间可以直接通过对方的 IP 通讯, 而不需要经过 NAT (网络地址转换).
+2.  **Node 到 Pod 的通信**: 任何节点都可以访问该集群内所有的 Pod, 且不需要 NAT.
+3.  **Pod 看到的自己 IP**: Pod 在内部看到的自己的 IP, 与外部其他 Pod 看到的它的 IP 必须完全一致.
+
+### 为什么这样设计?
+*   **简化模型**: 这使得分布式系统不需要为了容器的特殊 IP 而重新开发网络协议. 对于应用来说, 它们就像是在同一台虚拟机或者局域网内运行一样.
+*   **平滑迁移**: 方便将传统的单体应用或基于 VM 的服务直接迁移到容器中, 无需为了应对动态变化的端口映射而修改代码.
+*   **性能优化**: 绕过 NAT 可以显著降低包转发的延迟和 CPU 开销.
+
+### 底层是如何实现的?
+这取决于具体的 **CNI 插件** (如 Calico, Cilium). 它们通过以下技术手段在跨主机的节点间路由 Pod 流量:
+*   **Overlay**: 在物理网络上封装隧道 (如 VXLAN), 将原始数据包包装在 UDP 中传输.
+*   **Routing**: 通过 BGP 等协议, 将 Pod 的 IP 网络直接通告给物理交换机或路由器, 实现直接路由转发.
+
+---
+
+## 4. 经典的 Pod 创建流转图
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as API Server
+    participant ETCD
+    participant SCHED as Scheduler
+    participant CTR as Controller Manager
+    participant KUBELET as Kubelet
+    
+    User->>API: 提交 Deployment YAML
+    API->>ETCD: 存储期望状态
+    CTR->>API: 监听到新 Deployment, 创建 ReplicaSet 和三个待调度 Pod
+    API->>ETCD: 存储 Pods 状态 (Pending)
+    SCHED->>API: 监听到待调度 Pods
+    SCHED->>API: 执行过滤与打分, 将 Pod 绑定到具体的 Node
+    KUBELET-->>API: (对应 Node 的 Kubelet) 监听到分配给自己的 Pods
+    KUBELET->>API: 调用 Container Runtime 创建容器, 汇报其运行状态 (Running)
+```
+
+> 理解 Kubernetes 的关键在于理解其对资源的高度抽象. 从计算 (Pod)、网络 (Service) 到存储 (PV), 这种抽象层使得我们可以一套代码运行在任何云平台上.

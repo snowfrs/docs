@@ -1,0 +1,58 @@
+---
+title: "Kubernetes 调度器: 放置 Pod 的艺术"
+description: "深入解析 kube-scheduler 的工作流程, 亲和性与反亲和性策略, 以及抢占与优先级机制."
+---
+
+**kube-scheduler** 是 Kubernetes 的核心决策者. 它的任务是根据一系列规则, 在庞大的节点资源池中为待调度的 Pod 找到最合适的 "家".
+
+## 1. 调度的两个阶段 (Predicate & Priority)
+
+当一个 Pod 进入调度队列时, 调度器会经历两个核心过滤步骤:
+
+### 阶段一: 过滤 (Filtering/Predicates)
+调度器根据硬性要求排除掉不符合条件的节点.
+*   **资源过滤**: 节点的计算资源 (CPU/RAM) 是否足够?
+*   **端口占用**: Pod 请求的 HostPort 是否已被占用?
+*   **污点检测**: Pod 是否容忍节点上的 Taints?
+
+### 阶段二: 打分 (Scoring/Priorities)
+在剩下的候选节点中, 根据优选策略打分.
+*   **资源分散 (LeastRequested)**: 倾向于选择资源占用最少的节点, 保持平衡.
+*   **镜像亲和 (ImageLocality)**: 倾向于已经下载了所需镜像的节点, 减少启动时间.
+
+---
+
+## 2. 亲和性与反亲和性 (Affinity)
+
+通过这些配置, 开发者可以精细控制 Pod 的分布:
+
+*   **Node Affinity**: "我希望运行在标有 `disk=ssd` 的节点上".
+*   **Pod Affinity**: "我希望能和 `auth-service` 的 Pod 运行在同一个可用区".
+*   **Pod Anti-Affinity**: "不要把两个相同的数据库副本放在同一个物理机上" (实现高可用).
+
+---
+
+## 3. Taints (污点) 与 Tolerations (容忍)
+
+*   **Taints**: 节点拒绝某些 Pod. 例如: `key=value:NoSchedule`.
+*   **Tolerations**: Pod 声明自己能忍受某种污点.
+*   **应用场景**: 专门的 GPU 节点只给 GPU 算法任务使用; 处于不健康状态的节点自动标记污点以防新任务调度.
+
+---
+
+## 4. 优先级与抢占 (Priority & Preemption)
+
+当资源紧张时, 并非先到先得:
+1.  用户可以为 Pod 设置 **PriorityClass**.
+2.  如果高优先级的 Pod 无法调度, 调度器可以选择牺牲 ("驱逐") 某个低优先级的 Pod, 腾出位置给高优先级任务.
+
+---
+
+## 5. 进阶: 调度框架扩展 (Scheduling Framework)
+
+现代 Kubernetes 支持对调度器进行插件化扩展. 开发者可以在以下阶段插入自定义逻辑:
+*   `PreFilter`: 预处理 Pod 信息.
+*   `Filter`: 自定义过滤逻辑.
+*   `Permit`: 允许/拒绝/延迟 Pod 调度.
+
+> **总结**: 默认调度器能满足 90% 的场景. 剩下的 10% 需要通过 Affinity、Taints 以及合理的 Resource Quota 来进行精细化微调.

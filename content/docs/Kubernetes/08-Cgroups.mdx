@@ -1,0 +1,78 @@
+---
+title: "Kubernetes 资源控制: 深入理解 Cgroups 机制"
+description: "解析 Kubernetes 如何利用 Linux Control Groups (cgroups) 实现 Pod 的资源限制、公平分配以及 QoS 分级."
+---
+
+在 Kubernetes 中, 资源管理的核心在于 "限制" 与 "隔离". 这种能力并非由 Kubernetes 凭空创造, 而是建立在 Linux 内核的 **Control Groups (cgroups)** 机制之上.
+
+## 1. 什么是 Cgroups?
+
+Cgroups 是 Linux 内核提供的一种机制, 用于对一组进程进行资源配额和度量. 
+*   **资源维度**: CPU, 内存, 磁盘 I/O, 网络带宽等.
+*   **层级结构**: 它可以建立一个树状层级, 子组会继承父组的限制.
+
+在 Kubernetes 节点上, kubelet 会负责将 Pod 的 `resources.limits` 转化为对应的 cgroup 配置.
+
+---
+
+## 2. 核心指标: CPU 与 Memory 的映射关系
+
+### CPU: 份额 (Shares) 与 配额 (Quota)
+K8s 中的 CPU 是 "可压缩资源".
+*   **Requests (`cpu.shares`)**: 保证 Pod 在资源竞争时能拿到的最低份额. 1000m 等于 1024 份额.
+*   **Limits (`cpu.cfs_period_us` & `cpu.cfs_quota_us`)**: 强硬上限. 
+    *   例如: 如果 limit 是 0.5 CPU, 周期 (period) 是 100ms, 则配额 (quota) 就是 50ms. 如果应用在 100ms 内用完了 50ms 的 CPU 时间, 它将被 **Throttled (限流)**.
+
+### Memory: 硬限制
+K8s 中的内存是 "不可压缩资源".
+*   **Limits (`memory.limit_in_bytes`)**: 进程申请的内存超过此限制时, 会被内核触发 **OOM (Out Of Memory) Killer** 强制杀死.
+
+---
+
+## 3. Kubernetes 的 cgroup 层级结构
+
+K8s 并不直接把所有容器平铺在根 cgroup 下, 而是构建了一个有序的树:
+
+```text
+/sys/fs/cgroup/
+└── kubepods.slice/                 (所有 Pod 的父组)
+    ├── kubepods-besteffort.slice/  (QoS 为 BestEffort 的 Pod)
+    ├── kubepods-burstable.slice/   (QoS 为 Burstable 的 Pod)
+    └── kubepods-pod<uid>.slice/    (Guaranteed 类型的 Pod 直接挂载)
+```
+
+这种层级结构允许 K8s 在节点压力过大时, 优先回收特定优先级的资源.
+
+---
+
+## 4. QoS (服务质量) 分级
+
+根据 `requests` 和 `limits` 的配置关系, K8s 将 Pod 划分为三个等级, 这直接决定了 cgroup 的权重:
+
+| QoS 等级 | 配置条件 | cgroup 表现 |
+| :--- | :--- | :--- |
+| **Guaranteed** | 所有容器的 requests == limits | 最高的 OOM 分值, 最后被杀. |
+| **Burstable** | 至少有一个容器设置了 request | 中等权重, 允许在宿主机空闲时超发. |
+| **BestEffort** | 未设置任何资源限制 | 最低权重, 资源紧缺时最先被回收. |
+
+---
+
+## 5. Cgroups v1 vs v2
+
+这是当前 K8s 社区的一个重要演进方向:
+*   **cgroup v1**: 控制器各自独立, 设计不够统一, 难以处理内存反压.
+*   **cgroup v2**: 统一的层级结构, 支持更精细的内存控制 (如 `MemoryHigh` 软限制) 和更优的 I/O 隔离.
+*   **提示**: 随着 Linux 内核 5.0+ 和容器运行时的更新, 建议在新集群中开启 v2 支持以获得更好的稳定性.
+
+---
+
+## 6. 为什么 CPU 被限流了?
+
+即使 CPU 利用率看上去不到 100%, 应用也可能响应变慢.
+*   **原因**: Linux CFS 调度器的 "周期性" 限制. 如果瞬时并发过高, 极短时间内就会耗尽周期内的 Quota.
+*   **对策**: 
+    1. 适当调大 CPU Limits.
+    2. 如果内核支持, 开启 **Burst (缓冲)** 功能.
+    3. 合理设置高并发应用的 CPU Topology (亲和性).
+
+> Cgroups 是 K8s 实现多租户隔离的基石. 理解了 cgroup 的权重和配额机制, 才能真正做到对集群容量心中有数.

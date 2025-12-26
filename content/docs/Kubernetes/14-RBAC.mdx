@@ -1,0 +1,68 @@
+---
+title: "RBAC: 基于角色的访问控制深度解析"
+description: "深入理解 Kubernetes 安全基石 RBAC, 解析 Role、ClusterRole 及其绑定机制, 构建企业级权限隔离体系."
+---
+
+Kubernetes 的安全核心在于 **"谁 (Subject)" 能对 "什么 (Resource)" 做 "什么操作 (Verb)"**. **RBAC (Role-Based Access Control)** 是实现这一逻辑的行业标准机制.
+
+## 1. RBAC 的核心四要素
+
+RBAC 的模型由四类资源对象组成, 它们被分为 **命名空间级别 (Namespaced)** 和 **集群级别 (Cluster-wide)**.
+
+### 权限定义
+*   **Role**: 限定在某个命名空间内的权限集合.
+*   **ClusterRole**: 全局生效的权限集合. 可用于定义节点访问、多空间管理等, 甚至作为一种公共权限模板.
+
+### 权限绑定
+*   **RoleBinding**: 将权限授予某个主体, 仅在该命名空间内生效.
+*   **ClusterRoleBinding**: 授予主体全局权限.
+
+---
+
+## 2. 授权主体 (Subjects)
+
+谁会在集群中发起请求?
+
+1.  **User (用户)**: 外部真实存在的人或系统. K8s 本身不存储 User 数据, 通常对接外部的 LDAP、证书或 OIDC 服务.
+2.  **Group (组)**: 一组 User 的集合.
+3.  **ServiceAccount (服务账号)**: 专为 Pod 内的进程设计的身份. 当 Pod 需要调用 API Server (如控制器、监控插件) 时, 使用该身份.
+
+---
+
+## 3. 权限颗粒度: Verbs 与 Resources
+
+一个典型的权限条目如下:
+
+```yaml
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+```
+
+*   **apiGroups**: 资源所在的组. 核心资源如 Pod 为空字符串 `""`.
+*   **resources**: 操作的对象.
+*   **verbs**: 允许的操作行为. 生产环境应严格禁止在大范围内授予 `*` 权限.
+
+---
+
+## 4. 特殊权限: 聚合与内建角色
+
+*   **ClusterRole Aggregation**: 允许将多个小颗粒度的 ClusterRole 聚合在一起, 形成复合权限映射.
+*   **内置角色**: 
+    *   `cluster-admin`: 超级管理员, 拥有集群所有控制权.
+    *   `admin`: 命名空间管理员.
+    *   `edit`/`view`: 命名空间级的编辑或只读权限.
+
+---
+
+## 5. 设计准则: 最小特权原则 (Least Privilege)
+
+构建 RBAC 体系时应遵循以下逻辑:
+
+1.  **避免使用 User**: 优先使用 ServiceAccount 赋能给程序, 使用 Group 管理人员权限.
+2.  **命名空间隔离**: 绝大多数业务应用仅需 `RoleBinding`. 除非确实需要管理集群级资源 (如 Node、PV), 否则严禁使用 `ClusterRoleBinding`.
+3.  **定期审计**: 随着人员变动, 僵尸权限会带来极大的安全隐患. 应通过 `kubectl auth can-i` 命令定期验证特定账号的权限范围.
+4.  **禁止挂载默认 Token**: 在 Pod 定义中设置 `automountServiceAccountToken: false` 以防止未经授权的 API 探测, 除非 Pod 确实需要调用 API Server.
+
+> 安全不是一蹴而就的墙, 而是精细到每个 API 调用、每个 verb 操作的防线.
