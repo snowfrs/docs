@@ -1,7 +1,6 @@
 {
     "title": "Kubernetes",
     "pages": [
-        "K8s-Learning-Plan",
         "01-K8S",
         "02-CNI",
         "03-Ingress",
@@ -15,6 +14,8 @@
         "12-Deployment",
         "13-HPA",
         "14-RBAC",
+        "15-Helm",
+        "16-Operator",
         "99-Cheatsheet"
     ]
 }
