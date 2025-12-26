@@ -2,50 +2,103 @@
 title: "Week 01: 容器运行时深度剖析与高可用初始化"
 description: "深入理解 CRI 标准, 容器生命周期管理以及集群引导过程中的关键技术环节."
 ---
+---
 
-## 1. 容器底座: CRI 与 OCI 标准剖析
+## 1. 本周任务清单
+
+### 1.1 内核模块预校验
+在初始化集群前, 必须确保以下两个关键内核模块已加载并生效:
+
+*   **`overlay`**: 
+    - **原理**: 容器存储驱动的基础. 它允许内核通过联合挂载 (Union Mount) 将只读的镜像层与可写的容器层合并, 为容器提供统一的文件视图.
+    - **验证**: `lsmod | grep overlay`
+*   **`br_netfilter`**:
+    - **原理**: 允许 Linux 网桥 (Bridge) 流量经过 Netfilter 框架处理. 这是 Kubernetes 实现 Service (iptables/ipvs) 和 NetworkPolicy 的前提. 如果未开启, 同主机或跨主机的 Pod 流量将无法触发正确的转发与过滤规则.
+    - **验证**: `lsmod | grep br_netfilter` 且确认 `/proc/sys/net/bridge/bridge-nf-call-iptables` 为 1.
+
+### 1.2 Cgroup V2 与 Driver 深度验证
+
+在 Rocky Linux 9 中, 系统默认已启用 Cgroup V2. 必须确保底层内核协议与上层运行时驱动完全一致.
+
+#### 1. OS 层面: 确认 Cgroup V2 是否开启
+执行以下命令, 如果输出为 `cgroup2fs`, 则表示系统运行在 V2 模式:
+```bash
+stat -fc %T /sys/fs/cgroup/
+```
+
+#### 2. 运行时层面: 统一使用 Systemd 驱动
+为了提高生产环境稳定性, 必须在 Containerd 和 Kubelet 中同步开启 `systemd` 驱动.
+
+*   **Containerd 配置文件校验**:
+    ```bash
+    grep -i "SystemdCgroup" /etc/containerd/config.toml
+    # 预期输出: SystemdCgroup = true
+    ```
+*   **Kubelet 配置文件校验**:
+    ```bash
+    cat /var/lib/kubelet/config.yaml | grep cgroupDriver
+    # 预期输出: cgroupDriver: systemd
+    ```
+*   **实时状态确认**:
+    ```bash
+    # 查看 Kubelet 运行参数
+    ps -ef | grep kubelet | grep cgroup-driver
+    
+    # 查看容器运行时检测到的 Cgroup 状态
+    crictl info | jq '.compute.cgroupDriver' # 或者直接使用 grep -i cgroup
+    ```
+
+### 1.3 集群引导实战
+1.  **HA 初始化**: 使用 kubeadm 部署一个 3-Master 的 HA 集群.
+2.  **内核观测**: 使用 `crictl ps` 和 `crictl inspect` 观察底层容器在 `/sys/fs/cgroup` 下对应的资源目录, 验证其受控程度.
+
+> **关键提醒**: 在生产环境初始化时, 务必预留足够的 `--pod-network-cidr`, 建议使用 /16 及以上的私有大网段, 以免后期因可用 IP 地址耗尽而导致集群瘫痪或被迫进行代价极高的全量迁移.
+
+---
+
+## 2. 容器底座: CRI 与 OCI 标准剖析
 
 Kubernetes 不直接管理容器, 而是通过 **CRI (Container Runtime Interface)** 与底层的容器运行时进行交互. 理解这一层抽象是 SRE 深入排障的基础.
 
-### 1.1 架构层级: 从 Kubelet 到 runc
+### 2.1 架构层级: 从 Kubelet 到 runc
 1.  **Kubelet**: 发起 gRPC 请求到 CRI Shim.
 2.  **CRI Runtime (Containerd/CRI-O)**: 管理镜像映射和容器元数据.
 3.  **OCI Runtime (runc)**: 调用 Linux 内核 API (clone, setns, unshare) 执行最终的容器进程创建.
 
-### 1.2 关键机制: Cgroups V2 适配
+### 2.2 关键机制: Cgroups V2 适配
 *   **为何统一 Cgroup Driver?** 
     Kubelet 和容器运行时必须同时使用 `systemd` 或 `cgroupfs` 作为驱动. 混合使用会导致资源统计不准且系统不稳定.
 *   **生产建议**: 在现代 Linux 发行版中, 统一采用 `systemd` 以减少竞争.
 
 ---
 
-## 2. 集群指挥部: 控制平面的核心逻辑
+## 3. 集群指挥部: 控制平面的核心逻辑
 
-### 2.1 API Server: 数据的唯一入口
+### 3.1 API Server: 数据的唯一入口
 API Server 是唯一直接访问 Etcd 的组件. 它承担了认证、授权、准入控制及所有资源的缓存与过滤工作.
 
-### 2.2 Controller Manager 与 Scheduler
+### 3.2 Controller Manager 与 Scheduler
 *   **声明式控制环 (Control Loop)**: 理解 "Expectation vs Reality". 
 *   **调度策略**: 熟练掌握 Predicates (预选) 与 Priorities (优选) 的基本判别逻辑.
 
 ---
 
-## 3. 实战指导: 基于 kubeadm 的高可用引导
+## 4. 实战指导: 基于 kubeadm 的高可用引导
 
-### 3.1 证书管理体系 (PKI)
+### 4.1 证书管理体系 (PKI)
 Kubernetes 依赖复杂的数字证书体系. 必须理清以下关键路径:
 *   **Front-Proxy**: 用于 API Aggregator 的双向 TLS 认证.
 *   **CA 轮转**: 掌握如何手动更新即将过期的 `/etc/kubernetes/pki` 下的证书.
 
-### 3.2 外部 Etcd vs 堆叠 Etcd
+### 4.2 外部 Etcd vs 堆叠 Etcd
 *   **堆叠模式 (Stacked)**: 简单, 易于扩容, 但控制平面节点故障会直接影响数据层.
 *   **外部模式 (External)**: 数据层独立, 安全性与性能更高, 但管理成本翻倍.
 
 ---
 
-## 4. 实战指南: Rocky Linux 9 部署 Kubernetes 高可用集群
+## 5. 实战指南: Rocky Linux 9 部署 Kubernetes 高可用集群
 
-### 4.1 集群架构与环境规约
+### 5.1 集群架构与环境规约
 
 在开始部署前, 请参考下表确认您的实验/生产环境配置. 本次实战采用 **Master-Worker 混部**模式, 旨在最大化利用三节点物理资源构建高可用集群.
 
@@ -67,7 +120,7 @@ Kubernetes 依赖复杂的数字证书体系. 必须理清以下关键路径:
 
 ---
 
-### 4.2 环境基准配置 (所有节点)
+### 5.2 环境基准配置 (所有节点)
 
 #### 主机名与解析
 设置静态主机名并配置 `/etc/hosts`:
@@ -95,7 +148,7 @@ sudo sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
 sudo systemctl stop firewalld && sudo systemctl disable firewalld
 ```
 
-### 4.3 内核参数与传输层配置 (所有节点)
+### 5.3 内核参数与传输层配置 (所有节点)
 
 加载驱动模块并开启 IPv4 转发:
 ```bash
@@ -149,7 +202,7 @@ sudo sed -i 's|sandbox_image = ".*"|sandbox_image = "registry.aliyuncs.com/googl
 sudo systemctl restart containerd && sudo systemctl enable containerd
 ```
 
-### 4.5 安装 Kubernetes 组件与依赖
+### 5.5 安装 Kubernetes 组件与依赖
 
 根据节点在集群中承担的角色, 确定需要安装的软件包. 在本实战中, 所有节点均为混合角色, 因此均需执行全量安装.
 
@@ -177,7 +230,7 @@ sudo dnf install -y kubelet kubeadm kubectl ipset ipvsadm --disableexcludes=kube
 sudo systemctl enable --now kubelet
 ```
 
-### 4.6 HA 负载均衡配置 (Keepalived & HAProxy)
+### 5.6 HA 负载均衡配置 (Keepalived & HAProxy)
 
 在控制平面实现高可用, 必须有一个能够漂移的 **VIP**. 既然您配置了 `192.168.20.104` 作为 `controlPlaneEndpoint`, 那么在初始化前必须确保该 IP 在当前节点是可达的.
 
@@ -241,7 +294,7 @@ sudo systemctl enable --now haproxy keepalived
    sudo sysctl -p
    ```
 
-### 4.7 集群初始化与 HA 配置
+### 5.7 集群初始化与 HA 配置
 
 > **重要修正**: 由于我们引入了 HAProxy 监听 `16443`, `kubeadm-config.yaml` 中的 `controlPlaneEndpoint` 应指向 VIP 的 **16443** 端口 (或者如果您直接让 VIP 绑定在 6443, 请确保 LB 配置正确). 
 
@@ -283,7 +336,7 @@ sudo kubeadm init --config kubeadm-config.yaml --upload-certs
 kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 ```
 
-### 4.7 验证集群状态
+### 5.8 验证集群状态
 ```bash
 kubeadm init --config kubeadm-config.yaml --upload-certs
 [init] Using Kubernetes version: v1.35.0
@@ -390,9 +443,9 @@ kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
 
 ---
 
-## 5. 深度解析: kubeadm init 初始化流程与镜像优化
+## 6. 深度解析: kubeadm init 初始化流程与镜像优化
 
-### 5.1 初始化全过程背后的核心步骤
+### 6.1 初始化全过程背后的核心步骤
 执行 `kubeadm init` 时, 内核与组件经历了一系列严密的原子操作:
 1.  **Pre-flight Checks**: 环境预检. 检查内核模块 (overlay/br_netfilter)、Swap 关闭状态、端口占用以及容器运行时的连通性.
 2.  **Generate Certificates (PKI)**: 在 `/etc/kubernetes/pki` 下生成全套 CA 及组件证书.
@@ -404,10 +457,10 @@ kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
 8.  **Add-ons**: 部署 CoreDNS 和 kube-proxy 进行服务发现与流量转发.
 9.  **--upload-certs**: 将生成的证书加密后存入集群, 允许后续 Master 节点通过 Token 自动同步证书, 避免了手动拷贝证书的繁琐与风险.
 
-### 5.2 大陆环境镜像优化 (Offline/Proxy-free)
+### 6.2 大陆环境镜像优化 (Offline/Proxy-free)
 默认情况下, `kubeadm` 会访问 `registry.k8s.io`, 这在大陆环境通常无法连接.
 
-*   **配置优化**: 如 4.6 节所示, 在 `ClusterConfiguration` 中设置 `imageRepository: registry.aliyuncs.com/google_containers`.
+*   **配置优化**: 如 5.7 节所示, 在 `ClusterConfiguration` 中设置 `imageRepository: registry.aliyuncs.com/google_containers`.
 *   **查看所需镜像列表**:
     ```bash
     kubeadm config images list --config kubeadm-config.yaml
@@ -420,7 +473,7 @@ kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
 
 ---
 
-## 6. 云原生进阶生态集成: 为何选择这一套栈?
+## 7. 云原生进阶生态集成: 为何选择这一套栈?
 
 在 v1.35 时代, 传统的选型正在向 **eBPF-native** 和 **Cloud-native First** 转型.
 
@@ -441,7 +494,7 @@ kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
 
 ---
 
-## 7. 部署时序建议: 从内核到应用层
+## 8. 部署时序建议: 从内核到应用层
 
 针对您选择的 **Cilium + Traefik + Istio** 技术栈, 部署顺序遵循 "由内而外, 由底层到抽象" 的原则:
 
@@ -474,11 +527,11 @@ kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
 
 ---
 
-## 8. 常见问题排查 (Troubleshooting)
+## 9. 常见问题排查 (Troubleshooting)
 
 如果您在执行 `kubeadm init` 时遇到 `failed while waiting for the control plane to start` (Connection Refused), 请按以下优先级进行排查:
 
-### 8.1 检查 Static Pod 日志 (最终杀手锏)
+### 9.1 检查 Static Pod 日志 (最终杀手锏)
 当 `kube-apiserver` 没起来时, `kubectl` 是无法使用的. 此时必须直接查看磁盘上的日志或使用容器工具:
 ```bash
 # 查看 Kubelet 运行状态
@@ -490,31 +543,31 @@ crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock ps -a
 crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock logs <ID>
 ```
 
-### 8.2 核心原因分析: Sandbox Image (Pause 镜像)
+### 9.2 核心原因分析: Sandbox Image (Pause 镜像)
 **现象**: `crictl ps` 中没有运行中的容器, 只有不断重启的 `pause` 容器.
 **原因**: Containerd 默认从 `registry.k8s.io` 拉取 `pause` 镜像, 即便 `kubeadm` 设置了阿里云镜像, Containerd 内部的 CRI 插件仍会坚持原始路径.
 **修复**: 检查 `/etc/containerd/config.toml` 中的 `sandbox_image` 是否已指向 `registry.aliyuncs.com/google_containers/pause:3.10`.
 
-### 8.3 核心原因分析: VIP 连通性 (Context Deadline Exceeded)
-**现象**: `kube-apiserver` 健康检查通过, 后续报错 `unable to create ClusterRoleBinding: context deadline exceeded` 访问 VIP。
-**原因**: `kubeadm` 使用生成的 `admin.conf` 访问 VIP 时, HAProxy 可能认为后端 (node2, node3) 异常而拒绝服务, 或本地路由无法回环访问 VIP。
+### 9.3 核心原因分析: VIP 连通性 (Context Deadline Exceeded)
+**现象**: `kube-apiserver` 健康检查通过, 后续报错 `unable to create ClusterRoleBinding: context deadline exceeded` 访问 VIP.
+**原因**: `kubeadm` 使用生成的 `admin.conf` 访问 VIP 时, HAProxy 可能认为后端 (node2, node3) 异常而拒绝服务, 或本地路由无法回环访问 VIP.
 
 **修复方案**:
-1. **最小化 LB 范围**: 第一次执行 `init` 时, 建议 `/etc/haproxy/haproxy.cfg` 暂时只保留 `server k8s-node1`。等待首个 Master 加入后再补齐 node2, node3。
-2. **强制放行回环流量**: 确保 `16443` 没有被 `iptables` 或 `nftables` 的规则丢弃。
+1. **最小化 LB 范围**: 第一次执行 `init` 时, 建议 `/etc/haproxy/haproxy.cfg` 暂时只保留 `server k8s-node1`. 等待首个 Master 加入后再补齐 node2, node3.
+2. **强制放行回环流量**: 确保 `16443` 没有被 `iptables` 或 `nftables` 的规则丢弃.
 3. **连通性测试**: 在执行 `init` 前, 尝试手工测试: 
    ```bash
    # 如果返回 403/401(Unauthorized) 证明链路通了; 如果直接 Timeout 则必挂
    curl -k https://192.168.20.104:16443/livez
    ```
 
-### 8.4 网络通信: 监听端口冲突
+### 9.4 网络通信: 监听端口冲突
 **检查**: 确保核心端口没有被占用.
 *   API Server: `6443`
 *   Etcd: `2379`, `2380`
 *   Kubelet: `10248`, `10250`
 
-### 8.5 集群重置 (清理现场)
+### 9.5 集群重置 (清理现场)
 如果排障后需要重新初始化, 请务必执行彻底清理:
 ```bash
 sudo kubeadm reset -f
@@ -526,57 +579,7 @@ sudo ip link delete flannel.1
 
 ---
 
-## 9. 本周任务清单
 
-### 1. 内核模块预校验
-在初始化集群前, 必须确保以下两个关键内核模块已加载并生效:
-
-*   **`overlay`**: 
-    - **原理**: 容器存储驱动的基础. 它允许内核通过联合挂载 (Union Mount) 将只读的镜像层与可写的容器层合并, 为容器提供统一的文件视图.
-    - **验证**: `lsmod | grep overlay`
-*   **`br_netfilter`**:
-    - **原理**: 允许 Linux 网桥 (Bridge) 流量经过 Netfilter 框架处理. 这是 Kubernetes 实现 Service (iptables/ipvs) 和 NetworkPolicy 的前提. 如果未开启, 同主机或跨主机的 Pod 流量将无法触发正确的转发与过滤规则.
-    - **验证**: `lsmod | grep br_netfilter` 且确认 `/proc/sys/net/bridge/bridge-nf-call-iptables` 为 1.
-
-### 2. Cgroup V2 与 Driver 深度验证
-
-在 Rocky Linux 9 中, 系统默认已启用 Cgroup V2. 必须确保底层内核协议与上层运行时驱动完全一致.
-
-#### 2.1 OS 层面: 确认 Cgroup V2 是否开启
-执行以下命令, 如果输出为 `cgroup2fs`, 则表示系统运行在 V2 模式:
-```bash
-stat -fc %T /sys/fs/cgroup/
-```
-
-#### 2.2 运行时层面: 统一使用 Systemd 驱动
-为了提高生产环境稳定性, 必须在 Containerd 和 Kubelet 中同步开启 `systemd` 驱动.
-
-*   **Containerd 配置文件校验**:
-    ```bash
-    grep -i "SystemdCgroup" /etc/containerd/config.toml
-    # 预期输出: SystemdCgroup = true
-    ```
-*   **Kubelet 配置文件校验**:
-    ```bash
-    cat /var/lib/kubelet/config.yaml | grep cgroupDriver
-    # 预期输出: cgroupDriver: systemd
-    ```
-*   **实时状态确认**:
-    ```bash
-    # 查看 Kubelet 运行参数
-    ps -ef | grep kubelet | grep cgroup-driver
-    
-    # 查看容器运行时检测到的 Cgroup 状态
-    crictl info | jq '.compute.cgroupDriver' # 或者直接使用 grep -i cgroup
-    ```
-
-### 3. 集群引导实战
-1.  **HA 初始化**: 使用 kubeadm 部署一个 3-Master 的 HA 集群.
-2.  **内核观测**: 使用 `crictl ps` 和 `crictl inspect` 观察底层容器在 `/sys/fs/cgroup` 下对应的资源目录, 验证其受控程度.
-
-> **关键提醒**: 在生产环境初始化时, 务必预留足够的 `--pod-network-cidr`, 建议使用 /16 及以上的私有大网段, 以免后期因可用 IP 地址耗尽而导致集群瘫痪或被迫进行代价极高的全量迁移.
-
----
 
 ## 10. 进阶组件实战部署 (Step-by-Step)
 
@@ -591,7 +594,7 @@ helm version
 ```
 
 ### 10.2 阶段一: Cilium (CNI) 取代 Kube-proxy
-这是实现 eBPF 高性能转发的关键一步。
+这是实现 eBPF 高性能转发的关键一步.
 
 1. **安装 Cilium**:
    ```bash
@@ -732,13 +735,13 @@ Image versions         cilium             quay.io/cilium/cilium:v1.18.5@sha256:2
        ```
 
    *   **进阶优化 (防止 kubeadm upgrade 自动恢复)**:
-       编辑集群配置, 将 `kubeProxy` 的架构定义移除或禁用, 确保未来升级集群时不会被自动重新安装。
+       编辑集群配置, 将 `kubeProxy` 的架构定义移除或禁用, 确保未来升级集群时不会被自动重新安装.
        ```bash
        kubectl edit cm kubeadm-config -n kube-system
        # 在 ClusterConfiguration 中移除 kubeProxy 相关定义
        ```
 
-   > **架构深度**: 此时您的集群已彻底摆脱了传统的 Netfilter/Iptables 链条。所有的 Service 负载均衡都在网卡 XDP 或内核 TC 层由 eBPF 程序高效执行, 实现了真正的 "无 Proxy" 架构。
+   > **架构深度**: 此时您的集群已彻底摆脱了传统的 Netfilter/Iptables 链条. 所有的 Service 负载均衡都在网卡 XDP 或内核 TC 层由 eBPF 程序高效执行, 实现了真正的 "无 Proxy" 架构.
 
 ### 10.3 阶段二: Traefik v3 入口网关
 1. **安装 Traefik**:
@@ -787,3 +790,71 @@ Image versions         cilium             quay.io/cilium/cilium:v1.18.5@sha256:2
    > **架构深度 (Cilium + Istio Ambient)**: 在此架构下, Cilium 的 eBPF 负责集群内部的高效路由 (L3/L4), 而 Istio 的 Ambient 模式则通过 `ztunnel` 负责 L7 策略 (如双向 TLS、重试、熔断)。两者相辅相成, 彻底告别了传统网格繁琐的 Sidecar 性能瓶颈。
 
 ---
+
+## 11. 动态 NFS 存储配置
+
+虽然云原生存储 (如 Ceph/Rook, Longhorn) 非常流行, 但 NFS 依然是中小型环境、开发测试环境或特定生产场景 (如多 Pod 共享数据备份) 中最简单、最稳定且成本最低的共享存储方案.
+
+在 K8s 中使用 NFS 有两种方式, 强烈建议使用动态供给:
+
+*   **静态供给 (Static)**: 你需要手动创建一个 PV 对应 NFS 上的一个目录, 再写 PVC 去绑定. 手动维护成本极高, 不符合 SRE 自动化理念.
+*   **动态供给 (Dynamic) [推荐]**: 部署一个 `nfs-subdir-external-provisioner`. 你只需要定义一个 `StorageClass`, 之后 Pod 申请 PVC 时, 它会自动在 NFS 服务器上创建一个子目录并生成对应的 PV.
+
+核心概念:
+*   **PV (PersistentVolume)**: 物理存储资源.
+*   **PVC (PersistentVolumeClaim)**: 用户对存储资源的申请.
+
+### 11.1 集群节点准备
+所有节点 (Master/Worker) 均需安装 NFS 客户端工具:
+```bash
+dnf install -y nfs-utils
+```
+
+### 11.2 部署并配置参数
+使用 Helm 部署 Provisioner:
+```bash
+helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+helm repo update
+
+helm install nfs-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
+    --namespace kube-system \
+    --set nfs.server=192.168.20.14 \
+    --set nfs.path=/k8sdev \
+    --set storageClass.name=nfs-client \
+    --set storageClass.defaultClass=true \
+    --set storageClass.reclaimPolicy=Delete \
+    --set storageClass.archiveOnDelete=false
+```
+
+*   `storageClass.defaultClass=true`: 设为默认存储类, 后续创建 PVC 时无需显式指定名称.
+*   `storageClass.reclaimPolicy=Delete`: 关键参数, 删除 PVC 即删除物理数据.
+*   `storageClass.archiveOnDelete=false`: 如果不设为 false, 删除 PVC 时它会把目录改名为 archived-xxx 而不是真正删除.
+
+### 11.3 持久化存储连通性测试
+为了确认这套 "自动回收" 机制是否生效, 请按以下步骤验证:
+
+#### A. 创建 PVC 测试文件 (test-pvc.yaml)
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-test-pvc
+spec:
+  accessModes:
+    - ReadWriteMany  # NFS 支持多点读写
+  resources:
+    requests:
+      storage: 1Gi
+```
+
+#### B. 验证状态
+```bash
+kubectl apply -f test-pvc.yaml
+kubectl get pvc nfs-test-pvc
+```
+如果 `STATUS` 变为 `Bound`, 说明动态分配成功!
+
+#### C. 验证 "自动回收"
+1.  去 NFS 服务器 (192.168.20.14) 的 `/k8sdev` 目录下, 你会看到一个新目录产生.
+2.  在 K8s 中删除 PVC: `kubectl delete pvc nfs-test-pvc`.
+3.  **最终检查**: 再次查看 NFS 服务器的 `/k8sdev` 目录, 该子目录应该已经彻底消失.

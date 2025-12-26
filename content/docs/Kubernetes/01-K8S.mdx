@@ -92,3 +92,42 @@ sequenceDiagram
 ```
 
 > 理解 Kubernetes 的关键在于理解其对资源的高度抽象. 从计算 (Pod)、网络 (Service) 到存储 (PV), 这种抽象层使得我们可以一套代码运行在任何云平台上.
+
+## 5. 基本概念与核心术语详解
+
+![K8s Components](/assets/images/components-of-kubernetes.svg)
+
+### 5.1 基础元数据
+*   **Label (标签)**: 附加到对象 (如 Pod) 上的键值对, 用于组织和选择对象集合. Label 允许用户以松耦合的方式映射自己的组织结构.
+    *   *Selector*: 通过 Label Selector, 客户端/控制器可以识别特定的资源集合.
+*   **Annotation (注解)**: 也是键值对, 但不能用于选择对象. 主要用于存储辅助元数据 (如版本信息、作者、构建记录) 或被第三方工具、库拉取信息.
+*   **Namespace (命名空间)**: 供多个用户使用、用于逻辑隔离资源的虚拟集群. 它提供了资源名称的作用域, 同时也常作为资源配额和网络策略的边界.
+
+### 5.2 工作负载对象 (Workloads)
+*   **Deployment**: 现代 K8s 中最核心的对象. 它为 Pod 和 ReplicaSet 提供声明式的更新能力. 适用于 Web 服务、API 服务等无状态应用.
+*   **Replication Controller (RC)**: **[Legacy]** K8s 早期的副本控制器, 确保在任何时间都有特定数量的 Pod 副本在运行. 现已被 **ReplicaSet** (它支持更强的 Label 筛选器) 和 **Deployment** 完全取代.
+*   **ReplicaSet (RS)**: 下一代 RC, 主要由 Deployment 自动管理, 用于确保 Pod 副本数符合预期.
+*   **StatefulSet**: 用于管理有状态应用. 它为 Pod 提供稳定的网络标识符 (ID) 和稳定的持久化存储, 适用于数据库 (如 MySQL, MongoDB) 或分布式系统.
+*   **Horizontal Pod Autoscaler (HPA)**: 根据 CPU 利用率或自定义指标自动缩放 Deployment 或 ReplicaSet 中的 Pod 数量, 实现应用的弹性伸缩.
+*   **Job & CronJob**: 
+    - **Job**: 创建一个或多个 Pod, 并确保指定数量的 Pod 成功终止 (用于批处理).
+    - **CronJob**: 基于时间计划运行 Job (类似 Linux 的 crontab).
+
+### 5.3 服务与网络
+*   **Service (Svc)**: 将运行在 Pod 集合上的应用程序公开为网络服务的方式. 它为一组 Pod 提供了一个稳定的 IP (ClusterIP) 和端口, 屏蔽了 Pod 重启导致的 IP 变化.
+*   **Port & TargetPort**: 
+    - *Port*: Service 暴露的端口.
+    - *TargetPort*: 流量转发到容器内部的端口.
+
+### 5.4 存储抽象
+*   **Volume (卷)**: 目录, 其中的数据可被 Pod 中的容器访问. K8s 支持多种类型的 Volume (本地、NFS、云商磁盘等).
+*   **Persistent Volume (PV)**: 集群中的一块存储资源, 由管理员预配置或通过 StorageClass 动态供给. 它独立于 Pod 的生命周期.
+*   **Persistent Volume Claim (PVC)**: 用户对存储的申请. PVC 消费 PV 资源, 它不需要关心底层具体的存储实现 (如存储地址、用户名等).
+
+### 5.5 配置管理
+*   **ConfigMap**: 用于将非机密配置数据存储在键值对中. 允许将镜像内容与环境配置解耦.
+*   **Secret**: 用于存储敏感信息 (如密码、OAuth 令牌、SSH 密钥). 它提供了一种比 ConfigMap 更安全的数据保护机制 (尽管默认只是 Base64 编码, 但在某些环境中会结合 KMS 加密).
+
+---
+
+> 在设计应用架构时, 尽量优先使用 **Deployment** 管理 Pod, 并通过 **Service** 进行内部通信. 所有的外部配置应尽可能抽象到 **ConfigMap** 中, 以便在不同环境 (Dev/Test/Prod) 间平滑迁移.
