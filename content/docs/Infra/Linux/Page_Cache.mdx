@@ -1,0 +1,137 @@
+---
+title: "Page Cache 与 Buffer Cache"
+description: "详细解析 Linux 内核中的文件缓存机制"
+---
+
+在 Linux 内存管理专家眼中, Page Cache 和 Buffer Cache 是系统性能优化的 "兵家必争之地". 理解它们的工作原理, 对于解决磁盘 I/O 瓶颈、数据库调优以及容器内存限制 (OOM) 具有至关重要的意义.
+
+---
+
+## 1. 定义与核心区别
+
+虽然在现代 Linux 内核中两者已经高度集成, 但从逻辑层面理解它们的原始职能仍然非常有帮助.
+
+### 1.1 Page Cache (页高速缓存)
+*   **面向对象**: **文件 (File)**.
+*   **缓存单位**: **页 (Page)**, 通常为 4KB.
+*   **职能**: 当你通过 `read()`/`write()` 调用操作文件数据时, 内核会将文件内容缓存到 Page Cache 中. 其目的是减少对慢速磁盘的直接物理访问.
+*   **重要性**: 它是 VFS (虚拟文件系统) 下层最厚的一层缓存.
+
+### 1.2 Buffer Cache (块缓冲区)
+*   **面向对象**: **块设备 (Block Device)**, 如 `/dev/sda1`.
+*   **缓存单位**: **块 (Block)**, 大小取决于文件系统配置 (512B, 1KB, 2KB 等).
+*   **职能**: 直接缓存磁盘块数据. 它不需要关心文件结构, 仅关注物理层面的读写.
+*   **职能演变**: 在 Linux 2.4 版本之前, Page Cache 和 Buffer Cache 是完全独立的 (双重缓存), 这导致了严重的内存浪费和一致性问题.
+
+---
+
+## 2. 统一缓存架构 (Unified Cache)
+
+从 Linux 2.4 内核起, 两者实现了**合并**.
+
+### 2.1 现状: 殊途同归
+*   现在, **Buffer Cache 通常被实现为 Page Cache 的一部分**.
+*   当你读写一个文件时, 数据会被缓存在 **Page Cache** 中.
+*   如果内核需要直接操作底层的磁盘元数据 (如 Inode 表、超级块) 或进行原始块操作, 它会通过 **buffer_head** 数据结构来管理这些页, 此时这部分内存就被统计为 **Buffers**.
+
+### 2.2 如何在 `free -m` 中看它们?
+```text
+              total        used        free      shared  buff/cache   available
+Mem:           7858        1542        3211         120        3104        5923
+```
+*   **buff**: 对应 Buffer Cache (元数据/裸设备读写).
+*   **cache**: 对应 Page Cache (普通文件内容读写).
+
+---
+
+## 3. 读写生命周期
+
+### 3.1 读过程 (Buffered Read)
+1.  进程发起 `read` 系统调用.
+2.  内核检查 **Page Cache**.
+    *   **Hit**: 直接从内存拷贝数据到用户态, 零磁盘寻址.
+    *   **Miss**: 触发**预读 (Readahead)**. 不仅读取当前请求的数据, 还会顺带读取相邻的数据块, 以显著提升顺序读性能.
+
+### 3.2 写过程 (Buffered Write)
+1.  数据写入 Page Cache.
+2.  该页被标记为 **Dirty (脏页)**.
+3.  系统调用立即返回, 进程可以继续执行 (异步写入).
+4.  **回写 (Writeback)**: 内核线程 (pdflush/kworker) 随后根据策略将脏页刷入磁盘.
+
+---
+
+## 4. 页面回收算法: LRU (Least Recently Used)
+
+当物理内存不足时, 内核必须决定回收哪些 Page Cache 页来腾出空间. Linux 采用了改进的其于 **LRU (最近最少使用)** 的回收算法.
+
+### 4.1 双链表策略 (Active/Inactive LRU)
+为了防止一次性的大文件扫描 (如 `tar` 备份或 `grep` 全盘搜索) 彻底刷掉系统中的活跃热点数据, Linux 将 LRU 分为两个链表:
+*   **Inactive List (不活跃链表)**: 存放最近访问次数较少的页. 回收时优先从这里挑选目标.
+*   **Active List (活跃链表)**: 存放访问频繁的热点页.
+
+### 4.2 晋升与降级机制
+1.  **初次访问**: 页面首先进入 **Inactive List**.
+2.  **再次访问**: 如果页面在 Inactive List 中被再次访问, 它会被升级 (Promotion) 到 **Active List**.
+3.  **内存压力**: 当内存紧张时, 内核会启动页面换出. 如果 Active List 过大, 内核会将一部分长期未被访问的页降级 (Demotion) 到 Inactive List.
+
+### 4.3 `PG_referenced` 与 `PG_active` 标志
+内核通过页描述符中的这两个标志位来跟踪访问频率. 这种 "二次机会 (Second Chance)" 机制确保了真正的热数据不会因为偶发的大内存需求而被误杀.
+
+---
+
+## 5. 生产环境性能调优
+
+我们通常通过调整 `/proc/sys/vm/` 下的参数来优化性能.
+
+### 4.1 脏页控制 (Writeback Tuning)
+*   **`vm.dirty_background_ratio`**: 
+    当脏页占总内存百分比超过此值时, **后台回写进程** (kworker) 开始工作. 建议值: 5%-10%.
+*   **`vm.dirty_ratio`**: 
+    这是 "硬限制". 当脏页占比超过此值时, 发起写入的**进程会被阻塞**, 被迫参与回写工作. 建议值: 10%-20%.
+*   **`vm.dirty_expire_centisecs`**:
+    脏页在内存中停留的最长时间 (单位 1/100 秒). 默认 3000 (30秒).
+
+### 4.2 缓存回收优先级
+*   **`vm.swappiness`**: 
+    控制内核回收 "匿名页" (进程分配的内存) 与 "文件页" (Page Cache) 的倾向.
+    *   值越大, 越倾向于使用 Swap.
+    *   值越小, 越倾向于回收 Page Cache. 对于数据库服务器, 建议设为 10 以下.
+
+---
+
+## 6. 常见运维问题排查
+
+### 5.1 为什么 Free 内存非常少?
+**Linux 的哲学是: "Empty memory is wasted memory" (空闲的内存就是浪费)**. 内核会尽可能利用空闲内存作为 Cache. 只要 `available` 内存充足, 就不必惊慌.
+
+### 5.2 如何手动清理缓存 (Drop Caches)?
+仅用于测试或极端情况, 生产环境慎用:
+```bash
+# 清理 Page Cache
+sync; echo 1 > /proc/sys/vm/drop_caches
+
+# 清理 Inodes 和 Dentries
+sync; echo 2 > /proc/sys/vm/drop_caches
+
+# 同时清理 Page Cache, Inodes 和 Dentries
+sync; echo 3 > /proc/sys/vm/drop_caches
+```
+
+### 5.3 OOM 场景下的 Cache
+当系统内存耗尽触发 **OOM Killer** 时, 已经使用的 Page Cache (如果未被 `mlock` 锁定) 通常会被内核迅速回收以腾出空间. 但如果系统中存在大量无法回收的内存 (如 shmem), OOM 甚至会杀掉核心进程.
+
+---
+
+## 7. 观察工具
+
+| 工具 | 用途 | 关键指标 |
+| :--- | :--- | :--- |
+| **`free -m`** | 快速检查缓存总量 | `buff/cache` 项 |
+| **`vmstat 1`** | 实时观察读写频率 | `bi` (块输入), `bo` (块输出) |
+| **`cat /proc/meminfo`** | 最详细的分类 | `Cached`, `Buffers`, `Dirty`, `Writeback` |
+| **`iostat -x 1`** | 检查磁盘 I/O 等待情况 | `%util`, `await` |
+| **`pcstat`** | (第三方) 查看特定文件被缓存的情况 | 缓存百分比 |
+
+---
+
+> Page Cache 是 Linux 高性能文件访问的基石. 在优化 I/O 密集型应用时, 重点应放在**减少脏页堆积**以及**提高缓存命中率**上.
