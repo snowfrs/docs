@@ -1,0 +1,53 @@
+---
+title: "Kubernetes 进阶学习路径"
+description: "为期 8 周的生产级 Kubernetes 架构与运维深度进修计划"
+icon: Goal
+---
+
+本学习计划专为具备系统运维基础的高级工程师设计, 侧重于从 SRE (Site Reliability Engineering) 维度深入剖析 Kubernetes 的底层逻辑、集群稳定性治理及生产级安全架构.
+
+## 核心学习模块大纲
+
+### 第一阶段: 内核隔离与集群引导 (Week 1-2)
+*   **Week 01: 容器运行时深度剖析与高可用初始化**
+    *   底层原理: Cgroups V2, Namespaces 与 Rootfs 的交互.
+    *   架构核心: CRI 标准, Containerd 运行机制与 Kubelet 交互全链路.
+    *   实战目标: 离线环境 kubeadm HA 集群引导与证书管理.
+*   **Week 02: 软件定义网络 (SDN) 与 CNI 深度实践**
+    *   底层原理: NetNS, Veth-pair, Bridge 与 Iptables/IPVS 的内核转发路径.
+    *   架构核心: CNI 插件机制 (Calico/Cilium) 与 Overlay/BGP 网络模式对比.
+    *   实战目标: 处理集群网络分区, 优化大流量场景下的 kube-proxy 转发性能.
+
+### 第二阶段: 资源调度与持久化存储 (Week 3-4)
+*   **Week 03: 高级负载编排与调度算法内核**
+    *   底层原理: Scheduler 调度过滤/优选算法, 资源公平性配额.
+    *   架构核心: HPA/VPA 原理, 优先级抢占机制 (PriorityClass) 与节点排空逻辑.
+    *   实战目标: 构建多租户资源配额模型, 解决 Pod Pending 与调度倾斜.
+*   **Week 04: CSI 规范与分布式存储集成**
+    *   底层原理: 存储卷挂载的三个阶段 (Provision, Attach, Mount).
+    *   架构核心: CSI 架构组件, Persistent Volume 的生命周期管控.
+    *   实战目标: 生产级 Ceph/Rook 集成或本地存速盘自管理方案.
+
+### 第三阶段: 集群安全韧性与策略治理 (Week 5-6)
+*   **Week 05: 身份认证与精细化访问控制 (RBAC/OIDC)**
+    *   底层原理: X.509 证书体系, Bearer Token 验证流与 API Server 认证插件.
+    *   架构核心: RBAC 最小权限模型, OIDC 外部身份供应商集成.
+    *   实战目标: 建立基于租户的跨集群权限管控模型.
+*   **Week 06: 云原生反病毒、审计与合规治理**
+    *   底层原理: Seccomp, AppArmor 与 SELinux 在容器层的落地.
+    *   架构核心: 准入控制 (Admission Controller), 策略即代码 (Policy as Code).
+    *   实战目标: 部署 Kyverno 实现集群安全基线强制审计.
+
+### 第四阶段: 全栈可观测性与 GitOps 交付 (Week 7-8)
+*   **Week 07: 监控、日志与链路追踪 (Three Pillars)**
+    *   底层原理: Prometheus TSDB 存储模型, Loki 日志流聚合.
+    *   架构核心: Service Mesh (Istio/Linkerd) 的流量治理与 Sidecar 注入.
+    *   实战目标: 构建完善的集群黄金指标监控面板与告警抑制逻辑.
+*   **Week 08: 持续交付 (GitOps) 与灾难恢复 (DR)**
+    *   底层原理: Etcd Raft 协议一致性校验与快照原理.
+    *   架构核心: GitOps 模型 (ArgoCD/Flux), 集群状态的声明式同步.
+    *   实战目标: 演练 Etcd 全量数据恢复与跨可用区集群迁移.
+
+---
+
+> 通过本计划, 你将不仅掌握 Kubernetes 的操作命令, 更能从内核视角和架构思维去理解系统为何如此设计, 从而在生产环境中具备对复杂故障的深度排障能力.
