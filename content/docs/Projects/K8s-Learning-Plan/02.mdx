@@ -1,0 +1,411 @@
+---
+title: "Week 02: 云原生架构实战 -- 下一代全栈基础设施"
+description: "基于 Cilium KPR, Traefik Gateway API 与 Istio Ambient Mesh 构建高性能, 安全且具备高度可扩展性的流量体系."
+---
+
+## 1. 核心架构图景 (Architectural Vision)
+
+我们的目标是构建一个高性能, 安全且具备高度可扩展性的流量治理体系:
+
+*   **承载层 (L3/L4)**: **Cilium** 使用 **KPR (Kube-Proxy Replacement)** 模式, 通过 **VIP (192.168.20.104)** 实现 BGP/ARP 级别的负载均衡. 流量处理下沉至内核 eBPF, 实现 **O(1)** 级的转发效能.
+*   **入口控制器 (L7)**: **Traefik** 放弃传统的 Ingress, 全面拥抱 **Gateway API**. 作为南北流量 (North-South) 的枢纽, 提供动态路由, TLS 卸载与流量治理.
+*   **服务网格 (Security)**: **Istio Ambient Mesh** 模式. 东西流量 (East-West) 通过 **ztunnel** 实现无侵入的 mTLS 和安全策略, 彻底解决传统 Sidecar 带来的性能开销与管理复杂性.
+*   **持久化层 (Stateful)**: 状态剥离. 使用 **CloudNativePG (CNPG)** 管理外部 PostgreSQL 集群, 承载 Grafana 看板配置, 实现监控系统真正的无状态高可用.
+
+---
+
+## 2. 第一阶段: 部署 Traefik 边缘网关 (南北向枢纽)
+
+Traefik 作为南北流量的 "守门员", 负责将外部请求引入集群.
+
+### 2.1 安装 Traefik
+通过 Helm 在独立命名空间部署并开启 Gateway API 支持:
+```bash
+helm repo add traefik https://traefik.github.io/charts
+helm repo update
+
+helm install traefik traefik/traefik \
+  --namespace traefik-system --create-namespace \
+  --set ports.web.exposedPort=80 \
+  --set ports.websecure.exposedPort=443 \
+  --set gatewayExtensions.enabled=true
+```
+
+### 2.2 底层支撑: Cilium LB IPAM 与 L2 Announcement
+
+在私有化 (Bare-metal) 环境中, `Service Type: LoadBalancer` 无法自动获得 External IP. 我们需要利用 Cilium 的 **LB IPAM** (管理 IP 池) 和 **L2 Announcement** (通过 ARP 宣告 IP 归属) 来实现 192.168.20.104 的线上可见性.
+
+#### 1. 定义 IP 地址池 (ip-pool.yaml)
+告诉 Cilium 哪些 IP 地址可以分配给集群的服务:
+```yaml
+apiVersion: "cilium.io/v2alpha1"
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: "management-pool"
+spec:
+  blocks:
+    - cidr: "192.168.20.104/32" # 明确指定我们要使用的虚拟 IP
+```
+
+#### 2. 定义 L2 公告策略 (`l2-policy.yaml`)
+告诉 Cilium 在哪些节点上、通过哪些网卡发送 ARP 响应, 从而将流量引导至集群：
+```yaml
+apiVersion: "cilium.io/v2alpha1"
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: "l2-announcement-policy"
+spec:
+  externalIPs: true
+  loadBalancerIPs: true
+  interfaces:
+    - ^eth[0-9]+ # 匹配物理网卡名称, 请根据实际 ip addr 结果修改
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/os: linux
+```
+
+---
+
+### 2.3 定义 GatewayClass 与 Gateway
+
+在 Gateway API 规范中, 我们需要定义 **GatewayClass** 来声明底层的控制器实现, 并创建 **Gateway** 实例来分配物理资源.
+
+#### 1. 定义基础设施类型 (GatewayClass)
+这告诉 Kubernetes, 所有引用 `gatewayClassName: traefik` 的网关都由 Traefik 控制器负责处理:
+```yaml
+# gateway-class.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: traefik
+spec:
+  controllerName: traefik.io/gateway-controller
+```
+
+#### 2. 申请外部 IP 与定义网关 (Gateway)
+这里我们通过 `annotations` 字段与 Cilium 的 LB IPAM 进行联动。
+*   **为何使用 annotations?** 因为标准 Gateway 规范尚未统一 IP 分配指令。`io.cilium/lb-ipam-ips` 属于 Cilium 的扩展指令, 用于精准申请我们在 2.2 节定义的 `192.168.20.104`。
+*   **为何使用 8000 端口?** Traefik 容器镜像默认监听 8000 (HTTP) 和 8443 (HTTPS)。在 Gateway 层匹配 8000 可以确保流量直接触达容器的监听点, 避免不必要的转发重定向。
+
+```yaml
+# edge-gateway.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: edge-gateway
+  namespace: traefik-system
+  annotations:
+    io.cilium/lb-ipam-ips: "192.168.20.104" # 核心动作: 向 Cilium 申请锁定 VIP
+spec:
+  gatewayClassName: traefik
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 8000
+    allowedRoutes:
+      namespaces:
+        from: All
+```
+
+#### 3. 验证 Traefik 监听状态 (Verification)
+定义完资源后, 必须确认 Traefik 是否已经 "接管" 了该类.
+
+*   **检查 GatewayClass 状态**:
+    ```bash
+    kubectl get gatewayclass traefik -o yaml
+    ```
+    预期在 `status.conditions` 中看到 `type: Accepted` 且 `status: "True"`. 这意味着控制器已识别并接受了该类的定义.
+
+*   **对齐 Traefik 启动参数**:
+    如果状态未更新, 请检查 Traefik Deployment 的启动参数, 确保开启了 Gateway 支撑。
+    ```bash
+    kubectl get deploy -n traefik-system traefik -o yaml | grep "providers.kubernetesgateway"
+    # 预期输出应包含: --providers.kubernetesgateway
+
+    # kubectl patch 手动注入参数
+    kubectl patch deployment traefik -n traefik-system --type='json' -p='[
+    {"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--providers.kubernetesgateway"}
+    ]'
+    # 手动修改
+    kubectl edit deployment traefik -n traefik-system
+    ```
+
+---
+
+## 3. 第二阶段: 开启 Istio Ambient 网格 (东西向治理)
+
+Istio Ambient 模式通过宿主机层的 `ztunnel` 劫持流量, 为服务间通信提供透明的 mTLS 加密.
+
+### 3.1 安装 istioctl (多平台支持)
+
+#### 方案 A: macOS (Homebrew)
+```bash
+brew install istioctl
+```
+
+#### 方案 B: Linux (官方脚本)
+```bash
+curl -L https://istio.io/downloadIstio | sh -
+cd istio-1.*
+sudo cp bin/istioctl /usr/local/bin/
+```
+
+### 3.2 部署 Ambient Profile 与兼容性修正
+执行安装时, 必须注意 Cilium 的 **CNI Chaining** 冲突.
+
+```bash
+istioctl install --set profile=ambient -y
+```
+
+> ❗ **关键提醒**: 如果检测到 `cni-exclusive=true`, 必须将其设置为 `false`. 否则 Cilium 会锁定 CNI 目录, 导致 Istio CNI 无法挂载, 进一步导致 ztunnel 进入 503 循环.
+
+**修正方法**:
+```bash
+helm upgrade cilium cilium/cilium \
+  --namespace kube-system \
+  --reuse-values \
+  --set cni.exclusive=false
+
+# 重启 Cilium 以应用新配置
+kubectl rollout restart ds cilium -n kube-system
+```
+
+### 3.3 纳管业务命名空间
+将监控命名空间标记为 Ambient 模式:
+```bash
+kubectl create namespace monitoring-dev
+kubectl label namespace monitoring-dev istio.io/dataplane-mode=ambient
+kubectl describe namespace monitoring-dev
+```
+
+---
+
+## 4. 第三阶段: 搭建高可用监控系统 (持久化解耦)
+
+### 4.1 数据库高可用 (CloudNativePG)
+使用外置 PostgreSQL 取代本地 SQLite, 确保 Grafana 副本间的数据一致性.
+
+```yaml
+# pg-grafana.yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-grafana
+  namespace: monitoring-dev
+spec:
+  instances: 3 
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.0
+  storage:
+    size: 20Gi
+    storageClass: "nfs-client"
+  # 数据库初始化
+  bootstrap:
+    initdb:
+      database: grafana
+      owner: grafana_user
+      secret:
+        name: pg-grafana-creds # 稍后创建这个 Secret 存放密码
+  postgresql:
+    parameters:
+      archive_timeout: "5min"
+      max_wal_senders: "10" 
+```
+
+```bash
+# 创建 secret
+kubectl create secret generic pg-grafana-creds \
+  --from-literal=username=grafana_user \
+  --from-literal=password=Grafana123 \
+  -n monitoring-dev
+```
+
+### 4.2 应用层 HA 与 路由关联
+
+配置 Grafana 接入外部 PostgreSQL 集群以实现状态剥离. 建议初次调试时将副本数设为 1, 待连通性确认后再扩容.
+
+#### 1. 核心配置文件 (grafana-values.yaml)
+```yaml
+# 1. 环境变量注入 (数据库对接)
+extraEnvs:
+  - name: GF_DATABASE_TYPE
+    value: "postgres"
+  - name: GF_DATABASE_HOST
+    value: "pg-grafana-rw.monitoring-dev.svc.cluster.local:5432"
+  - name: GF_DATABASE_NAME
+    value: "grafana"
+  - name: GF_DATABASE_SSL_MODE
+    value: "disable"
+  - name: GF_DATABASE_USER
+    valueFrom:
+      secretKeyRef:
+        name: pg-grafana-creds
+        key: username
+  - name: GF_DATABASE_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: pg-grafana-creds
+        key: password
+
+# 2. 基础运行配置
+grafana.ini:
+  log:
+    level: info
+  # 注意: database 部分在此保持空白, 以强制让环境变量生效
+
+# 3. 高可用配置 (初次调试建议先设为 1)
+replicas: 1
+
+# 4. 存储与权限配置
+persistence:
+  enabled: true
+  storageClassName: "nfs-client"
+  size: 5Gi
+
+podSecurityContext:
+  fsGroup: 472
+containerSecurityContext:
+  runAsUser: 472
+```
+
+#### 2. 定义业务路由 (grafana-route.yaml)
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana-route
+  namespace: monitoring-dev
+spec:
+  parentRefs:
+  - name: edge-gateway
+    namespace: traefik-system
+  hostnames:
+    - "grafana.example.com"
+  rules:
+  - backendRefs:
+    - name: grafana
+      port: 80
+```
+
+---
+
+## 5. 验证、观测与审计
+
+### 5.1 全链路观测 (Hubble)
+观察流量如何跨越 N-S 与 E-W 边界:
+1. **南北流**: 外部 -> VIP (eBPF 拦截) -> Traefik (路由).
+2. **东西流**: Traefik -> ztunnel (加密) -> Grafana -> ztunnel -> PG (加密).
+
+运行命令审计:
+```bash
+hubble observe --namespace monitoring-dev -f
+# 只看发往 5432 端口（数据库）的流量
+hubble observe --namespace monitoring-dev -f --dest-port 5432
+
+# 如果没有 Hubble CLI, 可以直接在 Cilium Pod 里运行
+kubectl exec -n kube-system ds/cilium -- hubble observe --namespace monitoring-dev -f
+```
+
+### 5.2 故障恢复演练
+模拟数据库主节点故障, 观察 CNPG 的自动 Failover 过程. 得益于 Istio Ambient 的无感知特性, 数据库切换期间的连接重试将由网格层自动处理, 业务层基本无感.
+
+---
+
+## 6. 全链路流量数据流向图 (Data Flow Path)
+
+当外部用户通过浏览器访问 `http://grafana.example.com` 时, 流量经历了一场严密的协议栈之旅：
+
+### 6.1 物理接入层 (L2 - Data Link)
+1.  **ARP 响应**: 外部客户端 (或上层交换机) 查询 192.168.20.104 的 MAC 地址.
+2.  **Cilium 宣告**: 运行 **L2 Announcement Policy** 的集群节点响应 ARP, 声明该 VIP 绑定在自己的物理网卡 (如 eth0) 上.
+
+### 6.2 内核转发层 (L3/L4 - Network/Transport)
+1.  **eBPF 拦截**: 报文进入网卡那一刻, Cilium 的 **tc (Traffic Control)** 钩子点程序立即接管请求.
+2.  **KPR 路由**: eBPF 直接在内核 BPF Map 中查询 LoadBalancer 对应的后端. 它发现流量应由于 **Traefik Pod** 处理, 于是执行地址转换并通过 **O(1)** 路径直接重定向到 Traefik 网卡.
+
+### 6.3 边缘网关层 (L7 - Application [南北向])
+1.  **Traefik 业务逻辑**: Traefik 监听 8000 端口. 它解析 HTTP Host 头部为 grafana.example.com.
+2.  **Gateway API 路由**: 根据 HTTPRoute 规则, 它识别出目标服务是 monitoring-dev/grafana.
+
+### 6.4 安全网格层 (Mesh - Security [东西向])
+1.  **Istio Ambient 劫持**: 流量从 Traefik 发出后, 立即触达宿主机的 **ztunnel**.
+2.  **mTLS 加密**: ztunnel 识别出目标属于 istio.io/dataplane-mode=ambient 纳管的命名空间. 它为报文包裹一层 **HBONE (HTTP-Based Overlay Network)**, 实现指令级加密.
+3.  **零信任访问**: 流量加密传输至目标节点, 由另一端的 ztunnel 解密并校验身份.
+
+### 6.5 应用与持久化层 (Application & Data)
+1.  **Grafana 处理**: 最终报文抵达 Grafana Pod. Grafana 处理 UI 请求, 并需要查询配置.
+2.  **数据库访问**: Grafana 向 pg-grafana-rw 发起连接. 该请求同样受到 Istio 东西向加密保护.
+3.  **CNPG 自治**: **CloudNativePG** 的 Primary 节点接收并处理 SQL. 由于我们做了状态剥离, 即使 Grafana 容器漂移, 全部的看板与权限数据依然在 PG 的持久卷中安全流转.
+
+---
+
+> 这种 "Cilium KPR (L3/L4) + Traefik Gateway API (L7) + Istio Ambient (Mesh)" 的组合, 代表了当前云原生基础设施的最佳实践. 它在保证极高性能的同时, 通过分层治理实现了零信任安全与状态解耦, 为大规模 SRE 自动化运维奠定了坚实的底座.
+
+> 这份具备工业级深度的实战手册. 这一架构不仅保证了极致的性能, 更实现了 "御敌于门外(Traefik), 治乱于巷内(Istio)" 的深蓝防御体系.
+
+```bash
+kubectl scale -n monitoring-dev deployment grafana-dev --replicas=2
+kubectl -n kube-system exec pod/cilium-bc8hc -- cilium service list
+
+kubectl get svc -n traefik-system
+kubectl get svc -n traefik-system traefik -o yaml
+
+kubectl get httproute grafana-route -n monitoring-dev -o yaml
+
+kubectl get gatewayclass
+kubectl get gatewayclass traefik -o yaml
+kubectl get gateway -n traefik-system
+kubectl get gateway -n traefik-system edge-gateway -o yaml
+
+kubectl describe -n traefik-system pod  -l app.kubernetes.io/name=traefik
+
+kubectl get crd | grep gateway.networking.k8s.io
+kubectl logs -n istio-system -l app=ztunnel | grep -i grafana
+
+# 集群内部测试
+kubectl run test-curl --image=curlimages/curl -i --rm --restart=Never -- \
+  curl -v http://grafana-dev.monitoring-dev.svc.cluster.local:80/api/health
+
+# 重启 traefik
+kubectl rollout restart deployment -n traefik-system traefik
+```
+
+```bash
+# patch
+kubectl patch deployment -n monitoring-dev -l app.kubernetes.io/name=grafana --type='json' -p='[
+  {"op": "add", "path": "/spec/template/spec/containers/0/env", "value": []},
+  {"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "GF_DATABASE_TYPE", "value": "postgres"}},
+  {"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "GF_DATABASE_HOST", "value": "pg-grafana-rw.monitoring-dev.svc.cluster.local:5432"}},
+  {"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "GF_DATABASE_NAME", "value": "grafana"}},
+  {"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "GF_DATABASE_SSL_MODE", "value": "disable"}},
+  {"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "GF_DATABASE_USER", "valueFrom": {"secretKeyRef": {"name": "pg-grafana-creds", "key": "username"}}}},
+  {"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "GF_DATABASE_PASSWORD", "valueFrom": {"secretKeyRef": {"name": "pg-grafana-creds", "key": "password"}}}}
+]'
+```
+
+
+```bash
+ curl -v -H "Host: grafana.example.com" http://192.168.20.104/api/health
+*   Trying 192.168.20.104:80...
+* Connected to 192.168.20.104 (192.168.20.104) port 80
+> GET /api/health HTTP/1.1
+> Host: grafana.example.com
+> User-Agent: curl/8.7.1
+> Accept: */*
+>
+* Request completely sent off
+< HTTP/1.1 200 OK
+< Cache-Control: no-store
+< Content-Length: 101
+< Content-Type: application/json; charset=UTF-8
+< Date: Wed, 31 Dec 2025 07:48:39 GMT
+< X-Content-Type-Options: nosniff
+< X-Frame-Options: deny
+< X-Xss-Protection: 1; mode=block
+<
+{
+  "database": "ok",
+  "version": "12.3.1",
+  "commit": "3a1c80ca7ce612f309fdc99338dd3c5e486339be"
+* Connection #0 to host 192.168.20.104 left intact
+}
+```
