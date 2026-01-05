@@ -2,6 +2,9 @@
     "pages": [
         "Project_Management",
         "K8s-Learning-Plan",
+        "Ansible-Learning-Plan",
+        "Vim-Learning-Plan",
+        "Git-Learning-Plan",
         "---Storage---",
         "beegfs",
         "beegfs方案对比",
