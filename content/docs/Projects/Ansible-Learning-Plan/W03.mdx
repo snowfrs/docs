@@ -1,0 +1,302 @@
+---
+title: "Week 03: 变量优先级与 Jinja2 渲染引擎"
+description: "深入剖析 Ansible 的 22 层变量覆盖逻辑, 掌握 Jinja2 引擎的高级动态生成能力."
+---
+
+## 1. 变量优先级 (Precedence Logic)
+
+Ansible 的变量可以在全量、分组、主机、角色、Playbook 等多处定义. 理解“谁覆盖谁”是解决复杂故障的核心.
+
+### 1.1 22 层优先级深度解析
+Ansible 的变量覆盖逻辑非常复杂, 共有 22 层. 在冲突时, 编号大的覆盖编号小的. 以下是简化后的关键路径:
+
+| 优先级 | 变量来源 (由低到高) | 说明 |
+| :--- | :--- | :--- |
+| 1 | **role defaults** | 角色默认值, 最易被覆盖 |
+| 2-5 | inventory group_vars / host_vars | 清单定义的全局/组/主机变量 |
+| 6-10 | playbook group_vars / host_vars | Playbook 目录下的变量 |
+| 11 | **host facts / registered vars** | 系统发现的事实 or 任务结果注册 |
+| 12-14 | playbook vars / vars_files | Play 级别定义的静态变量 |
+| 15 | **role vars** | 角色内部定义的变量 (不同于 defaults) |
+| 16 | include_vars | 任务中通过模块动态加载的变量 |
+| 17 | set_fact | 运行时动态创建的主机变量 |
+| 18 | extra vars (`-e`) | **命令行强制指定, 绝对最高级** |
+
+**核心提示**: 永远不要试图记住所有 22 层. 生产中只需遵循: **默认值放 Role, 环境差异放 Inventory, 临时覆盖用 -e.**
+
+### 1.2 作用域 (Scopes)
+*   **Global**: 环境变量, `ansible.cfg`.
+*   **Play**: 当前 Play 定义的变量.
+*   **Host**: 与特定主机绑定的变量 (如 Facts).
+
+---
+
+## 2. 变量分类与生成方式
+
+变量不仅仅是简单的 `key: value`, Ansible 提供了多种机制来生成、发现和管理数据.
+
+### 2.1 自定义变量 (Custom Variables)
+这是用户最常用的定义方式, 存在于不同层级:
+*   **Play 级别**: 在 Playbook 中使用 `vars` 定义, 或通过 `vars_files` 引入外部 YAML 文件.
+*   **注册变量 (Register Variables)**: 使用 `register` 关键字捕获任务输出. 它是动态生成的, 仅在当前 Play 生命周期内有效.
+*   **运行时引入**: 使用 `include_vars` 可以在任务执行期间动态加载特定的变量文件.
+
+### 2.2 信息观测站: Ansible Facts
+Facts 是获取自远程主机的实时数据. 
+*   **本质**: 它们是 Host 级别的变量, 存储在控制节点的内存字典中.
+*   **访问**: 推荐使用 `ansible_facts['eth0']['ipv4']['address']` 的方式进行精确访问, 以避免与自定义变量重名.
+
+### 2.3 魔法变量 (Magic Variables)
+这些变量由 Ansible 内部自动预设, 用于反馈执行环境的元数据:
+*   **`hostvars`**: 极其强大. 允许你在 A 主机的任务中访问 B 主机的变量 (如 `{{ hostvars['db_host']['ansible_facts']['eth0']['ipv4']['address'] }}`).
+*   **`groups`**: 一个字典, key 是 Inventory 中的组名, value 是该组下所有主机的列表. 常用于生成集群配置文件 (如 LB 节点的 Upstream).
+*   **`group_names`**: 当前主机所属的所有组名列表. 常用于在模板中根据主机身份执行逻辑判断.
+*   **`inventory_hostname`**: 远程主机在 Inventory 中定义的名称 (不一定是真实的 Hostname), 是 Ansible 识别主机的唯一标识.
+
+### 2.4 增强连接: Lookup 插件
+Lookup 是 Ansible 从外部数据源 (如控制节点的文件、数据库、KV 存储) 检索数据的利器.
+*   **执行位置**: Lookup 始终在 **控制节点 (Control Node)** 执行.
+*   **常用场景**:
+    - **读取文件**: `{{ lookup('file', '/etc/ssh/id_rsa.pub') }}` (用于批量分发公钥).
+    - **环境变量**: `{{ lookup('env', 'DB_PASSWORD') }}`.
+    - **管道输出**: `{{ lookup('pipe', 'date +%Y-%m-%d') }}`.
+    - **模板生成**: `{{ lookup('template', './vhost.j2') }}` (将渲染后的字符串存入变量).
+
+### 2.5 代码综合示例
+通过一个简单的 DNS 配置同步场景, 展示多类型变量的协同工作:
+
+```yaml
+- name: Sync DNS Resolver Config
+  hosts: all
+  become: yes
+  vars:
+    # 2.4 Lookup: 从控制节点读取公钥
+    authorized_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+  
+  tasks:
+    - name: Get current date on control node
+      set_fact:
+        # 2.4 Lookup: 执行本地命令捕获日期
+        deploy_date: "{{ lookup('pipe', 'date +%Y-%m-%d') }}"
+        # 2.3 Magic: 获取当前 Inventory 组信息
+        cluster_nodes: "{{ groups['web_servers'] }}"
+
+    - name: Record remote service status
+      command: systemctl is-active sshd
+      register: ssh_status  # 2.1 Register: 捕获动态输出
+
+    - name: Generate report using hostvars
+      debug:
+        msg: |
+          Deploy date: {{ deploy_date }}
+          Local user's SSH Key: {{ authorized_key }}
+          This host: {{ inventory_hostname }}
+          Is SSH active? {{ ssh_status.stdout }}
+          # 2.3 Magic + Facts: 获取 db_host 的私有 IP
+          Database IP: {{ hostvars['db_host']['ansible_facts']['default_ipv4']['address'] }}
+```
+
+---
+
+## 3. 动态心脏: Jinja2 渲染引擎
+
+Ansible 的核心逻辑不仅仅是 YAML, 更是嵌入其中的 Jinja2 模板引擎. 掌握逻辑控制语句是实现环境自适应配置的关键.
+
+### 3.1 语法核心: 语句 vs 表达式
+*   **`{{ ... }}` (Expressions)**: 用于变量渲染和属性访问.
+*   **`{% ... %}` (Statements)**: 用于执行逻辑控制 (如 `if`, `for`).
+*   **`{# ... #}` (Comments)**: 模板内部注释, 不会被渲染到最终文件中.
+
+### 3.2 逻辑控制结构
+
+#### 3.2.1 条件判断 (`if / elif / else`)
+常用于根据操作系统的不同生成差异化的配置指令.
+```jinja
+{% if ansible_facts['os_family'] == "RedHat" %}
+# RHEL Specific Config
+Listen 80
+{% elif ansible_facts['os_family'] == "Debian" %}
+# Debian Specific Config
+Port 80
+{% else %}
+# Default
+ListenAddress 0.0.0.0:80
+{% endif %}
+```
+
+#### 3.2.2 循环迭代 (`for`)
+常用于遍历主机组变量或复杂字典. Jinja2 提供了 `loop` 对象来获取当前的迭代状态 (如 `loop.index`, `loop.first`).
+```jinja
+# Upstream Servers
+{% for host in groups['web_servers'] %}
+server {{ hostvars[host]['ansible_facts']['default_ipv4']['address'] }}:80 check;
+{% endfor %}
+```
+
+### 3.3 深度优化: 空白控制 (Whitespace Control)
+
+在 Jinja2 中, 默认情况下, 如果控制语句 (如 `{% for %}`) 独自占一行, 它在渲染时会留下一个空行. 虽然这对于 HTML 可能无所谓, 但在生成 Nginx 或 HAProxy 这种对格式敏感的配置文件时, 可能会产生大量无意义的空行, 甚至破坏语法结构.
+
+#### 3.3.1 剥离原理
+通过在标签中添加 `-` 符号, 可以手动指示搜索引擎删除与之相邻的空白字符 (包括空格、制表符和换行符):
+*   **`{%- ... %}`**: 剥离该标签 **左侧 (上方)** 的所有空白.
+*   **`{% ... -%}`**: 剥离该标签 **右侧 (下方)** 的所有空白.
+*   **`{{- ... -}}`**: 同样适用于变量渲染, 确保变量值与前后内容无缝衔接.
+
+#### 3.3.2 对比演练
+**场景**: 遍历主机组生成列表.
+
+*   **未优化模板**:
+    ```jinja
+    Host List:
+    {% for h in groups['web'] %}
+      - {{ h }}
+    {% endfor %}
+    ```
+    *渲染结果会包含大量空行.*
+
+*   **优化后的模板 (紧凑模式)**:
+    ```jinja
+    Host List:
+    {% for h in groups['web'] -%}
+      - {{ h }}
+    {% endfor -%}
+    ```
+    *渲染结果将严格按行排列, 无意外空行.*
+
+**底层提示**: 在编写配置文件模板时, 建议在循环和条件判断的结束标签 (`-%}`) 使用剥离符, 以获得最干净的输出结果.
+
+### 3.4 增强处理: 过滤器链 (Filter Chains)
+过滤器通过 `|` 管道符进行链式调用, 实现复杂的数据转换.
+*   **默认值处理**: `{{ my_var | default('default_value') }}`.
+*   **数据塑形**: `{{ list_var | unique | sort }}`.
+*   **JSON 提取**: `{{ complex_json | json_query('users[*].name') }}`.
+*   **状态转换**: `{{ my_bool | bool }}` (确保严格的逻辑判定).
+
+### 3.5 进阶: 自定义 Filter 插件
+当内置过滤器无法满足特殊的数据清洗需求时, 可以编写 Python 脚本进行扩展.
+
+1.  **存放路径**: 在 Playbook 同级目录下创建 `filter_plugins/` 文件夹.
+2.  **代码实现**: 创建 `my_custom_filters.py`.
+```python
+class FilterModule(object):
+    def filters(self):
+        return {
+            'hex_convert': self.to_hex,
+        }
+
+    def to_hex(self, value):
+        return hex(int(value))
+```
+3.  **使用**: `{{ 255 | hex_convert }}` -> `0xff`.
+
+### 3.6 综合实战: 动态负载均衡配置
+展示如何结合魔法变量、循环和条件判断生成一个 HAProxy 后端配置:
+
+```jinja
+# HAProxy Backend Config
+backend dynamic_web
+    balance roundrobin
+    {% for host in groups['web_servers'] -%}
+    # Node: {{ host }} ({{ loop.index }}/{{ loop.length }})
+    server {{ host }} {{ hostvars[host]['ansible_facts']['default_ipv4']['address'] }}:80 check {{ 'backup' if hostvars[host]['is_backup'] | default(false) else '' }}
+    {% endfor %}
+```
+
+---
+
+## 4. 安全性: Ansible Vault
+
+在源码管理 (Git) 中, 严禁明文存储密码、秘钥等敏感信息. Ansible Vault 提供了基于 **AES-256** 的全链路加密方案.
+
+### 4.1 加密原理 (Under the Hood)
+Ansible Vault 的安全性并非简单的密码替换, 其背后有着严密的密码学设计:
+1.  **对称加密 (AES-256)**: 使用相同的密钥进行加解密. 性能极高, 足以保障大规模文件的加密需求.
+2.  **密钥派生 (PBKDF2)**: 为了防止暴力破解, Vault 不会直接使用你的原始密码. 它通过 **PBKDF2** 算法, 结合 **盐值 (Salt)** 和数万次哈希迭代, 从你的密码中派生出一个 256 位的二进制密钥.
+3.  **完整性校验 (HMAC)**: 加密数据中包含了一个消息认证码 (MAC). 在解密时, Ansible 会验证数据的完整性. 如果文件被手动篡改 (即便没有密码), 解密也会报错, 防止中间人攻击.
+4.  **文件头结构**: 加密文件的首行标记 (如 `$ANSIBLE_VAULT;1.1;AES256`) 定义了版本和算法, 确保控制节点能识别并调用正确的解密逻辑.
+
+### 4.2 核心 CLI 操作
+掌握以下指令即可覆盖 90% 的加解密场景:
+
+| 任务 | 命令示例 |
+| :--- | :--- |
+| **创建加密文件** | `ansible-vault create secrets.yml` |
+| **加密现有文件** | `ansible-vault encrypt vars.yml` |
+| **编辑加密文件** | `ansible-vault edit secrets.yml` |
+| **临时查看内容** | `ansible-vault view secrets.yml` |
+| **重置加密密码** | `ansible-vault rekey secrets.yml` |
+| **解密文件 (永久)** | `ansible-vault decrypt secrets.yml` |
+
+### 4.3 加密粒度选择
+
+#### 4.2.1 文件级加密 (File-level)
+直接加密整个 YAML 文件. 优点是操作简单, 缺点是在 Git 中无法查看非敏感字段的变更.
+```bash
+# 运行 Playbook 时需提供密码过关
+ansible-playbook site.yml --ask-vault-pass
+```
+
+#### 4.2.2 变量级加密 (Variable-level)
+使用 `encrypt_string` 仅加密特定的 Value. 优点是配置文件保持明文可读, 仅敏感值被 `!vault` 标记包裹.
+```bash
+# 生成加密字符串
+ansible-vault encrypt_string 'my_super_password' --name 'db_password'
+```
+**YAML 表现形式**:
+```yaml
+db_user: admin
+db_password: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          363836336137666231313331...
+```
+
+### 4.4 自动化配置: 避免手动输入密码
+在 CI/CD 或频繁本地调试时, 每次输入密码非常低效.
+
+1.  **保存密码至文件**:
+    `echo 'your_password' > ~/.vault_pass`
+    `chmod 600 ~/.vault_pass`
+2.  **配置 `ansible.cfg`**:
+    ```ini
+    [defaults]
+    vault_password_file = ~/.vault_pass
+    ```
+3.  **环境变量 (更高优先级)**:
+    `export ANSIBLE_VAULT_PASSWORD_FILE=~/.vault_pass`
+
+### 4.5 生产最佳实践
+**分离策略**: 不要加密整个项目, 而是将敏感项提取到 `secrets.yml` 中并加密. 
+*   `vars/main.yml`: 存放普通配置.
+*   `vars/secrets.yml`: 存放加密后的密码.
+*   在 Playbook 中同时引用:
+    ```yaml
+    vars_files:
+      - vars/main.yml
+      - vars/secrets.yml
+    ```
+
+---
+
+## 5. 本周实战任务
+
+### 5.1 多维变量优先级验证
+1.  创建名为 `variable-war.yml` 的 Playbook.
+2.  分别在 `group_vars/all.yml` (低优先级), `host_vars/<host>.yml` (中优先级) 和 Play 内部的 `vars:` (高优先级) 定义同一个变量 `env_type`.
+3.  运行并观测输出, 最后通过命令行 `-e "env_type=emergency"` 尝试最终覆盖, 验证“22层堆栈”的逻辑死角.
+
+### 5.2 动态负载均衡器模板 (含 Lookup)
+编写一个 HAProxy 模板任务:
+1.  **数据获取**: 使用 `lookup('file', ...)` 读取内部的授权证书作为变量.
+2.  **逻辑生成**: 在 `.j2` 模板中使用 `for` 循环遍历 `groups['web_nodes']`.
+3.  **Facts 联动**: 从 `hostvars` 中动态提取每个 web 节点的私有 IP, 并通过 `default` 过滤器处理缺失 IP 的异常情况.
+4.  **空白控制**: 使用 `{%-` 和 `-%}` 符号确保生成的配置文件没有多余空行.
+
+### 5.3 安全加固: 混合加密实战
+1.  使用 `ansible-vault encrypt_string` 加密数据库 Root 密码, 并将其嵌入到明文的 `vars/db_config.yml` 中 (变量级加密).
+2.  将 SSL 私钥文件存储在 `vars/certificates.yml` 中并对其执行全文件加密 (文件级加密).
+3.  配置 `ansible.cfg` 使用 `.vault_pass` 文件, 实现 Playbook 在不加参数的情况下能同时解密上述两种不同粒度的信息.
+
+---
+
+> 变量是 Ansible 的血液. 掌握了优先级和 Jinja2, 你就拥有了构建自动化逻辑的“外科手术刀”.

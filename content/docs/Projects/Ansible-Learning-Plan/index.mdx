@@ -1,0 +1,52 @@
+---
+title: "Ansible 自动化运维进阶路径"
+description: "为期 7 周的生产级 Ansible 架构与底层自动化机制进修计划."
+
+---
+
+本计划旨在通过 7 周的时间, 从底层执行机制到企业级模块化架构, 深入剖析 Ansible 的核心逻辑. 我们不仅关注命令的使用, 更侧重于“幂等性”实现原理、SSH 任务分发机制以及复杂环境下的性能优化.
+
+## 核心学习模块大纲
+
+### 第一周: 驱动架构与任务分发机制 (Week 01)
+*   **底层原理**: Agentless 架构本质, `ssh_connection` 优化, SFTP vs SCP 传输差异.
+*   **核心机制**: Ansible 任务执行流程解析 —— 模块打包、Python 压缩包传输、远程执行与结果回传.
+*   **文档参考**: [01-基础介绍](../../DevOps/ansible/01-Introduction), [02-主机清单与配置](../../DevOps/ansible/02-Inventory-Config).
+*   **实战目标**: 配置 `Control Node` 的 SSH 长连接 (`ControlPersist`), 实现秒级任务下发.
+
+### 第二周: 状态驱动与幂等性编排 (Week 02)
+*   **底层原理**: 幂等性 (Idempotency) 的数学模型与模块实现逻辑, `changed_when` 与 `failed_when` 的精细化控制.
+*   **核心机制**: Facts 搜集机制底层剖析 (`setup` 模块), 缓存插件 (Redis/Jsonfile) 的高效利用.
+*   **文档参考**: [03-常用模块](../../DevOps/ansible/03-Ad-hoc-Modules), [04-Playbook 编写](../../DevOps/ansible/04-Playbooks), [06-逻辑控制](../../DevOps/ansible/06-Logic-Loops-Conditionals).
+*   **实战目标**: 编写生产级 Playbook, 并在 `--check` 和 `--diff` 模式下验证系统状态转换.
+
+### 第三周: 变量优先级与 Jinja2 渲染引擎 (Week 03)
+*   **底层原理**: 22 层变量优先级覆盖策略 (Variable Precedence Table), 内存中变量作用域的生命周期.
+*   **核心机制**: Jinja2 模板渲染过程, 自定义 Filter 插件扩展.
+*   **文档参考**: [05-变量与 Vault](../../DevOps/ansible/05-Variables-Vault), [07-高级模板与 Lint](../../DevOps/ansible/07-Advanced-Jinja2-Lint).
+*   **实战目标**: 利用 `ansible-vault` 构建多环境敏感配置管理体系, 使用复杂模板生成动态 Nginx 配置.
+
+### 第四周: 模块化重构与 Collection 生态 (Week 04)
+*   **底层原理**: Ansible Role 目录规约与加载深度优先级, 集群级任务委托 (`delegate_to`).
+*   **核心机制**: Ansible Collections 结构与命名空间 (Namespace) 解析, `ansible-galaxy` 离线分发体系.
+*   **文档参考**: [08-Ansible Galaxy](../../DevOps/ansible/08-Ansible-Galaxy).
+*   **实战目标**: 将单体 Playbook 重构为高复用的 Roles, 并构建私有 Galaxy 仓库实现组件共享.
+
+### 第五周: 性能调优与企业级自动化 (Week 05)
+*   **底层原理**: 执行策略 (`Linear` vs `Free`), 并行度 `Forks` 的内存消耗模型, `Async` 异步执行内核.
+*   **核心机制**: 插件化架构 (Callback, Connection, Action Plugins), 外部集成方案 (AWX / Tower API).
+*   **实战目标**: 针对 500+ 台规模的主机群进行性能调优, 解决大规模扫描下的任务延时与网络拥塞.
+
+### 第六周: 测试驱动开发与云原生执行环境 (Week 06)
+*   **底层原理**: IaC 质量保证体系 (TDD), 容器化隔离机制与依赖管理.
+*   **核心机制**: Molecule 测试框架驱动模型, Execution Environments (EE) 构建流程 (`ansible-builder`), Python 自定义模块开发 (`AnsibleModule`).
+*   **实战目标**: 为核心 Role 引入自动化测试流水线, 并构建私有的 EE 镜像以消除环境差异.
+
+### 第七周: 事件驱动架构 (EDA) 与混合云编排 (Week 07)
+*   **底层原理**: 响应式编程模型 (Reactive) 在运维中的应用, 基础设施生命周期管理 (Provisioning vs Configuration).
+*   **核心机制**: `ansible-rulebook` 事件处理引擎, Terraform 与 Ansible 的状态协同, `ansible-pull` 分布式架构.
+*   **实战目标**: 构建一个能够自动响应 Webhook 告警并触发修复动作的自愈系统, 以及 Terraform + Ansible 的完整 IaC 流水线.
+
+---
+
+> 理解 Ansible 意味着你需要超越简单的 YAML 语法, 深入到它如何利用 Python 操作远程协议栈的本质.
