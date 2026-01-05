@@ -11,7 +11,7 @@ This project is a personal knowledge base and collaborative wiki powered by **Ne
 - **Search**: Orama (Local with Chinese Tokenizer)
 - **Diagrams**: Mermaid.js
 - **Deployment**: Vercel (Target)
-- **Analytics**: PostHog (Pending Integration)
+- **Analytics**: Google Analytics (via @next/third-parties)
 
 ## 3. Project Structure
 ```text

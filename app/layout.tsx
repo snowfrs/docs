@@ -16,17 +16,18 @@ export const metadata: Metadata = {
   },
 };
 
-import { CSPostHogProvider } from './providers';
+import { GoogleAnalytics } from '@next/third-parties/google';
 
-export default function Layout({ children }: LayoutProps<'/'>) {
+export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="flex flex-col min-h-screen">
-        <CSPostHogProvider>
-          <RootProvider>
-            {children}
-          </RootProvider>
-        </CSPostHogProvider>
+        <RootProvider>
+          {children}
+        </RootProvider>
+        {process.env.NEXT_PUBLIC_GA_ID && (
+          <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+        )}
       </body>
     </html>
   );
