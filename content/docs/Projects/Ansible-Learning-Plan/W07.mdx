@@ -1,0 +1,82 @@
+---
+title: "Week 07: 事件驱动架构 (EDA) 与混合云编排"
+description: "探索 Event-Driven Ansible (EDA) 实现故障自愈, 掌握 Terraform 与 Ansible 的 IaC 协同模式, 以及大规模 Pull 模式应用."
+---
+
+## 1. 响应式运维: Event-Driven Ansible (EDA)
+
+传统的 Ansible 是 "手动触发" 或 "定时任务". EDA 引入了 **"If This Then That"** 的实时响应机制, 是实现**故障自愈 (Self-healing)** 的关键.
+
+### 1.1 核心组件架构
+EDA 独立于传统的 Playbook 运行, 核心由 `ansible-rulebook` 驱动.
+*   **Source (事件源)**: 监听外部事件的插件 (如 Kafka, Prometheus Alertmanager, Webhook, Azure Service Bus).
+*   **Rulebook**: 定义 "事件 -> 条件 -> 动作" 的逻辑文件 (类似 Playbook, 但面向流式数据).
+*   **Action**: 触发的操作, 通常是运行一个 Playbook (`run_playbook`) 或设置事实 (`set_fact`).
+
+### 1.2 示例: Webhook 触发自愈
+```yaml
+# rulebook.yml
+- name: Webhook 监听
+  hosts: all
+  sources:
+    - ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5000
+  rules:
+    - name: 重启服务
+      condition: event.payload.status == "down"
+      action:
+        run_playbook:
+          name: restart_service.yml
+```
+
+---
+
+## 2. IaC 工具链协同: Terraform + Ansible
+
+在现代 IaC 栈中, 工具的边界日益清晰. 专家需要知道何时使用 Terraform, 何时使用 Ansible.
+
+### 2.1 编排模式 (Orchestration Patterns)
+*   **Terraform (Provisioning)**: 负责基础设施的生命周期 (VPC, Subnet, EC2, SG). 关注 "Create/Destroy".
+*   **Ansible (Configuration)**: 负责操作系统内部的配置 (Nginx, Config Files, Users). 关注 "Converge".
+
+### 2.2 集成策略
+1.  **Local Exec**: Terraform 运行完毕后, 调用 `local-exec` 触发 Ansible.
+2.  **Dynamic Inventory**: Ansible 直接查询 Terraform State (`terraform-inventory`) 获取主机信息.
+3.  **Packer + Ansible**: 使用 Ansible 在构建镜像阶段 (Build Time) 预配置, Terraform 仅负责部署不可变镜像 (Immutable Infrastructure).
+
+---
+
+## 3. 大规模扩展: Ansible Pull 模式
+
+在成千上万台服务器的场景下 (或自动伸缩组 ASG), 集中式的 Push 模式可能会遇到性能瓶颈.
+
+### 3.1 Push vs Pull
+*   **Push (Default)**: 控制节点 SSH 连接到所有主机. 瓶颈在控制节点网络/CPU.
+*   **Pull (`ansible-pull`)**: 受控节点主动从 Git 仓库拉取 Playbook 并应用到**本地 (localhost)**. 算力分散在边缘节点.
+
+### 3.2 典型工作流
+1.  **Cloud-init**: 虚拟机启动.
+2.  **Bootstrap**: 安装 git 和 ansible.
+3.  **Cron**: 配置定时任务, 每 15 分钟运行一次 `ansible-pull -U <git-repo> local.yml`.
+
+---
+
+## 4. 本周实战任务
+
+### 4.1 EDA 入门
+1.  安装 `ansible-rulebook`.
+2.  编写一个 Rulebook 监听端口 5000 的 Webhook.
+3.  使用 `curl` 模拟告警 payload, 观察是否自动触发了本地的 Debug Playbook.
+
+### 4.2 Terraform 与 Ansible 的握手
+1.  编写 Terraform 代码启动一个 Docker 容器 (模拟服务器).
+2.  使用 Terraform 的 `provisioner "local-exec"` 在容器启动后自动调用 Ansible 对其安装 Nginx.
+
+### 4.3 模拟 Pull 模式
+1.  在本地 VM 或容器中, 不使用 SSH 远程连接.
+2.  直接运行 `ansible-pull -U <你的Github仓库地址> local.yml`, 验证是否能成功将仓库中的配置应用到本机.
+
+---
+
+> 终极的运维是"NoOps". 通过 EDA 实现自愈, 通过 Terraform 实现交付, 通过 Pull 模式实现扩张, 你将构建出真正"有机"的自维护系统.

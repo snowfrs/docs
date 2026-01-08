@@ -5,7 +5,7 @@ description: "深入剖析 Ansible 的 22 层变量覆盖逻辑, 掌握 Jinja2 �
 
 ## 1. 变量优先级 (Precedence Logic)
 
-Ansible 的变量可以在全量、分组、主机、角色、Playbook 等多处定义. 理解“谁覆盖谁”是解决复杂故障的核心.
+Ansible 的变量可以在全量、分组、主机、角色、Playbook 等多处定义. 理解 "谁覆盖谁" 是解决复杂故障的核心.
 
 ### 1.1 22 层优先级深度解析
 Ansible 的变量覆盖逻辑非常复杂, 共有 22 层. 在冲突时, 编号大的覆盖编号小的. 以下是简化后的关键路径:
@@ -276,6 +276,11 @@ db_password: !vault |
       - vars/secrets.yml
     ```
 
+### 4.6 进阶架构: SOPS 与 GitOps 流水线
+在现代 GitOps (如 ArgoCD) 架构中, Ansible Vault 的对称加密可能在多团队协作时产生密钥分发瓶颈.
+*   **SOPS (Secrets Operations)**: 允许利用 AWS KMS、GCP KMS 或 PGP 进行非对称加密.
+*   **优势**: 在 Git 中仅加密 Value, Key 保持明文. 这使得版本对比 (Diff) 更加清晰, 且在 CI/CD 中可以通过 IAM 角色直接解密, 无需手动传递密码文件.
+
 ---
 
 ## 5. 本周实战任务
@@ -283,7 +288,7 @@ db_password: !vault |
 ### 5.1 多维变量优先级验证
 1.  创建名为 `variable-war.yml` 的 Playbook.
 2.  分别在 `group_vars/all.yml` (低优先级), `host_vars/<host>.yml` (中优先级) 和 Play 内部的 `vars:` (高优先级) 定义同一个变量 `env_type`.
-3.  运行并观测输出, 最后通过命令行 `-e "env_type=emergency"` 尝试最终覆盖, 验证“22层堆栈”的逻辑死角.
+3.  运行并观测输出, 最后通过命令行 `-e "env_type=emergency"` 尝试最终覆盖, 验证 "22层堆栈" 的逻辑死角.
 
 ### 5.2 动态负载均衡器模板 (含 Lookup)
 编写一个 HAProxy 模板任务:
@@ -299,4 +304,4 @@ db_password: !vault |
 
 ---
 
-> 变量是 Ansible 的血液. 掌握了优先级和 Jinja2, 你就拥有了构建自动化逻辑的“外科手术刀”.
+> 变量是 Ansible 的血液. 掌握了优先级和 Jinja2, 你就拥有了构建自动化逻辑的 "外科手术刀".

@@ -1,0 +1,77 @@
+---
+title: "Week 05: 性能调优与企业级自动化"
+description: "攻克大规模集群下的性能瓶颈, 深入了解 Ansible 插件扩展与复杂自动化集成路径."
+---
+
+## 1. 深度优化: 并行度与策略
+
+当主机数量超过 100 台时, 控制节点的 CPU 和网络带宽将成为显著瓶颈.
+
+### 1.1 `Forks` 的内存模型
+*   **原理**: 每一个 Fork 相当于一个 Python 子进程. 过高的 Forks 会导致内存爆炸和 SSH 连接风暴.
+*   **建议**: 根据控制节点的 CPU 核心数进行配比, 通常为 `CPU Cores * 2`.
+
+### 1.2 执行策略 (Strategies)
+*   **Linear (默认)**: 必须等本批次所有主机完成 Step 1, 才能开始 Step 2. 容易产生 "短板效应".
+*   **Free**: 主机各跑各的, 谁先跑完 Step 1 立刻开始 Step 2. 效率最高, 但不适用于有顺序依赖的场景.
+*   **Mmitosis**: 针对特定故障节点的精准重试.
+
+---
+
+## 2. 异步执行 (Async & Poll)
+
+对于耗时巨大的任务 (如数据库恢复, OS 升级), SSH 连接可能会超时断开.
+
+### 2.1 `async` 与 `poll`
+*   **`async: 3600`**: 允许任务最长运行一小时.
+*   **`poll: 0`**: **关键模式**. 触发任务后立即将 SSH 连接放回池中, 不再等待结果. 随后可通过 `async_status` 模块定期回来检查.
+
+---
+
+## 3. 插件扩展: 深度定制 Ansible
+
+Ansible 的灵活性来自其 **Plugin System**.
+*   **Callback Plugins**: 任务执行完成后触发. 可以将结果推送到 ELK 栈或发送 Slack 通知.
+*   **Lookup Plugins**: 从外部 (HashiCorp Vault, SQL, CSV) 获取动态数据.
+*   **Action Plugins**: 改变 Ansible 执行模块的默认流程 (例如在执行前先静默部分节点).
+
+### 3.4 安全可观测性: Callback 中的 PII 脱敏
+在企业级审计合规要求下, 运维日志严禁包含敏感信息 (Personal Identifiable Information).
+*   **实现逻辑**: 自定义 Callback 插件可以拦截 `v2_runner_on_ok` 和 `v2_runner_on_failed` 事件.
+*   **正则过滤**: 在结果输出前, 插件通过预设的正则表达式 (如匹配数据库密码、SSL 秘钥) 对 `result` 字典进行递归脱敏, 确保发送至 ELK 或流水线日志的内容是安全的.
+
+
+---
+
+## 4. 企业级集成
+
+### 4.1 AWX / Ansible Tower
+*   **RBAC**: 为不同团队分配不同的认证凭据 (Credentials) 使用权.
+*   **Workflows**: 将多个 Playbook 串联成复杂的有向无环图 (DAG).
+
+### 4.2 动态清单 (Dynamic Inventory)
+在大规模云环境中, 严禁手动维护 IP. 必须使用动态脚本调用 AWS/Azure/GCP 的 API 系统实时同步资产信息.
+
+### 4.3 规模化资产治理: 基于 Consul 的服务发现
+当主机规模达到 10,000+ 时, 即使是云 API 的轮询也会产生显著延迟.
+*   **实时性**: 结合 **Consul** 或 **Etcd** 作为数据中心. 当新主机上线并完成服务注册时, Ansible 通过定制的 Inventory Plugin 实时感知状态变更.
+*   **标签化治理**: 利用 Consul 的 `Tags` (如 `service: web`, `env: prod`) 实现精细化的组匹配, 彻底解决静态清单难以同步的问题.
+*   **性能考量**: 对于超大规模并发, 建议将 Inventory 插件配置为 **缓存模式**, 避免每个 Ansible 进程都发起高频的 HTTP 请求.
+
+
+---
+
+## 5. 本周实战任务
+
+### 5.1 压力测试
+使用 `strategy: free` 在 50 个容器节点上并发安装软件包, 对比 `linear` 模式下的总耗时.
+
+### 5.2 异步日志跟踪
+编写一个 `async: 600, poll: 0` 的任务模拟长时间运行, 并在后续任务中使用 `until` 轮询检查其完成状态.
+
+### 5.3 自定义 Callback 插件 (进阶)
+编写一个简单的 Python 脚本放入 `callback_plugins`, 实现当任务失败时自动调用 `curl` 向内部告警平台发送 JSON 报文.
+
+---
+
+> 在自动化领域, 性能优化与深度集成是为了让自动化真正融入企业的 CI/CD 血脉.

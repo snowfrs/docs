@@ -1,0 +1,111 @@
+---
+title: "Week 04: 模块化重构与 Collection 生态"
+description: "从独立 Playbook 到企业级 Roles 与 Collections 的进化, 掌握大规模自动化资产治理."
+---
+
+## 1. 结构化治理: Ansible Roles
+
+Roles 是 Ansible 实现 "代码复用" 和 "松耦合" 的核心手段.
+
+### 1.1 标准化初始化与工程规约
+
+在工程实践中, 严禁手动创建 Role 目录. 必须使用标准工具初始化以确保兼容性:
+```bash
+# 初始化一个符合 Galaxy 标准的 Role
+ansible-galaxy role init my_custom_role
+```
+
+#### 1.1.2 目录组件的工程抽象
+Ansible Role 的目录结构并非随意设计, 而是对应了配置管理中的不同生命周期:
+
+| 目录名 | 核心职能 | 工程属性与约定 |
+| :--- | :--- | :--- |
+| **`defaults/`** | **默认变量** | 优先级最低. 定义 Role 的 "Public API", 供外部用户在 Playbook 中按需覆盖. |
+| **`vars/`** | **私有变量** | 优先级极高 (仅次于命令行). 存放 Role 内部的固定常量, 不建议外部修改, 确保 Role 逻辑的一致性. |
+| **`tasks/`** | **任务编排** | 核心入口为 `main.yml`. 建议使用 `import_tasks` 将复杂逻辑拆分为子任务文件 (如 `install.yml`, `config.yml`). |
+| **`handlers/`** | **状态后置处理** | 只有在 `tasks` 触发 `changed` 状态时才执行. 常用于服务重启、Cache 刷新等幂等性保障. |
+| **`templates/`** | **动态配置文件** | 存放 `.j2` 模板. 通过 Jinja2 引擎注入变量, 实现同一 Role 在不同环境下生成差异化配置. |
+| **`files/`** | **静态资源分发** | 存放不受变量影响的二进制文件、证书等. 在同步时采用校验和比对, 效率高于模板渲染. |
+| **`meta/`** | **元数据与依赖** | `main.yml` 定义作者、平台兼容性及 `dependencies`. 强制约束 Role 间的父子关系. |
+| **`library/`** | **内置私有模块** | 若该 Role 需要特定 Python 脚本支持, 可在此存放. 运行任务时会自动推送到远程执行. |
+| **`tests/`** | **质量保证** | 存放 `inventory` 和 `test.yml`, 用于配合 Molecular 等框架进行自动化单元测试. |
+
+### 1.2 依赖管理
+通过 `meta/main.yml`, 一个 Role 可以声明依赖于另一个 Role. 这在构建复杂基础架构 (如先部署 NTP 再部署 DB) 时非常有用.
+
+---
+
+## 2. 跨节点协作: Delegation 与 Serial
+
+Ansible 默认是 "每台主机独立并行", 但现代业务往往涉及跨节点交互.
+
+### 2.1 `delegate_to` (任务委托)
+*   **场景**: 在 Web 节点部署代码后, 需要在 F5/Nginx 负载均衡器上切除流量. 此时任务在 Web 主机的 Context 下运行, 但执行指令发送给了负载均衡器.
+*   **Local Action**: 委托给控制节点本身 (执行本地脚本).
+
+### 2.2 `run_once`
+在整个批次中只执行一次. 适合执行数据库初始化或生成全局共享证书.
+
+---
+
+## 3. 生态进化: Ansible Collections
+
+从 Ansible 2.9 开始, 传统的模块开始剥离到 **Collections** 中.
+
+### 3.1 命名空间 (Namespace) 的由来
+在 Collections 时代, 模块名由 `apt` 变成了 `ansible.builtin.apt`. 
+*   **优势**: 允许第三方厂商 (AWS, VMware, Cilium) 独立发布和维护插件, 而无需等待 Ansible 内核更新.
+*   **自研 Collection**: 企业内部可以将私有的 Roles, Modules, Plugins 封装成 Collection 统一管理.
+
+### 3.2 Collection 标准化开发指南
+
+Collection 是 Ansible 资产的高级封装形式, 它解决了 Role 无法携带特定版本插件 (Plugins) 的痛点.
+
+#### 3.2.1 初始化命令
+```bash
+# 必须遵循 <namespace>.<name> 格式
+ansible-galaxy collection init my_org.infra_utils
+```
+
+#### 3.2.2 目录规约与分发逻辑
+Collection 的结构比 Role 更严谨, 其核心组件包括:
+
+*   **`galaxy.yml`**: 声明式清单. 包含 Collection 的版本号、依赖项及构建元数据.
+*   **`plugins/`**: 最具威力的目录. 
+    - `modules/`: 存放自定义的核心作业模块.
+    - `lookup/`, `filter/`: 存放用于数据清洗和外部检索的 Jinja2 扩展插件.
+    - `callback/`: 用于拦截执行结果并发送至监控系统 (如 Prometheus) 的插件.
+*   **`roles/`**: 将该 namespace 下的所有相关 Role 进行聚合, 形成一站式解决方案.
+*   **`docs/`**: 强制要求提供 Markdown 格式的使用说明, 提升资产的治理透明度.
+*   **`meta/runtime.yml`**: 定义重定向规则. 例如当旧模块改名时, 通过此文件引导用户平滑过渡.
+
+**工程提示**: 所有的 Collection 组件在分发时都会被打包成一个 `.tar.gz` 文件. 在生产环境中, 建议搭建私有 **Ansible Automation Hub** (或利用 GitLab Package Registry) 来托管这些资产.
+
+### 3.3 资产治理: 语义化版本 (SemVer)
+当 Roles 和 Collections 在多个生产项目间共享时, 版本治理是防止 "配置漂移" 的最后一道防线.
+*   **版本规约**: 必须遵循 `Major.Minor.Patch` 格式.
+    - **Patch**: 仅限 Bug 修复, 必须向后兼容.
+    - **Minor**: 增加新功能, 但不破坏现有 API.
+    - **Major**: 突破性变更 (Breaking Changes), 需慎重升级.
+*   **依赖锁定**: 在 `requirements.yml` 中使用严格的版本约束 (例如 `version: ">=1.2.0, <2.0.0"`), 避免因上游资产静默更新导致生产事故.
+
+
+---
+
+## 4. 本周实战任务
+
+### 4.1 Playbook 大分片
+将一个臃肿的 `web-stack.yml` 拆分为 `common`, `nginx`, `php` 三个 Roles. 使用 `include_role` 实现动态加载.
+
+### 4.2 流量平滑切换实战
+编写一个 Playbook:
+1.  使用 `serial: 1` 每次仅更新一台服务器.
+2.  更新前使用 `delegate_to` 通知监测系统挂起告警.
+3.  更新完成后恢复告警.
+
+### 4.3 离线 Collection 部署
+在无外网环境下, 下载 `community.mysql` 离线包并配置 `COLLECTIONS_PATHS` 使其生效.
+
+---
+
+> 模块化不是为了炫技, 而是为了逃离代码的泥潭. 优秀的 Collection 设计能让自动化资产在不同项目间 "开箱即用".

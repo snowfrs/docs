@@ -10,14 +10,14 @@ Ansible 是一款基于 Python 开发的开源自动化运维工具, 属于 **�
 ### 1.1 关键特性 (Core Features)
 *   **Agentless (无代理)**: 目标节点无需安装任何客户端、Agent 或运行特定的后台进程. 只要有 SSH 和 Python 即可被管理.
 *   **Idempotency (幂等性)**: 核心设计目标. 无论执行多少次, 系统的状态始终保持一致.
-*   **Push-based (推模式)**: 控制节点主动将配置“推”向受控节点, 实时性强, 适合即时运维任务.
+*   **Push-based (推模式)**: 控制节点主动将配置 "推" 向受控节点, 实时性强, 适合即时运维任务.
 *   **YAML Syntax**: 使用人类易读的 YAML 编写 Playbook, 降低了学习门槛.
 
 ---
 
 ## 2. 架构组件与配置文件优先级
 
-理解 Ansible 的工作机制需要先理清它的“身体构成”以及它是如何寻找配置的.
+理解 Ansible 的工作机制需要先理清它的 "身体构成" 以及它是如何寻找配置的.
 
 ### 2.1 基本组件 (Components)
 1.  **Control Node**: 安装 Ansible 的机器, 负责解析 Playbook 并下发任务.
@@ -59,7 +59,7 @@ Ansible 按照固定的顺序寻找配置文件, 一旦找到则立刻停止搜�
 
 ## 4. 深度实践: Inventory 主机清单
 
-Inventory 不仅仅是 IP 列表, 它是整个自动化逻辑的“地图”.
+Inventory 不仅仅是 IP 列表, 它是整个自动化逻辑的 "地图".
 
 ### 4.1 基础匹配逻辑 (Patterns)
 Ansible 使用 Patterns 来指定执行任务的目标. 它可以是主机名、IP、组名甚至是它们的组合.
@@ -118,12 +118,20 @@ ansible "~(web|db).*[0-9]{3}\.example\.com" -m ping
 ssh_args = -C -o ControlMaster=auto -o ControlPersist=60s
 ```
 
-### 5.2 Pipelining (管道传输)
-开启后, 模块代码直接通过 Stdin 输入远程 Python, 减少了文件传输的磁盘 I/O:
+### 5.2 Pipelining (隧道化传输)
+当开启后, Ansible 不再将封包写入磁盘, 而是直接通过 stdin 管道喂给远程控制台的 Python 解释器.
+*   **性能提升**: 极大地减少了磁盘 I/O 和 SSH 连接次数.
+*   **注意事项**: 必须在远程系统的 `/etc/sudoers` 中禁用 `requiretty`, 否则会导致提权失败.
 ```ini
 # ansible.cfg
 pipelining = True
 ```
+
+### 5.3 极致性能: Mitogen for Ansible (第三方插件)
+尽管 Pipelining 提升巨大, 但 Ansible 原生执行由于 Python 进程频繁启动仍有开销.
+*   **原理**: Mitogen 通过在远程主机维持一个长效的 Python 解释器并使用高效的序列化协议, 能够减少多达 90% 的 CPU 消耗和网络带宽.
+*   **工程建议**: 适用于数千台规模的极致性能追求, 但需注意其对部分复杂 Action Plugins 的兼容性风险.
+
 
 ---
 
@@ -146,4 +154,4 @@ pipelining = True
 
 ---
 
-> 理解 SSH 隧道与 Inventory 拓扑, 你就掌握了 Ansible 的命脉. 所有的上层逻辑架构, 本质上都是对这幅“地图”的各种变换与投影.
+> 理解 SSH 隧道与 Inventory 拓扑, 你就掌握了 Ansible 的命脉. 所有的上层逻辑架构, 本质上都是对这幅 "地图" 的各种变换与投影.

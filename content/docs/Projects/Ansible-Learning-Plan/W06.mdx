@@ -1,0 +1,114 @@
+---
+title: "Week 06: 测试驱动开发与云原生执行环境"
+description: "掌握 Molecule 测试框架, 深入理解 Ansible Execution Environments (EE) 容器化运行机制, 以及自定义模块开发."
+---
+
+## 1. 基础设施测试: Molecule
+
+随着 IaC (Infrastructure as Code) 的成熟, 基础设施代码必须像应用代码一样经过严格测试. Molecule 是 Ansible 官方推荐的测试框架.
+
+### 1.1 TDD (测试驱动开发) 工作流
+在编写 Role 之前, 先定义测试场景.
+1.  **Create**: 启动测试环境 (如 Docker 容器).
+2.  **Converge**: 执行 Playbook/Role.
+3.  **Verify**: 验证实际状态 (端口是否监听, 文件内容是否正确).
+4.  **Destroy**: 清理环境.
+
+### 1.2 核心组件
+*   **Driver**: 管理测试基础设施的驱动 (Docker, Podman, Vagrant, AWS).
+*   **Provisioner**: 负责运行 Ansible (通常就是 Ansible 本身).
+*   **Verifier**: 验证结果的工具.
+    *   **Testinfra**: 基于 Python `pytest`, 功能强大, 适合复杂逻辑验证.
+    *   **Ansible**: 直接使用 Ansible 模块 (`assert`, `stat`) 进行验证, 门槛较低.
+
+---
+
+## 2. 云原生运行时: Execution Environments (EE)
+
+传统的 Ansible 依赖复杂的 Python 环境 (`virtualenv`), 在多团队协作或 AWX/Tower 环境中容易导致 "Dependency Hell". EE 是解决此问题的现代化方案.
+
+### 2.1 什么是 EE?
+EE 是一个包含了 Ansible Core, Python 依赖, Collections 以及系统级依赖 (如 `gcc`, `git`) 的容器镜像.
+*   **可移植性**: 开发、测试、生产环境使用完全一致的镜像.
+*   **隔离性**: 不同项目可以使用不同版本的 Ansible 和 Python 库.
+
+### 2.2 工具链
+*   **Ansible Builder**: 基于 `execution-environment.yml` 定义文件自动构建容器镜像.
+*   **Ansible Navigator**: 专为 EE 设计的命令行工具, 用于替代 `ansible-playbook`, 支持 TUI (文本用户界面).
+
+---
+
+## 3. 核心扩展: 自定义 Python 模块
+
+当现有的 3000+ 模块无法满足需求, 或者需要与内部复杂的 API 进行交互时, 编写自定义模块是必修课.
+
+### 3.1 模块结构
+Ansible 模块本质上是接收 JSON 参数并输出 JSON 结果的脚本. 官方提供了 `AnsibleModule` 辅助类.
+
+```python
+from ansible.module_utils.basic import AnsibleModule
+
+def run_module():
+    module_args = dict(
+        name=dict(type='str', required=True),
+        state=dict(type='str', choices=['present', 'absent'], default='present')
+    )
+
+    module = AnsibleModule(
+        argument_spec=module_args,
+        supports_check_mode=True
+    )
+    
+    # ... 核心逻辑 ...
+    
+    module.exit_json(changed=True, msg="Success")
+
+if __name__ == '__main__':
+    run_module()
+```
+
+### 3.2 幂等性实现
+在自定义模块中, 开发者必须手动实现幂等性逻辑: 只有在目标状态与当前状态不一致时, 才执行修改并返回 `changed=True`.
+
+---
+
+## 4. 持续集成流水线 (CI/CD)
+
+将 Ansible 集成到 DevOps 流水线中是工程化的最后一步.
+
+### 4.1 质量门禁
+*   **Syntax Check**: `ansible-playbook --syntax-check`.
+*   **Linting**: 使用 `ansible-lint` 强制执行最佳实践 (如避免使用 `shell` 模块代替专用模块).
+*   **Unit/Integration Test**: 调用 Molecule 执行测试.
+
+### 4.2 流水线设计 (GitLab CI / GitHub Actions)
+1.  **Commit**: 开发者提交代码.
+2.  **Lint**: 自动运行 `ansible-lint`. 失败则阻断合并.
+3.  **Molecule**: 在 Runner 中启动 Docker 容器进行集成测试.
+4.  **Release**: 自动发布 Role 到 Galaxy 或构建 EE 镜像推送到 Registry.
+
+---
+
+## 5. 本周实战任务
+
+### 5.1 初始化测试环境
+为一个现有的 Role 引入 Molecule:
+1.  安装: `pip install molecule molecule-plugins[docker]`.
+2.  初始化: `molecule init scenario`.
+3.  编写 `verify.yml` 使用 `assert` 模块验证服务状态.
+4.  运行 `molecule test` 跑通全流程.
+
+### 5.2 构建自定义 EE
+1.  编写 `execution-environment.yml`, 包含 `kubernetes.core` Collection 和 `python-kubernetes` 库.
+2.  使用 `ansible-builder build` 生成镜像.
+3.  使用 `ansible-navigator` 调用该镜像执行 Playbook.
+
+### 5.3 编写 Hello World 模块
+编写一个名为 `my_file_manager` 的简单模块, 接受 `path` 和 `content` 参数.
+*   如果文件不存在则创建.
+*   如果文件存在且内容一致, 返回 `changed=False`.
+*   如果内容不一致则覆盖, 返回 `changed=True`.
+
+---
+
+> 真正的高手不仅能使用工具, 还能创造工具. 掌握测试与扩展能力, 你将从运维工程师进化为自动化架构师.

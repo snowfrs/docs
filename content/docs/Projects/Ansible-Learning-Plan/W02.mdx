@@ -1,23 +1,51 @@
 ---
-title: "Week 02: 状态驱动与幂等性编排"
+title: "Week 02: 核心原理, Facts 探测与任务逻辑编排"
 description: "解析 Ansible 幂等性的数学模型, 深入探讨 Facts 搜集机制与任务控制逻辑."
 ---
 
-## 1. 深度解析: 幂等性 (Idempotency)
+## 1. 跨节点容错: block/rescue/always
 
+在生产级 Playbook 中, 仅仅保证幂等性是不够的, 我们还需要处理由于网络抖动或环境异常导致的非预期中断.
+
+### 1.1 结构化异常处理
+`block` 允许我们将多个任务归类为一个逻辑单元, 并在失败时执行补救措施.
+*   **Block**: 定义正常执行的任务流.
+*   **Rescue**: 只有在 `block` 内部的任务执行失败 (failed) 时才触发. 适合执行回退操作或发送告警.
+*   **Always**: 无论成败, 始终执行. 常用于清理临时文件或重启监控状态.
+
+```yaml
+- name: Database Migration with Rollback
+  block:
+    - name: Run Schema Update
+      command: /usr/bin/migrate_db.sh
+  rescue:
+    - name: Revert to Snapshot
+      command: /usr/bin/rollback_db.sh
+  always:
+    - name: Clean up temporary lock files
+      file:
+        path: /tmp/db.lock
+        state: absent
+```
+
+---
+
+## 2. 状态驱动与幂等性 (Idempotency)
+
+### 2.1 深度解析: 幂等性模型
 幂等性是 Ansible 的灵魂, 定义为: **$f(f(x)) = f(x)$**. 无论执行多少次, 系统的状态始终保持一致.
 
-### 1.1 模块如何实现幂等性?
+#### 2.1.1 模块如何实现幂等性?
 每一个编写良好的 Ansible 模块都会执行以下三步检查:
 1.  **Check Current State**: 检测远程系统的当前配置 (如文件是否存在, 内容是否匹配).
 2.  **Compare**: 对比当前状态与 Playbook 中定义的目标状态.
 3.  **Apply if Needed**: 仅在两者不一致时执行修改. 返回 `changed: true`, 否则返回 `ok`.
 
-### 1.2 状态劫持: `changed_when` 与 `failed_when`
+### 2.2 状态劫持: `changed_when` 与 `failed_when`
 
 在执行 `shell` 或 `command` 模块时, Ansible 默认无法判断脚本内部逻辑是否由于幂等性而跳过, 通常会直接返回 `changed: true`. 此外, 默认失败判定仅依赖于退出码 (RC != 0).
 
-#### 1.2.1 `changed_when`: 定义变更标准
+#### 2.2.1 `changed_when`: 定义变更标准
 用于强制指定任务在何种条件下标记为 "已变更":
 *   **抑制变更**: `changed_when: false`. 适用于巡检类指令 (如 `uptime`), 确保 Playbook 运行结果干净, 不会出现虚假的黄色变更标记.
 *   **基于输出判定**: 当脚本输出特定字符串时才视为变更.
@@ -31,7 +59,7 @@ description: "解析 Ansible 幂等性的数学模型, 深入探讨 Facts 搜集
     - "'Already up-to-date' not in script_res.stdout"
 ```
 
-#### 1.2.2 `failed_when`: 自定义失败逻辑
+#### 2.2.2 `failed_when`: 自定义失败逻辑
 用于覆盖默认的退出码判定机制, 实现精细化的容错处理:
 *   **忽略特定错误**: 某些工具执行成功但退出码不为 0, 或执行失败但输出中包含可忽略的警告.
 ```yaml
@@ -47,18 +75,18 @@ description: "解析 Ansible 幂等性的数学模型, 深入探讨 Facts 搜集
 
 ---
 
-## 2. 信息观测站: Ansible Facts
+## 3. 信息观测站: Ansible Facts
 
-Ansible Facts 是对远程主机信息的“全自动普查”. 它并非静态配置, 而是在 Playbook 执行之初通过 `setup` 模块实时获取的系统元数据.
+Ansible Facts 是对远程主机信息的"全自动普查". 它并非静态配置, 而是在 Playbook 执行之初通过 `setup` 模块实时获取的系统元数据.
 
-### 2.1 底层搜集与执行机制
+### 3.1 底层搜集与执行机制
 当 Playbook 启动 `Gathering Facts` 时, 发生了以下底层交互:
 1.  **模块分发**: Control Node 将 `setup` 模块的 Python 代码打包并传输至远程节点.
 2.  **指令执行**: 远程节点上的 Python 解释器运行该代码, 它会通过系统调用 (System Calls) 或执行底层指令 (如 `dmidecode`, `lsblk`, `ip link`, `facter`, `ohai` 等) 获取硬件, 内核, 网络和文件系统状态.
 3.  **结果封装**: 搜集到的原始数据被序列化为 JSON 格式, 通过 SSH 加密通道回传给 Control Node.
 4.  **内存归档**: Control Node 解析 JSON 并将其存储在内存中的 `hostvars` 变量池中.
 
-### 2.2 变量映射与探索
+### 3.2 变量映射与探索
 在旧版本中, Facts 直接映射为全局变量 (如 `{{ ansible_distribution }}`). 为了避免变量命名冲突, 现代 Ansible 推荐使用 `ansible_facts` 字典:
 *   **推荐写法**: `{{ ansible_facts['distribution'] }}` 或 `{{ ansible_facts.distribution }}`.
 *   **交互式探索**: 使用 Ad-hoc 命令可以查看所有可用事实:
@@ -69,7 +97,7 @@ Ansible Facts 是对远程主机信息的“全自动普查”. 它并非静态�
     ansible <host> -m setup -a "filter=ansible_distribution*"
     ```
 
-### 2.3 局部事实 (Local Facts / Custom Facts)
+### 3.3 局部事实 (Local Facts / Custom Facts)
 除了系统内置的 Facts, Ansible 允许在远程节点定义自定义事实. 这是处理复杂业务逻辑 (如标记服务器的角色, 所属业务组) 的利器.
 *   **路径**: `/etc/ansible/facts.d/*.fact`
 *   **格式**: 支持 JSON 或 INI 格式.
@@ -81,7 +109,7 @@ mkdir -p /etc/ansible/facts.d
 echo '{"app_version": "2.4.1"}' > /etc/ansible/facts.d/app.fact
 ```
 
-### 2.4 性能优化: Fact Caching & Gathering Subset
+### 3.4 性能优化: Fact Caching & Gathering Subset
 在大规模集群中, 频繁搜集 Facts 会显著增加执行时间 (SSH 通道开销与 Python 启动开销).
 *   **Fact Caching**: 将 Facts 持久化到 Redis, Memcached 或 Jsonfile 中, 过期时间内不再重复搜集.
     ```ini
@@ -105,24 +133,24 @@ echo '{"app_version": "2.4.1"}' > /etc/ansible/facts.d/app.fact
 
 ---
 
-## 3. Ad-hoc 指令
+## 4. Ad-hoc 指令
 
 如果说 Playbook 是编写好的 "剧本", 那么 Ad-hoc 就是 "即兴表演". 它允许用户在不编写 YAML 文件的情况下, 直接通过命令行向一台或多台主机发送单条指令.
 
-### 3.1 使用场景: 什么时候该用 Ad-hoc?
+### 4.1 使用场景: 什么时候该用 Ad-hoc?
 *   **临时巡检**: 快速查看集群的磁盘空间, 内存使用率或进程状态.
 *   **应急处理**: 批量重启某个服务或下发一个临时补丁.
 *   **测试验证**: 在编写 Playbook 前, 验证某个模块在特定发行版下的行为.
 *   **一次性任务**: 仅需执行一次的操作 (如批量分发公钥, 清理旧日志).
 
-### 3.2 命令结构解析
+### 4.2 命令结构解析
 基础语法: `ansible <pattern> -m <module> -a "<arguments>" [options]`
 *   **Pattern**: 主机组或 IP 匹配规则 (如 `all`, `web_servers`, `192.168.1.*`).
 *   **Module**: 要调用的功能模块 (默认为 `command`).
 *   **Arguments**: 传递给模块的参数.
 *   **Forks (-f)**: 控制并行度. Ansible 默认并发数为 5.
 
-### 3.3 常用模块与实战示例
+### 4.3 常用模块与实战示例
 
 | 模块名 | 功能描述 | Ad-hoc 示例 |
 | :--- | :--- | :--- |
@@ -142,7 +170,7 @@ echo '{"app_version": "2.4.1"}' > /etc/ansible/facts.d/app.fact
 | **filesystem** | 在块设备上创建文件系统 (格式化) | `ansible all -m filesystem -a "fstype=ext4 dev=/dev/sdb1"` |
 | **synchronize** | 利用 rsync 高效同步目录 (需安装 rsync) | `ansible all -m synchronize -a "src=/local/data/ dest=/backup/"` |
 
-### 3.4 底层执行流与并发机制 (Parallelism)
+### 4.4 底层执行流与并发机制 (Parallelism)
 当执行一条 Ad-hoc 命令时, 后台发生了如下底层交互:
 1.  **解析清单 (Inventory)**: 根据 Pattern 确定目标主机.
 2.  **生成逻辑单元**: Control Node 将所选模块和参数编译成一个临时的 Python 脚本 (Zip 压缩包).
@@ -154,25 +182,25 @@ echo '{"app_version": "2.4.1"}' > /etc/ansible/facts.d/app.fact
 
 ---
 
-## 4. 编排基石: Playbook 基础结构
+## 5. 编排基石: Playbook 基础结构
 
 Playbook 是由一个或多个 "Play" 组成的列表. 每个 Play 的核心使命是将一组变量, 任务和角色映射到特定的主机组上.
 
-### 4.1 核心组成部分
+### 5.1 核心组成部分
 一个标准 Play 通常包含以下四个维度:
 *   **Target (目标)**: `hosts` 定义了任务在哪些机器上运行.
 *   **Privilege (权限)**: `become: yes` 允许任务以 root 或其他用户身份提权执行.
 *   **Variable (变量)**: `vars` 定义了 Play 级别的静态变量.
 *   **Action (动作)**: `tasks` 是有序的任务列表, 按顺序在所有目标主机上执行.
 
-### 4.2 运行指令与状态验证
+### 5.2 运行指令与状态验证
 编写完成后, 使用 `ansible-playbook` 命令触发编排. 为了确保生产安全, Ansible 提供了两种极其重要的验证模式:
 
 *   **Check Mode (`--check`)**: 
     - **原理**: 模拟执行, 模块会预测结果但不会真实修改系统. 
     - **局限性**: 某些模块 (如 `shell`) 默认不支持 Check mode, 会直接跳过或报错. 可以在任务中设置 `check_mode: no` 强制其在检查模式下也真实执行, 或 `check_mode: yes` 强制模拟.
 *   **Diff Mode (`--diff`)**: 
-    - **原理**: 针对文本文件 (如 `template`, `copy`), 展示“当前值”与“目标值”的具体差异 (类似 `diff -u`). 常与 `--check` 结合使用.
+    - **原理**: 针对文本文件 (如 `template`, `copy`), 展示"当前值"与"目标值"的具体差异 (类似 `diff -u`). 常与 `--check` 结合使用.
 
 ```bash
 # 模拟并展示文件变更差异 (生产推荐)
@@ -181,7 +209,7 @@ ansible-playbook -i inventory.ini site.yml --check --diff
 ansible-playbook -i inventory.ini site.yml --limit webservers
 ```
 
-### 4.3 极简示例: 管理 Nginx
+### 5.3 极简示例: 管理 Nginx
 ```yaml
 ---
 - name: Deploy and Start Nginx
@@ -203,7 +231,7 @@ ansible-playbook -i inventory.ini site.yml --limit webservers
         enabled: yes
 ```
 
-### 4.4 进阶示例: 用户与组管理
+### 5.4 进阶示例: 用户与组管理
 在生产环境中, 通常需要先创建特定的管理组, 再创建属于该组的服务账号.
 ```yaml
 ---
@@ -232,11 +260,11 @@ ansible-playbook -i inventory.ini site.yml --limit webservers
 
 ---
 
-## 5. 任务编排与逻辑控制
+## 6. 任务编排与逻辑控制
 
-如果说 Facts 是“传感器”, 那么控制流就是 Ansible 的“大脑”, 决定了 Playbook 面对复杂环境时的响应能力.
+如果说 Facts 是"传感器", 那么控制流就是 Ansible 的"大脑", 决定了 Playbook 面对复杂环境时的响应能力.
 
-### 5.1 结果捕获: `register`
+### 6.1 结果捕获: `register`
 `register` 关键字允许你将一个任务的执行结果存储在一个变量中, 以供后续任务分析.
 *   **数据结构**: 注册变量是一个复杂的字典 (Dictionary), 包含 `stdout`, `stderr`, `rc` (Return Code), `changed`, `failed` 等关键 Key.
 *   **链式决策**: 常用于先执行一个探测性脚本, 捕获其结果, 然后在后续任务中根据该值进行逻辑分支.
@@ -254,11 +282,11 @@ ansible-playbook -i inventory.ini site.yml --limit webservers
   when: not config_status.stat.exists
 ```
 
-### 5.2 条件判断: `when`
+### 6.2 条件判断: `when`
 
 `when` 子句是 Ansible 实现动态逻辑的核心. 它利用 Jinja2 表达式对任务的执行环境进行实时判定.
 
-#### 5.2.1 运算符与逻辑深度
+#### 6.2.1 运算符与逻辑深度
 Ansible 支持标准的 Python/Jinja2 比较与逻辑运算:
 
 | 类型 | 运算符 / 关键字 | 示例 |
@@ -270,7 +298,7 @@ Ansible 支持标准的 Python/Jinja2 比较与逻辑运算:
 | **状态测试** | `is success`, `is failed`, `is skipped` | `result is success` |
 | **类型测试** | `is number`, `is string`, `is directory` | `path is directory` |
 
-#### 5.2.2 列表形式的隐式 "与" (AND)
+#### 6.2.2 列表形式的隐式 "与" (AND)
 除了在单行书写复杂的 `and` 逻辑, Ansible 允许将多个条件写成一个列表. 这种方式可读性更好, 且所有条件必须同时满足 (隐式 AND):
 ```yaml
 when:
@@ -279,7 +307,7 @@ when:
   - max_memory_gb > 8
 ```
 
-#### 5.2.3 综合实战示例
+#### 6.2.3 综合实战示例
 ```yaml
 - name: Advanced Conditional Example
   shell: /usr/bin/verify_system.sh
@@ -299,7 +327,7 @@ when:
     - ansible_facts['os_family'] != "Debian"
 ```
 
-### 5.3 循环演进: `loop`
+### 6.3 循环演进: `loop`
 从 Ansible 2.5 开始, `loop` 逐渐替代了繁杂的 `with_items`, `with_dict` 等语法.
 *   **本质**: `loop` 会将列表中的每个元素迭代地传递给模块执行, 本质上是将一个 Task 定义转换为了多个原子任务执行单元.
 *   **结合 Filter**: 结合 `dict2items` 等过滤器, 可以轻松处理复杂的嵌套数据结构.
@@ -319,10 +347,10 @@ when:
     - { name: 'bob', uid: 2002, primary_group: 'devops', extra_groups: 'wheel' }
 ```
 
-### 5.4 状态变更触发器: `handlers`
-`handlers` 用于实现“只有当发生变化时才执行”的逻辑, 是实现生产环境解耦的关键.
+### 6.4 状态变更触发器: `handlers`
+`handlers` 用于实现"只有当发生变化时才执行"的逻辑, 是实现生产环境解耦的关键.
 *   **通知机制 (`notify`)**: 当一个任务返回 `changed: true` 时, 它会向任务堆栈发送一个信号, 标记特定 Handler 需要运行.
-*   **执行时机**: 默认情况下, 所有标志为“待运行”的 Handlers 都会在**整个 Play 的末尾**按顺序执行一次. 这种机制保证了即使多个任务修改了 nginx 配置, `restart nginx` 也只会被执行一遍.
+*   **执行时机**: 默认情况下, 所有标志为"待运行"的 Handlers 都会在**整个 Play 的末尾**按顺序执行一次. 这种机制保证了即使多个任务修改了 nginx 配置, `restart nginx` 也只会被执行一遍.
 *   **强制执行**: 如果 Play 运行中途失败, 后续的 Handlers 默认不会运行. 若需确保状态一致性, 可使用 `force_handlers: true` 配置.
 
 ```yaml
@@ -342,15 +370,15 @@ handlers:
 
 ---
 
-## 6. 本周实战任务
+## 7. 本周实战任务
 
-### 6.1 Ad-hoc 快速演练
+### 7.1 Ad-hoc 快速演练
 使用命令行快速完成以下任务, 验证对基础模块的掌握:
 1.  **连通性测试**: 使用 `ping` 模块确认所有主机的 Python 环境正常.
 2.  **临时巡检**: 使用 `shell` 模块结合管道, 查看所有节点 `/var/log` 目录下占用空间最大的前三个文件.
 3.  **用户清理**: 使用 `user` 模块删除一个名为 `guest` 的临时账号, 并确保其家目录一并清理.
 
-### 6.2 编写 "状态优先" 的基础架构编排
+### 7.2 编写 "状态优先" 的基础架构编排
 编写一个综合 Playbook (`infra.yml`), 实现以下逻辑:
 1.  **组与用户初始化**:
     - 创建 GID 为 `4000` 的组 `app_admin`.
@@ -363,11 +391,11 @@ handlers:
     - 配置 `notify` 触发 `handler`, 实现服务配置变更后的自动重启.
 4.  **幂等性验证**: 连续运行两次 Playbook, 观察第二次运行是否实现全绿 (所有 Task 状态为 `ok`, 无 `changed`).
 
-### 6.3 事实搜集与缓存优化
+### 7.3 事实搜集与缓存优化
 1.  在 `ansible.cfg` 中开启 `jsonfile` 缓存, 并设置过期时间为 1 天.
 2.  对比开启缓存前后的 `Gathering Facts` 阶段耗时.
 3.  使用 `ansible-inventory --list` 或直接查看缓存文件, 观察 Facts 的存储结构.
 
 ---
 
-> 不要把 Playbook 看成脚本, 而要把它看成是一张“期望状态图”.
+> 不要把 Playbook 看成脚本, 而要把它看成是一张"期望状态图".
