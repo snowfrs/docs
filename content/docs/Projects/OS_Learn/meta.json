@@ -1,0 +1,12 @@
+{
+    "title": "操作系统深度学习",
+    "pages": [
+        "M1_Architecture",
+        "M2_Interrupts_Syscalls",
+        "M3_Processes_Scheduling",
+        "M4_Synchronization",
+        "M5_Memory_Management",
+        "M6_Filesystem_IO",
+        "M7_Virtualization_Cloud"
+    ]
+}
