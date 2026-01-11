@@ -10,7 +10,7 @@ This project is a personal knowledge base and collaborative wiki powered by **Ne
 - **Language**: TypeScript / MDX
 - **Search**: Orama (Local with Chinese Tokenizer)
 - **Diagrams**: Mermaid.js
-- **Deployment**: Vercel (Target)
+- **Deployment**: Cloudflare Pages
 - **Analytics**: Google Analytics (via @next/third-parties)
 
 ## 3. Project Structure
@@ -49,7 +49,8 @@ This project is a personal knowledge base and collaborative wiki powered by **Ne
 
 ## 5. Scripts `package.json`
 - `pnpm run dev`: Start development server.
-- `pnpm run build`: Build for production.
+- `pnpm run build`: Build for production (Next.js standard).
+- `pnpm run cf-build`: Build for Cloudflare Pages (using OpenNext adapter).
 - `pnpm run types:check`: Validate MDX and TypeScript.
 - `pnpm run postinstall`: Runs `fumadocs-mdx`.
 
