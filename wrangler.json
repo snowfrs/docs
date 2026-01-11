@@ -1,13 +1,13 @@
 {
     "$schema": "node_modules/wrangler/config-schema.json",
     "name": "wiki",
-    "main": ".open-next/worker.js",
+    "main": ".open-next/_worker.js",
     "compatibility_date": "2024-11-18",
     "compatibility_flags": [
         "nodejs_compat"
     ],
     "assets": {
-        "directory": ".open-next/assets",
+        "directory": ".open-next",
         "binding": "ASSETS"
     },
     "observability": {
