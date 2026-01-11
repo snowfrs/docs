@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "cf-build": "pnpm run build && opennextjs-cloudflare build",
+    "cf-build": "pnpm run build && opennextjs-cloudflare build && cp .open-next/worker.js .open-next/assets/_worker.js",
     "dev": "next dev",
     "start": "next start",
     "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
