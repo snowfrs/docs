@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "cf-build": "pnpm run build && pnpm exec opennextjs-cloudflare build && rm -f wrangler.toml && cp -r .open-next/assets/. .open-next/ && mv .open-next/worker.js .open-next/_worker.js",
+    "cf-build": "pnpm run build && pnpm exec opennextjs-cloudflare build && cp -r .open-next/assets/. .open-next/ && mv .open-next/worker.js .open-next/_worker.js",
     "dev": "next dev",
     "start": "next start",
     "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
