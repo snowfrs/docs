@@ -137,4 +137,13 @@ kubectl get pods -n kube-system -l k8s-app
 kubectl get pods -n kube-system -l k8s-app=cilium
 kubectl describe pod hubble-relay-6bc74f85f9-zwxfn -n kube-system
 kubectl get pods -n monitoring-dev -w
+kubectl get cluster -A
+kubectl get service -n monitoring-dev
+kubectl get svc -n monitoring-dev -o wide
+kubectl get svc -n monitoring-dev -l cnpg.io/cluster=pg-grafana
+kubectl create secret generic pg-grafana-creds \\n  --from-literal=username=grafana_user \\n  --from-literal=password=Grafana123 \\n  -n monitoring-dev
+
+kubectl get secret pg-grafana-creds -n monitoring-dev -o yaml
+kubectl get secret pg-grafana-creds -n monitoring-dev --output jsonpath='{.data}'
+kubectl get secret pg-grafana-creds -n monitoring-dev --output jsonpath='{.data}' | base64 --decode
 ```
