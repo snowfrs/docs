@@ -1,15 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import mermaid from 'mermaid';
 import { RefreshCcw } from 'lucide-react';
-
-// Initialize mermaid
-mermaid.initialize({
-    startOnLoad: false,
-    theme: 'default',
-    suppressErrorRendering: true,
-});
 
 export function Mermaid({ code }: { code: string }) {
     const ref = useRef<HTMLDivElement>(null);
@@ -18,16 +10,23 @@ export function Mermaid({ code }: { code: string }) {
 
     useEffect(() => {
         if (ref.current) {
-            mermaid
-                .render('mermaid-' + Math.random().toString(36).substr(2, 9), code)
-                .then(({ svg }) => {
-                    setSvg(svg);
-                    setError(false);
-                })
-                .catch((e) => {
-                    console.error(e);
-                    setError(true);
+            import('mermaid').then((mer) => {
+                mer.default.initialize({
+                    startOnLoad: false,
+                    theme: 'default',
+                    suppressErrorRendering: true,
                 });
+
+                mer.default.render('mermaid-' + Math.random().toString(36).substr(2, 9), code)
+                    .then(({ svg }) => {
+                        setSvg(svg);
+                        setError(false);
+                    })
+                    .catch((e) => {
+                        console.error(e);
+                        setError(true);
+                    });
+            });
         }
     }, [code]);
 
