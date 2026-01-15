@@ -4,14 +4,14 @@ title: "M7: 硬件虚拟化与基础设施"
 
 ## 概述
 
-现代操作系统不仅直接运行在硬件上，更多时候作为客户机（Guest）运行在 Hypervisor 之上，或作为宿主机（Host）管理容器。本模块深入硬件辅助虚拟化技术（VT-x/EPT）、I/O 虚拟化协议（VirtIO）以及容器底层的隔离机制。
+现代操作系统不仅直接运行在硬件上, 更多时候作为客户机 (Guest) 运行在 Hypervisor 之上, 或作为宿主机 (Host) 管理容器. 本模块深入硬件辅助虚拟化技术 (VT-x/EPT), I/O 虚拟化协议 (VirtIO) 以及容器底层的隔离机制.
 
 ---
 
 ## 模块知识结构
 
 ```mermaid
-graph TB
+graph TD
     subgraph "M7: 基础设施"
         A[虚拟化概论] --> B[CPU 虚拟化]
         B --> C[内存虚拟化]
@@ -29,107 +29,668 @@ graph TB
 
 | 类型 | 架构 | 特点 | 代表实现 |
 |------|------|------|----------|
-| **Type-1 (Bare-metal)** | 直接运行在硬件上 | 高性能, 高隔离 | Xen, VMware ESXi |
+| **Type-1 (Bare-metal)** | 直接运行在硬件上 | 高性能, 高隔离 | Xen, VMware ESXi, Hyper-V |
 | **Type-2 (Hosted)** | 运行在 OS 之上 | 开发方便, 效率较低 | VirtualBox, VMware Workstation |
-| **KVM (Hybrid)** | 作为内核模块 | **Linux 既是 OS 又是 Hypervisor** | Linux KVM |
+| **KVM (Hybrid)** | 作为内核模块 | Linux 既是 OS 又是 Hypervisor | Linux KVM |
+
+### 1.2 虚拟化的核心挑战
+
+操作系统设计时假设独占硬件资源, 虚拟化需要解决以下问题:
+
+| 挑战 | 问题描述 | 解决方案 |
+|------|----------|----------|
+| **特权指令** | Guest 执行 Ring 0 指令会影响宿主机 | 硬件辅助 (VT-x) 或二进制翻译 |
+| **地址空间** | Guest 物理地址与真实物理地址不同 | 影子页表或 EPT |
+| **设备访问** | Guest 直接访问硬件会冲突 | 设备模拟或直通 (SR-IOV) |
+| **中断传递** | 物理中断需要路由到正确的 Guest | 虚拟中断控制器 (vAPIC) |
+
+### 1.3 Popek-Goldberg 虚拟化定理
+
+1973 年提出的形式化虚拟化理论:
+
+*   **等价性**: 虚拟机行为与物理机等价 (除资源和时序外)
+*   **资源控制**: VMM 完全控制虚拟化资源
+*   **高效性**: 大部分指令直接在硬件执行
+
+**x86 的挑战**: 某些敏感指令 (如 `POPF`) 在非特权模式下不触发陷阱, 违反了经典虚拟化条件. VT-x 通过引入新的 CPU 模式解决这一问题.
 
 ---
 
-## 2. CPU 虚拟化 (VT-x / VMX)
+## 2. CPU 虚拟化: VT-x / VMX
 
-为了在不修改 Guest OS 源码的情况下运行 Ring 0 指令，Intel 引入了 **VMX (Virtual Machine Extensions)** 模式。
+Intel VT-x (AMD 对应 AMD-V) 引入了 **VMX (Virtual Machine Extensions)** 指令集, 从硬件层面支持虚拟化.
 
 ### 2.1 VMX 运行模式
 
-- **VMX Root Operation**: 宿主机 (Host/KVM) 运行模式，拥有完整特权。
-- **VMX Non-Root Operation**: 客户机 (Guest) 运行模式，特权指令触发 **VM Exit**。
+```mermaid
+graph TD
+    subgraph "VMX 模式"
+        Root["VMX Root Operation"]
+        NonRoot["VMX Non-Root Operation"]
+    end
+    
+    subgraph "Ring 级别"
+        R0["Ring 0 (Kernel)"]
+        R3["Ring 3 (User)"]
+    end
+    
+    Root --> R0
+    Root --> R3
+    NonRoot --> R0
+    NonRoot --> R3
+```
 
-### 2.2 VM Exit 与 VM Entry
+*   **VMX Root Operation**: 宿主机 (Host/KVM) 运行模式, 拥有完整特权
+*   **VMX Non-Root Operation**: 客户机 (Guest) 运行模式, 特权指令触发 VM Exit
+
+两种模式各自包含完整的 Ring 0-3, 因此 Guest 内核可以正常运行在 Guest 的 Ring 0, 而不需要修改代码.
+
+### 2.2 VMX 生命周期
 
 ```mermaid
 sequenceDiagram
     participant Host as Host (Root Mode)
-    participant CPU
+    participant CPU as CPU
     participant Guest as Guest (Non-Root Mode)
     
-    Host->>CPU: VMLAUNCH / VMRESUME (VM Entry)
-    CPU->>Guest: 执行 Guest 代码 (Ring 0-3)
-    Guest->>CPU: 执行敏感指令 (如 HLT, IN/OUT, CR3)
-    CPU->>Host: 产生 VM Exit (Trap to Hypervisor)
-    Note over Host: 解析 Exit Reason, 模拟硬件行为
-    Host->>CPU: 更新 VMCS, 再次进入
+    Host->>CPU: VMXON (进入 VMX 模式)
+    Host->>CPU: 分配 VMCS, VMPTRLD
+    Host->>CPU: VMLAUNCH (首次进入 Guest)
+    CPU->>Guest: 执行 Guest 代码
+    Guest->>CPU: 敏感指令 (HLT, CPUID, CR3)
+    CPU->>Host: VM Exit (陷入 Hypervisor)
+    Note over Host: 读取 VMCS Exit Reason
+    Note over Host: 模拟硬件行为
+    Host->>CPU: VMRESUME (重新进入 Guest)
+    CPU->>Guest: 继续执行
 ```
 
-**VMCS (Virtual Machine Control Structure)**: 存储 Guest/Host 寄存器状态的内存块, 是虚拟机切换的上下文核心。
+### 2.3 VMCS (Virtual Machine Control Structure)
 
----
+VMCS 是每个 vCPU 的核心数据结构, 大小为 4KB, 包含六个逻辑区域:
 
-## 3. 内存虚拟化 (EPT)
+| 区域 | 内容 | 作用 |
+|------|------|------|
+| **Guest-State Area** | 所有通用寄存器, 段寄存器, CR0/CR3/CR4, EFLAGS, RIP | VM Entry 时加载, VM Exit 时保存 |
+| **Host-State Area** | 仅保存切换所需的最小状态 | VM Exit 时加载 |
+| **VM-Execution Control** | 控制哪些事件触发 VM Exit | 如: CR 访问拦截, I/O 拦截 |
+| **VM-Exit Control** | 控制 VM Exit 时的行为 | 如: 是否保存 IA32_PAT |
+| **VM-Entry Control** | 控制 VM Entry 时的行为 | 如: 是否加载 IA32_EFER |
+| **VM-Exit Information** | Exit 原因和附加信息 | 只读, 供 Hypervisor 分析 |
 
-传统两级地址转换（GVA -> GPA -> HPA）效率极低。Intel **EPT (Extended Page Tables)** 实现了硬件级的嵌套页表走步。
+#### VMCS 关键字段
+
+```c
+// Guest 状态
+VMCS_GUEST_RIP           // 指令指针
+VMCS_GUEST_RSP           // 栈指针
+VMCS_GUEST_CR3           // 页表基址
+VMCS_GUEST_INTERRUPTIBILITY  // 中断状态
+
+// 执行控制
+VMCS_PIN_BASED_CONTROLS  // NMI, 外部中断
+VMCS_CPU_BASED_CONTROLS  // I/O, MSR, CPUID
+VMCS_EXCEPTION_BITMAP    // 哪些异常触发 Exit
+
+// Exit 信息
+VMCS_EXIT_REASON         // 退出原因代码
+VMCS_EXIT_QUALIFICATION  // 附加信息 (如 I/O 端口号)
+VMCS_GUEST_LINEAR_ADDR   // 引发 Exit 的线性地址
+```
+
+### 2.4 VM Exit 分类
+
+| 类型 | 触发条件 | 示例 |
+|------|----------|------|
+| **无条件 Exit** | 某些指令总是触发 | `CPUID`, `INVD`, `VMCALL` |
+| **条件 Exit** | 由 VMCS 控制位决定 | CR 访问, I/O, MSR, 中断 |
+| **异常 Exit** | Exception Bitmap 中的位置 1 | #PF, #GP (按需配置) |
+
+#### VM Exit 开销
+
+VM Exit 是虚拟化最大的性能开销来源, 典型开销:
+
+| 阶段 | 周期数 (估算) |
+|------|---------------|
+| 保存 Guest 状态到 VMCS | ~200-400 cycles |
+| 加载 Host 状态 | ~300-500 cycles |
+| TLB 刷新 (无 VPID) | ~1000+ cycles |
+| Hypervisor 处理逻辑 | 变化很大 |
+| 总计 | ~2000-10000 cycles |
+
+**优化策略**:
+1. 减少不必要的 Exit (调整 VMCS 控制位)
+2. 启用 VPID 避免 TLB 全刷新
+3. 合并多个操作减少 Exit 次数
+
+### 2.5 嵌套虚拟化 (Nested Virtualization)
+
+在虚拟机内运行虚拟机 (如 KVM on KVM), 需要 **VMCS Shadowing**:
 
 ```mermaid
 graph TD
-    GVA["GVA (Guest Virtual)"] -- "Guest 页表" --> GPA["GPA (Guest Physical)"]
-    GPA -- "EPT 页表" --> HPA["HPA (Host Physical)"]
+    L0["L0 Hypervisor (真实硬件)"]
+    L1["L1 Hypervisor (Guest 内的 KVM)"]
+    L2["L2 Guest (嵌套虚拟机)"]
     
-    subgraph MMU ["硬件页表走步器 (MMU)"]
-        direction TB
-        L1[EPT PML4]
-        L2[EPT PDPT]
-        L3[EPT PD]
-        L4[EPT PTE]
-    end
+    L2 --> L1
+    L1 --> L0
+```
+
+*   L1 的 VMCS 操作被 L0 拦截和模拟
+*   Intel VMCS Shadowing 允许 L1 部分直接操作硬件 VMCS
+
+---
+
+## 3. 内存虚拟化: EPT / NPT
+
+### 3.1 地址转换层次
+
+虚拟化引入了三级地址空间:
+
+| 地址类型 | 缩写 | 含义 |
+|----------|------|------|
+| Guest Virtual Address | GVA | Guest 进程使用的虚拟地址 |
+| Guest Physical Address | GPA | Guest 内核看到的 "物理" 地址 |
+| Host Physical Address | HPA | 真正的物理内存地址 |
+
+### 3.2 影子页表 vs EPT
+
+| 方案 | 工作原理 | 优点 | 缺点 |
+|------|----------|------|------|
+| **影子页表** | Hypervisor 维护 GVA→HPA 的直接映射 | 无需硬件支持 | 每次 Guest 修改页表需同步, 开销大 |
+| **EPT/NPT** | 硬件自动完成 GPA→HPA 转换 | 对 Guest 透明, 无需同步 | 页表 Walk 次数增加 |
+
+### 3.3 EPT 页表结构
+
+EPT 采用与普通页表相同的四级结构:
+
+```mermaid
+graph TD
+    EPTP["EPTP (VMCS)"] --> PML4["EPT PML4"]
+    PML4 --> PDPT["EPT PDPT"]
+    PDPT --> PD["EPT PD"]
+    PD --> PT["EPT PTE"]
+    PT --> HPA["Host Physical Address"]
+    
+    GPA["Guest Physical Address"] -.-> PML4
+```
+
+#### EPT Entry 格式(64-bit)
+
+```
+Bit 0: Read access
+Bit 1: Write access  
+Bit 2: Execute access (可配置 User/Supervisor)
+Bit 7: Large page (2MB/1GB)
+Bit 8: Accessed (硬件置位)
+Bit 9: Dirty (硬件置位, 需启用)
+Bits 12-51: 下一级页表物理地址 / 最终 HPA
+```
+
+### 3.4 EPT Violation vs EPT Misconfiguration
+
+| 类型 | 触发条件 | 处理方式 |
+|------|----------|----------|
+| **EPT Violation** | 访问权限不足 | 分配内存, 更新 EPT, 注入异常 |
+| **EPT Misconfiguration** | EPT Entry 配置错误 | 严重错误, 通常导致 Guest 崩溃 |
+
+### 3.5 大页支持
+
+EPT 支持 2MB 和 1GB 大页, 减少页表级数:
+
+| 页大小 | EPT 级数 | TLB 条目覆盖 |
+|--------|----------|--------------|
+| 4KB | 4 级 | 4KB |
+| 2MB | 3 级 | 2MB |
+| 1GB | 2 级 | 1GB |
+
+**注意**: Guest 内部使用大页与 EPT 使用大页是独立的. 最佳情况是两者都使用大页.
+
+### 3.6 TLB 管理: VPID 与 PCID
+
+| 技术 | 作用 | 配置 |
+|------|------|------|
+| **VPID** | 为每个 vCPU 分配 ID, 避免 VM 切换时刷新 TLB | VMCS Execution Control |
+| **PCID** | 为每个进程分配 ID, 避免上下文切换刷新 TLB | CR4.PCIDE 位 |
+
+VPID 是虚拟化性能的关键优化, 典型配置:
+```
+Control.VPID = 1  // 启用
+VMCS.VPID = <unique_id>  // 每个 vCPU 唯一
 ```
 
 ---
 
-## 4. I/O 虚拟化 (VirtIO)
+## 4. I/O 虚拟化
 
-**VirtIO** 是半虚拟化 (Para-virtualization) 的标准协议, 通过共享内存环实现极致 I/O 性能。
+### 4.1 I/O 虚拟化方案对比
 
-### 4.1 Virtqueue 机制
+| 方案 | 原理 | 性能 | 隔离性 |
+|------|------|------|--------|
+| **全模拟** | QEMU 软件模拟设备 | 最低 | 最高 |
+| **半虚拟化 (VirtIO)** | Guest 知道自己在虚拟环境, 使用优化协议 | 较高 | 高 |
+| **设备直通 (Passthrough)** | Guest 直接控制物理设备 | 接近裸机 | 设备独占 |
+| **SR-IOV** | 硬件支持的虚拟功能 (VF) 直通 | 接近裸机 | 硬件隔离 |
 
-- **Available Ring**: Guest 放入请求。
-- **Used Ring**: Host 完成请求。
+### 4.2 VirtIO 架构
 
-### 4.2 IOMMU 与硬件直通 (SR-IOV)
+VirtIO 是 OASIS 标准化的半虚拟化协议, 已成为 Linux 虚拟化的事实标准.
 
-通过 **IOMMU (VT-d)**，Guest 可以直接控制物理网卡或磁盘，将地址转换交给硬件，性能接近裸机。
+```mermaid
+graph TD
+    subgraph Guest
+        Driver["VirtIO 驱动"]
+        VQ["Virtqueue"]
+    end
+    
+    subgraph Host
+        Backend["VirtIO 后端 (vhost)"]
+    end
+    
+    Driver --> VQ
+    VQ <--> Backend
+```
+
+#### VirtIO 设备类型
+
+| 设备 | 用途 | 后端 |
+|------|------|------|
+| virtio-net | 网络 | TAP, vhost-net, DPDK |
+| virtio-blk | 块存储 | 文件, LVM, Ceph |
+| virtio-scsi | SCSI 存储 | 支持多 LUN |
+| virtio-fs | 文件系统共享 | virtiofsd (DAX) |
+| virtio-gpu | 图形加速 | 3D 加速 |
+| virtio-balloon | 内存调整 | 动态内存回收 |
+
+### 4.3 Virtqueue 数据结构
+
+每个 Virtqueue 由三部分组成:
+
+```mermaid
+graph TD
+    subgraph Virtqueue
+        DT["Descriptor Table"]
+        AR["Available Ring"]
+        UR["Used Ring"]
+    end
+    
+    DT --> |"数据缓冲区指针"| Buffers["数据缓冲区"]
+    AR --> |"Guest 写入"| DT
+    UR --> |"Host 写入"| DT
+```
+
+#### Descriptor Table Entry
+
+```c
+struct vring_desc {
+    __le64 addr;    // 缓冲区物理地址 (GPA)
+    __le32 len;     // 缓冲区长度
+    __le16 flags;   // VRING_DESC_F_NEXT, _WRITE, _INDIRECT
+    __le16 next;    // 链表中下一个描述符索引
+};
+```
+
+#### Available Ring (Guest → Host)
+
+```c
+struct vring_avail {
+    __le16 flags;           // 是否禁用通知
+    __le16 idx;             // 下一个可用位置
+    __le16 ring[QSIZE];     // 描述符链头索引
+    __le16 used_event;      // 事件通知阈值 (可选)
+};
+```
+
+#### Used Ring (Host → Guest)
+
+```c
+struct vring_used {
+    __le16 flags;
+    __le16 idx;
+    struct vring_used_elem ring[QSIZE];
+    __le16 avail_event;
+};
+
+struct vring_used_elem {
+    __le32 id;     // 描述符链头索引
+    __le32 len;    // 写入的字节数
+};
+```
+
+### 4.4 VirtIO 通知机制
+
+| 方向 | 机制 | 说明 |
+|------|------|------|
+| Guest → Host | virtio_notify() | 写 PCI BAR 或 eventfd |
+| Host → Guest | 中断注入 | 通过 irqfd 或 VMCS 中断窗口 |
+
+**vhost-net 优化**: 将 VirtIO 后端移入内核, 避免用户态/内核态切换.
+
+### 4.5 IOMMU (VT-d / AMD-Vi)
+
+IOMMU 允许设备 DMA 时使用虚拟地址, 实现:
+
+1. **设备隔离**: 防止设备越界访问
+2. **地址重映射**: 设备看到的地址与物理地址分离
+3. **中断重映射**: 防止设备伪造中断
+
+```mermaid
+graph TD
+    Device["PCIe 设备"] --> IOMMU["IOMMU"]
+    IOMMU --> |"DMA 地址转换"| Memory["物理内存"]
+    IOMMU --> |"中断重映射"| CPU["CPU"]
+```
+
+### 4.6 SR-IOV (Single Root I/O Virtualization)
+
+SR-IOV 允许单个物理设备表现为多个虚拟设备:
+
+| 概念 | 说明 |
+|------|------|
+| **PF (Physical Function)** | 物理设备, 拥有完整功能 |
+| **VF (Virtual Function)** | 轻量级虚拟设备, 可直通给 Guest |
+
+```bash
+# 启用 VF
+echo 4 > /sys/class/net/eth0/device/sriov_numvfs
+
+# 查看 VF
+lspci | grep "Virtual Function"
+```
 
 ---
 
 ## 5. 容器底层机制
 
-容器不是虚拟机, 而是 OS 提供的进程视图隔离。
+容器不是虚拟机, 而是操作系统提供的进程隔离机制.
 
-### 5.1 六大命名空间 (Namespaces)
+### 5.1 容器 vs 虚拟机
 
-| Namespace | 隔离对象 |
-|------|----------|
-| **PID** | 进程 ID, 容器内 PID 1 映射到宿主机真实 PID |
-| **NET** | 网络设备, 协议栈, 端口 |
-| **IPC** | 信号量, 消息队列 |
-| **Mount** | 挂载点, 文件系统视图 |
-| **UTS** | 主机名和域名 |
-| **User** | 用户与组 ID (UID/GID) |
+| 特性 | 虚拟机 | 容器 |
+|------|--------|------|
+| 隔离级别 | 硬件级 (独立内核) | 进程级 (共享内核) |
+| 启动时间 | 秒 ~ 分钟 | 毫秒 ~ 秒 |
+| 资源开销 | 高 (独立 OS 实例) | 低 (共享内核) |
+| 安全边界 | 强 | 较弱 (依赖内核) |
 
-### 5.2 资源限制 (Cgroups v2)
+### 5.2 Linux Namespaces
 
-Linux 通过 `/sys/fs/cgroup` 目录结构化管理资源。
+Namespace 提供进程视图隔离:
+
+| Namespace | 系统调用标志 | 隔离对象 | 引入版本 |
+|-----------|--------------|----------|----------|
+| **Mount** | `CLONE_NEWNS` | 挂载点 | 2.4.19 |
+| **UTS** | `CLONE_NEWUTS` | 主机名, 域名 | 2.6.19 |
+| **IPC** | `CLONE_NEWIPC` | IPC 对象 | 2.6.19 |
+| **PID** | `CLONE_NEWPID` | 进程 ID | 2.6.24 |
+| **Network** | `CLONE_NEWNET` | 网络设备, 协议栈 | 2.6.29 |
+| **User** | `CLONE_NEWUSER` | UID/GID 映射 | 3.8 |
+| **Cgroup** | `CLONE_NEWCGROUP` | Cgroup 根目录 | 4.6 |
+| **Time** | `CLONE_NEWTIME` | 时钟 | 5.6 |
+
+#### Namespace 操作
+
+```c
+// 创建新 namespace
+int fd = clone(child_fn, stack, CLONE_NEWPID | CLONE_NEWNS, NULL);
+
+// 加入已有 namespace
+int ns_fd = open("/proc/1234/ns/pid", O_RDONLY);
+setns(ns_fd, CLONE_NEWPID);
+
+// 取消共享当前 namespace
+unshare(CLONE_NEWNET);
+```
+
+### 5.3 Cgroups v2
+
+Cgroups 提供资源限制和统计:
+
+```mermaid
+graph TD
+    Root["/sys/fs/cgroup"] --> Container1["container1/"]
+    Root --> Container2["container2/"]
+    
+    Container1 --> C1CPU["cpu.max"]
+    Container1 --> C1Mem["memory.max"]
+    Container1 --> C1IO["io.max"]
+```
+
+#### 核心控制器
+
+| 控制器 | 接口文件 | 功能 |
+|--------|----------|------|
+| **cpu** | `cpu.max`, `cpu.weight` | CPU 时间配额 |
+| **memory** | `memory.max`, `memory.high` | 内存限制, OOM 控制 |
+| **io** | `io.max`, `io.weight` | 块 I/O 带宽 |
+| **pids** | `pids.max` | 进程数限制 |
+| **cpuset** | `cpuset.cpus`, `cpuset.mems` | CPU/NUMA 绑定 |
+
+#### 配置示例
 
 ```bash
-# 限制容器只能跑 20% CPU
+# 创建 cgroup
+mkdir /sys/fs/cgroup/container1
+
+# 限制 CPU 为 20% (20ms/100ms)
 echo "20000 100000" > /sys/fs/cgroup/container1/cpu.max
+
+# 限制内存为 512MB
+echo "536870912" > /sys/fs/cgroup/container1/memory.max
+
+# 添加进程
+echo $PID > /sys/fs/cgroup/container1/cgroup.procs
+```
+
+### 5.4 OverlayFS (联合文件系统)
+
+容器镜像使用分层存储:
+
+```mermaid
+graph TD
+    subgraph "OverlayFS"
+        Merged["merged/ (容器可见)"]
+        Upper["upper/ (可写层)"]
+        Lower1["lower1/ (镜像层 1)"]
+        Lower2["lower2/ (镜像层 2)"]
+    end
+    
+    Lower2 --> Lower1
+    Lower1 --> Upper
+    Upper --> Merged
+```
+
+```bash
+# 挂载 OverlayFS
+mount -t overlay overlay \
+    -o lowerdir=/images/layer1:/images/layer2,\
+       upperdir=/container/upper,\
+       workdir=/container/work \
+    /container/merged
+```
+
+### 5.5 OCI 规范与 runc
+
+**OCI (Open Container Initiative)** 定义了容器标准:
+
+| 规范 | 内容 |
+|------|------|
+| **Runtime Spec** | 容器生命周期, 配置格式 |
+| **Image Spec** | 镜像格式, 分发协议 |
+| **Distribution Spec** | Registry API |
+
+#### config.json 核心结构
+
+```json
+{
+    "ociVersion": "1.0.0",
+    "process": {
+        "args": ["/bin/sh"],
+        "env": ["PATH=/usr/bin"],
+        "cwd": "/"
+    },
+    "root": {
+        "path": "rootfs",
+        "readonly": false
+    },
+    "linux": {
+        "namespaces": [
+            {"type": "pid"},
+            {"type": "network"},
+            {"type": "mount"}
+        ],
+        "resources": {
+            "memory": {"limit": 536870912}
+        }
+    }
+}
+```
+
+### 5.6 容器运行时架构
+
+```mermaid
+graph TD
+    kubectl["kubectl"] --> API["Kubernetes API"]
+    API --> Kubelet["kubelet"]
+    Kubelet --> CRI["CRI (gRPC)"]
+    CRI --> containerd["containerd"]
+    containerd --> Shim["containerd-shim"]
+    Shim --> runc["runc"]
+    runc --> Container["Container Process"]
+```
+
+| 组件 | 职责 |
+|------|------|
+| **containerd** | 镜像管理, 容器生命周期 |
+| **containerd-shim** | 托管容器进程, 允许 containerd 重启 |
+| **runc** | 创建 namespace/cgroup, 执行容器进程 |
+
+---
+
+## 6. 安全容器
+
+### 6.1 传统容器的安全问题
+
+共享内核带来的风险:
+
+| 风险 | 描述 |
+|------|------|
+| **内核漏洞** | 容器可利用内核漏洞逃逸 |
+| **系统调用攻击面** | 所有 syscall 对容器可用 |
+| **/proc, /sys 泄露** | 敏感信息可能暴露 |
+
+### 6.2 Kata Containers
+
+Kata Containers 为每个容器启动轻量级虚拟机:
+
+```mermaid
+graph TD
+    subgraph "传统容器"
+        C1["Container 1"]
+        C2["Container 2"]
+        Kernel1["共享 Linux 内核"]
+        C1 --> Kernel1
+        C2 --> Kernel1
+    end
+    
+    subgraph "Kata Containers"
+        K1["Container 1"]
+        K2["Container 2"]
+        VM1["Guest Kernel 1"]
+        VM2["Guest Kernel 2"]
+        K1 --> VM1
+        K2 --> VM2
+    end
+```
+
+#### 关键技术
+
+| 技术 | 作用 |
+|------|------|
+| **轻量级 VMM** | Firecracker, Cloud-Hypervisor |
+| **共享文件系统** | virtio-fs + DAX (零拷贝) |
+| **最小化 Guest 内核** | 裁剪内核, 快速启动 |
+
+### 6.3 Firecracker MicroVM
+
+Amazon 开发的专用 VMM:
+
+| 特性 | 数值 |
+|------|------|
+| 内存开销 | ~5MB |
+| 启动时间 | ~125ms |
+| 代码行数 | ~50K (Rust) |
+| 设备支持 | 仅 virtio-net, virtio-blk, serial |
+
+```bash
+# 创建 MicroVM
+curl --unix-socket /tmp/firecracker.socket -X PUT \
+    -d '{"vcpu_count": 2, "mem_size_mib": 1024}' \
+    http://localhost/machine-config
+```
+
+### 6.4 gVisor (用户态内核)
+
+Google 开发的用户态内核实现:
+
+*   拦截容器系统调用
+*   在用户态重新实现 Linux 内核功能
+*   减少对宿主机内核的依赖
+
+```mermaid
+graph TD
+    App["应用程序"] --> Sentry["Sentry (用户态内核)"]
+    Sentry --> Gofer["Gofer (文件代理)"]
+    Sentry --> Host["Host Kernel (受限 syscall)"]
 ```
 
 ---
 
-## 6. 安全容器: Kata Containers
+## 7. 高级虚拟化主题
 
-传统容器共享内核, 安全边界薄弱. **Kata Containers** 为每个容器启动一个轻量级微虚拟机 (MicroVM), 实现了:
-1. **VM 级的隔离性** (独立内核).
-2. **容器级的速度** (使用 DAX/VirtIO 物理页共享).
+### 7.1 vCPU 亲和性与 NUMA
+
+```bash
+# 绑定 vCPU 到物理 CPU
+virsh vcpupin vm1 0 2
+virsh vcpupin vm1 1 3
+
+# 配置 NUMA 拓扑
+<numatune>
+    <memory mode="strict" nodeset="0"/>
+</numatune>
+```
+
+### 7.2 内存气球 (Ballooning)
+
+动态调整 Guest 内存:
+
+1. Host 请求 Guest 释放内存
+2. Guest 通过 virtio-balloon 驱动 "膨胀" 气球
+3. Guest 内部分配内存给气球, 从可用内存中移除
+4. Host 回收这些物理页
+
+### 7.3 实时迁移 (Live Migration)
+
+```mermaid
+sequenceDiagram
+    participant Src as 源主机
+    participant Dst as 目标主机
+    participant VM as 虚拟机
+    
+    Src->>Dst: 传输内存页 (第 1 轮)
+    Note over VM: 继续运行, 产生脏页
+    Src->>Dst: 传输脏页 (第 2 轮)
+    Note over VM: 脏页收敛
+    Src->>VM: 暂停
+    Src->>Dst: 传输剩余状态
+    Dst->>VM: 恢复运行
+```
+
+**关键指标**:
+*   **总迁移时间**: 内存大小 / 带宽
+*   **停机时间**: 最后一轮脏页传输 + 状态同步
 
 ---
 
@@ -137,11 +698,15 @@ echo "20000 100000" > /sys/fs/cgroup/container1/cpu.max
 
 | 主题 | 源码路径 | 关键函数/结构 |
 |------|----------|---------------|
-| KVM 核心 | `virt/kvm/kvm_main.c` | `kvm_vcpu_ioctl()` |
-| VMX 驱动 | `arch/x86/kvm/vmx/vmx.c` | `vmx_vcpu_run()` |
-| EPT 逻辑 | `arch/x86/kvm/mmu/mmu.c` | `ept_page_fault()` |
-| VirtIO 队列 | `drivers/virtio/virtio_ring.c` | `vring_new_virtqueue()` |
-| Namespace | `kernel/nsproxy.c` | `copy_namespaces()` |
+| KVM 核心 | `virt/kvm/kvm_main.c` | `kvm_vcpu_ioctl()`, `kvm_vm_ioctl()` |
+| VMX 驱动 | `arch/x86/kvm/vmx/vmx.c` | `vmx_vcpu_run()`, `vmx_handle_exit()` |
+| VMCS 操作 | `arch/x86/kvm/vmx/vmcs.h` | `vmcs_read32()`, `vmcs_write32()` |
+| EPT 逻辑 | `arch/x86/kvm/mmu/mmu.c` | `kvm_mmu_page_fault()`, `ept_page_fault()` |
+| VirtIO 核心 | `drivers/virtio/virtio.c` | `register_virtio_driver()` |
+| VirtIO Ring | `drivers/virtio/virtio_ring.c` | `vring_new_virtqueue()` |
+| Namespace | `kernel/nsproxy.c` | `copy_namespaces()`, `create_new_namespaces()` |
+| Cgroups v2 | `kernel/cgroup/cgroup.c` | `cgroup_attach_task()` |
+| OverlayFS | `fs/overlayfs/` | `ovl_fill_super()` |
 
 ---
 
@@ -152,3 +717,16 @@ echo "20000 100000" > /sys/fs/cgroup/container1/cpu.max
 3. 为什么容器不需要像虚拟机那样加载整个内核镜像?
 4. 在 VirtIO 中, 为什么 Guest 和 Host 之间需要内存屏障?
 5. 如果在容器内 root 用户逃逸到宿主机, 关键原因通常出在哪里?
+6. VPID 如何减少 VM 切换时的 TLB 刷新开销?
+7. SR-IOV 的 VF 与 PF 在功能上有什么区别?
+8. Kata Containers 如何平衡虚拟机隔离性和容器启动速度?
+
+---
+
+## 实验建议
+
+1. **KVM 实验**: 使用 `kvmtool` 创建最小化虚拟机, 观察 VM Exit 原因
+2. **EPT 分析**: 通过 `perf kvm stat` 分析 EPT violation 频率
+3. **VirtIO 调试**: 使用 `virtio_net` 驱动源码理解 Virtqueue 工作流程
+4. **容器剖析**: 使用 `unshare` 命令手动创建各类 Namespace
+5. **Cgroups 限制**: 设置 CPU 配额, 使用 `stress` 工具验证限制效果
