@@ -1,90 +1,394 @@
 ---
-title: "Kubernetes 网络: 解读 CNI 插件"
-description: "深入探讨 Kubernetes 网络模型, CNI 工作原理以及主流插件 Flannel, Calico, Cilium 的对比与选择."
+title: "Kubernetes 网络: 深入理解 CNI 插件"
+description: "深入探讨 Kubernetes 网络模型, CNI 工作原理, IPAM 机制以及主流插件 Flannel, Calico, Cilium 的对比与选择."
 ---
 
 在 Kubernetes 集群中, 网络是最复杂也是最核心的部分之一. Kubernetes 本身并不实现 Pod 网络, 而是定义了一套规范——**CNI (Container Network Interface)**.
 
-## 什么是 CNI?
+---
 
-CNI (容器网络接口) 是由 CNCF 维护的一套标准, 用于在容器创建或销毁时, 动态地配置其网络资源.
+## 1. Kubernetes 网络模型
 
-*   **解耦**: 将容器运行时 (CRI, 如 containerd, Docker) 与具体的网络实现隔离.
-*   **职责**: CNI 插件只负责两件事: 创建容器时**分配 IP 并打通网络**, 销毁容器时**释放 IP 并清理环境**.
+### 1.1 基本要求
 
-### CNI 工作全景图
+Kubernetes 网络模型有三条核心规则:
+
+| 规则 | 描述 |
+|------|------|
+| **Pod-to-Pod** | 所有 Pod 可以直接通信, 无需 NAT |
+| **Node-to-Pod** | 所有节点可以与所有 Pod 直接通信 |
+| **Pod 看到的 IP** | Pod 看到的自己 IP 与其他 Pod 看到的一致 |
+
+### 1.2 网络层次
 
 ```mermaid
 graph TD
-    A[Kubelet] -->|调用| B[CRI 运行时]
-    B -->|请求网络配置| C[CNI Plugin]
-    C -->|IPAM| D[分配 IP 地址]
-    C -->|Network Sandbox| E[配置虚拟网卡/路由/隧道]
-    E --> F[Pod 网络连通]
+    subgraph "L7 应用层"
+        Ingress["Ingress / Gateway"]
+    end
+    
+    subgraph "L4 服务层"
+        Service["Service (kube-proxy)"]
+    end
+    
+    subgraph "L3 Pod 网络"
+        CNI["CNI Plugin"]
+    end
+    
+    subgraph "L2 节点网络"
+        Underlay["物理网络"]
+    end
+    
+    Ingress --> Service
+    Service --> CNI
+    CNI --> Underlay
 ```
 
 ---
 
-## 核心技术: 三种常见的通信模式
+## 2. CNI 规范
 
-在选择 CNI 插件前, 必须理解底层的数据转发方式:
+### 2.1 什么是 CNI
 
-### 1. Overlay (叠加网络)
-*   **原理**: 在物理网络 (Underlay) 之上通过封装技术 (VXLAN, UDP, Geneve) 构建逻辑网络. 数据包会被封装在另一个 UDP 包中传输.
-*   **优点**: 对底层物理网络依赖极低, 几乎可以在任何环境下运行.
-*   **缺点**: 二次封包拆包导致明显的性能损耗 (CPU 和带宽), MTU 需要调整.
-*   **代表**: Flannel (VXLAN), Calico (IPIP), Weave.
+CNI (Container Network Interface) 是由 CNCF 维护的一套标准:
 
-### 2. L3 Routing (三层路由)
-*   **原理**: 不封装数据包. 通过 BGP 协议或静态路由, 将 Pod IP 直接作为路由条目通告给物理网关或对端节点.
-*   **优点**: 接近原生网络的性能, 无封包损耗, 方便运维排障 (直接抓包看 IP).
-*   **缺点**: 需要物理网内设备 (路由器/交换机) 支持, 且集群规模极大时 BGP 路由表可能过载.
-*   **代表**: Calico (BGP), Antrea (部分模式).
+- **解耦**: 将容器运行时与网络实现隔离
+- **职责**: 容器创建时分配 IP, 销毁时释放 IP
 
-### 3. eBPF 原生转发
-*   **原理**: 绕过复杂的 Linux 内核协议栈 (iptables/IPVS), 利用内核 eBPF 技术在驱动层或更早的路径处理数据包.
-*   **优点**: 极致性能, 支持 L7 层安全策略 (HTTP 路径过滤), 极强的可观测性.
-*   **代表**: Cilium.
+### 2.2 CNI 执行流程
+
+```mermaid
+sequenceDiagram
+    participant Kubelet as Kubelet
+    participant CRI as CRI Runtime
+    participant CNI as CNI Plugin
+    participant IPAM as IPAM Plugin
+    
+    Kubelet->>CRI: CreatePod
+    CRI->>CNI: ADD (network namespace)
+    CNI->>IPAM: 分配 IP
+    IPAM-->>CNI: 返回 IP 配置
+    CNI-->>CRI: 返回网络配置
+    CRI-->>Kubelet: Pod Ready
+```
+
+### 2.3 CNI 配置
+
+```json
+{
+  "cniVersion": "1.0.0",
+  "name": "mynet",
+  "type": "bridge",
+  "bridge": "cni0",
+  "isGateway": true,
+  "ipMasq": true,
+  "ipam": {
+    "type": "host-local",
+    "subnet": "10.244.0.0/24",
+    "routes": [
+      { "dst": "0.0.0.0/0" }
+    ]
+  }
+}
+```
+
+### 2.4 CNI 操作
+
+| 操作 | 描述 |
+|------|------|
+| **ADD** | 将容器添加到网络 |
+| **DEL** | 从网络移除容器 |
+| **CHECK** | 检查容器网络状态 |
+| **VERSION** | 返回支持的 CNI 版本 |
 
 ---
 
-## 主流 CNI 插件深度对比
+## 3. IPAM (IP 地址管理)
+
+### 3.1 IPAM 类型
+
+| 类型 | 描述 | 适用场景 |
+|------|------|----------|
+| **host-local** | 本地文件存储, 每节点独立子网 | 小规模集群 |
+| **whereabouts** | 分布式 IPAM, 跨节点协调 | 中大规模集群 |
+| **calico-ipam** | Calico 内置, 支持 IP 池 | Calico 用户 |
+
+### 3.2 IP 分配机制
+
+```mermaid
+graph TD
+    subgraph "集群级"
+        ClusterCIDR["Cluster CIDR: 10.244.0.0/16"]
+    end
+    
+    subgraph "节点级"
+        Node1["Node1: 10.244.1.0/24"]
+        Node2["Node2: 10.244.2.0/24"]
+        Node3["Node3: 10.244.3.0/24"]
+    end
+    
+    subgraph "Pod 级"
+        Pod1["Pod: 10.244.1.5"]
+        Pod2["Pod: 10.244.2.3"]
+    end
+    
+    ClusterCIDR --> Node1
+    ClusterCIDR --> Node2
+    ClusterCIDR --> Node3
+    Node1 --> Pod1
+    Node2 --> Pod2
+```
+
+---
+
+## 4. 网络模式
+
+### 4.1 Overlay (叠加网络)
+
+```mermaid
+graph TD
+    subgraph "Node 1"
+        Pod1["Pod 10.244.1.5"]
+        Tunnel1["VXLAN 隧道"]
+    end
+    
+    subgraph "Node 2"
+        Pod2["Pod 10.244.2.3"]
+        Tunnel2["VXLAN 隧道"]
+    end
+    
+    Pod1 --> |"封装"| Tunnel1
+    Tunnel1 --> |"UDP 8472"| Tunnel2
+    Tunnel2 --> |"解封"| Pod2
+```
+
+| 技术 | 封装方式 | 特点 |
+|------|----------|------|
+| **VXLAN** | UDP 封装 L2 帧 | 最常用, 兼容性好 |
+| **Geneve** | UDP 封装, 可扩展 | 支持元数据 |
+| **IPIP** | IP-in-IP | 开销最小 |
+
+**优点**:
+- 对底层网络无要求
+- 部署简单
+
+**缺点**:
+- 封装开销 (~50 字节)
+- MTU 需要调整
+- 排障困难
+
+### 4.2 L3 路由
+
+```mermaid
+graph TD
+    subgraph "Node 1"
+        Pod1["Pod 10.244.1.5"]
+        Route1["路由表"]
+    end
+    
+    subgraph "网络设备"
+        BGP["BGP Router"]
+    end
+    
+    subgraph "Node 2"
+        Pod2["Pod 10.244.2.3"]
+        Route2["路由表"]
+    end
+    
+    Pod1 --> Route1
+    Route1 --> |"原生 IP"| BGP
+    BGP --> Route2
+    Route2 --> Pod2
+```
+
+**优点**:
+- 无封装开销
+- 原生性能
+- 易于排障
+
+**缺点**:
+- 需要网络设备支持 BGP
+- 路由表规模问题
+
+### 4.3 eBPF 原生
+
+```mermaid
+graph TD
+    subgraph "传统路径"
+        App1["应用"] --> Socket["Socket"]
+        Socket --> TC["Traffic Control"]
+        TC --> IPT["iptables"]
+        IPT --> Driver["网卡驱动"]
+    end
+    
+    subgraph "eBPF 路径"
+        App2["应用"] --> Socket2["Socket"]
+        Socket2 --> eBPF["eBPF 程序"]
+        eBPF --> Driver2["网卡驱动"]
+    end
+```
+
+**优点**:
+- 绕过 iptables, 极致性能
+- L7 层策略支持
+- 强大的可观测性
+
+**缺点**:
+- 需要较新内核 (5.4+)
+- 学习曲线陡峭
+
+---
+
+## 5. 主流 CNI 插件
+
+### 5.1 Flannel
+
+```yaml
+# kube-flannel-cfg ConfigMap
+net-conf.json: |
+  {
+    "Network": "10.244.0.0/16",
+    "Backend": {
+      "Type": "vxlan"
+    }
+  }
+```
+
+| 特性 | 值 |
+|------|-----|
+| 模式 | VXLAN, host-gw, UDP |
+| NetworkPolicy | ❌ 不支持 |
+| 复杂度 | 极低 |
+| 适用场景 | 开发测试, 小规模集群 |
+
+### 5.2 Calico
+
+```yaml
+apiVersion: projectcalico.org/v3
+kind: IPPool
+metadata:
+  name: default-ipv4-ippool
+spec:
+  cidr: 10.244.0.0/16
+  ipipMode: CrossSubnet
+  natOutgoing: true
+  nodeSelector: all()
+```
+
+| 特性 | 值 |
+|------|-----|
+| 模式 | BGP, IPIP, VXLAN |
+| NetworkPolicy | ✅ L3/L4 |
+| 复杂度 | 中 |
+| 适用场景 | 生产环境标准选择 |
+
+**Calico 模式选择**:
+| 模式 | 场景 |
+|------|------|
+| BGP 全模式 | 支持 BGP 的网络环境 |
+| IPIP CrossSubnet | 部分跨子网 |
+| VXLAN | 不支持 BGP |
+
+### 5.3 Cilium
+
+```yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: l7-policy
+spec:
+  endpointSelector:
+    matchLabels:
+      app: api
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: frontend
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: "/api/.*"
+```
+
+| 特性 | 值 |
+|------|-----|
+| 模式 | eBPF, 可替换 kube-proxy |
+| NetworkPolicy | ✅ L3/L4/L7 |
+| 可观测性 | Hubble UI |
+| 复杂度 | 较高 |
+| 适用场景 | 云原生尖端, 零信任 |
+
+**Cilium 特性**:
+- 替换 kube-proxy (eBPF)
+- Service Mesh (无 Sidecar)
+- Hubble 网络可观测性
+- Tetragon 安全可观测性
+
+---
+
+## 6. 插件对比
 
 | 特性 | Flannel | Calico | Cilium |
-| :--- | :--- | :--- | :--- |
-| **主要模式** | VXLAN (Overlay) | BGP (L3) / IPIP | eBPF / Direct |
-| **性能损耗** | 中等 (有封装) | **低 (原生转发)** | **极低 (BGP+eBPF)** |
-| **网络策略 (Firewall)** | **不支持** | **强 (L3/L4)** | **极强 (L3-L7)** |
-| **可观测性** | 基本无 | 一般 | **强 (Hubble 可视化)** |
-| **运维难度** | 极低 | 中等 | 较高 (需高内核版本) |
-| **推荐场景** | 开发测试, 小规模集群 | 大中型生产环境, 高性能需求 | 云原生尖端运维, 零信任安全 |
+|------|---------|--------|--------|
+| **主要模式** | VXLAN | BGP/IPIP | eBPF |
+| **性能** | 中 | 高 | 极高 |
+| **NetworkPolicy** | ❌ | L3/L4 | L3/L4/L7 |
+| **可观测性** | 无 | 一般 | Hubble |
+| **替换 kube-proxy** | ❌ | ❌ | ✅ |
+| **内核要求** | 低 | 低 | 5.4+ |
+| **运维难度** | 低 | 中 | 高 |
 
 ---
 
-## 如何进行选型?
+## 7. 云厂商 CNI
 
-### 场景一: 追求简单, 稳定
-如果您只是想搭建一个学习环境或小型内部办公集群, **Flannel** 是首选. 它几乎是 "开箱即用" 的代名词.
+| 云 | CNI | 特点 |
+|----|-----|------|
+| **AWS** | amazon-vpc-cni | Pod 获取 VPC ENI IP |
+| **GCP** | gke-cni | 原生 VPC 网络 |
+| **Azure** | azure-cni | VNet 直接 IP |
+| **阿里云** | terway | ENI 多 IP 模式 |
 
-### 场景二: 生产环境的 "标准之选"
-**Calico** 是目前工业界的事实标准.
-*   如果您需要 **Network Policy** 来隔离 Pod 间的流量.
-*   如果您对网络延迟比较敏感.
-*   它支持混合模式: 部分节点走 Overlay, 部分节点走 BGP.
-
-### 场景三: 未来的 "天花板"
-如果您的团队拥有较强的运维能力, 并且:
-*   需要针对应用层 (如 API 路径, HTTP Method) 做安全审计.
-*   需要在集群中运行超大规模的服务发现 (取代 kube-proxy 的 IPVS/iptables).
-*   需要深度监控网络丢包或延迟.
-那么 **Cilium** 是不二之选.
+**优势**:
+- Pod IP 直接是 VPC IP
+- 与云安全组集成
+- 性能最优
 
 ---
 
-## 云环境下的特殊考虑
+## 8. 网络排障
 
-如果您在公有云 (AWS, Azure, GCP, 阿里云) 上运行托管集群:
-1.  **优先使用云原生 CNI**: 比如 AWS 的 `amazon-vpc-cni-k8s`.
-2.  **原因**: 这些插件能让 Pod 直接获取 VPC 内网 IP, 性能最高且能与云平台的安全组 (Security Groups) 完美集成.
+### 8.1 常用命令
+
+```bash
+# 查看 Pod 网络
+kubectl exec -it <pod> -- ip addr
+kubectl exec -it <pod> -- ip route
+
+# 查看节点路由
+ip route show | grep 10.244
+
+# 抓包分析
+tcpdump -i any -nn host 10.244.1.5
+
+# Cilium 调试
+cilium connectivity test
+hubble observe --pod <pod>
+```
+
+### 8.2 常见问题
+
+| 问题 | 可能原因 |
+|------|----------|
+| Pod 无法通信 | CNI 未就绪, NetworkPolicy 阻断 |
+| 跨节点不通 | 隧道/路由配置错误, 防火墙 |
+| DNS 解析失败 | CoreDNS 问题, NetworkPolicy |
+| 性能差 | MTU 配置错误, 封装开销 |
+
+---
 
 > **总结**: 没有最好的 CNI, 只有最适合您基础设施的 CNI. 新手选 Flannel, 成熟团队选 Calico, 追求极致选 Cilium.

@@ -1,75 +1,454 @@
 ---
-title: "Deployment: 滚动更新与高可用策略"
-description: "深入剖析 Kubernetes Deployment 的控制器模型、滚动更新原理、回滚机制以及灰度发布等高阶发布策略."
+title: "Deployment: 滚动更新与发布策略"
+description: "深入剖析 Kubernetes Deployment 的控制器模型, 滚动更新原理, 回滚机制以及蓝绿/金丝雀等高阶发布策略."
 ---
 
-Deployment 是 Kubernetes 中最常用的控制器, 它建立在 ReplicaSet 之上, 提供了强大的版本管理和声明式更新能力. 深入理解 Deployment 的更新机制, 是保障业务平滑升级的核心.
-
-## 1. 控制器模型: 期望状态的演进
-
-Deployment 并不直接管理 Pod, 而是通过管理 **ReplicaSet** 来实现版本控制.
-
-*   当提交一个新的 Deployment 镜像版本时, Deployment 会创建一个**新的 ReplicaSet**.
-*   它会逐渐增加新 ReplicaSet 的副本数, 同时减少旧 ReplicaSet 的副本数.
-*   这种逻辑保证了在整个更新过程中, 集群中始终有可用的实例提供服务.
+Deployment 是 Kubernetes 中最常用的控制器, 它建立在 ReplicaSet 之上, 提供了强大的版本管理和声明式更新能力.
 
 ---
 
-## 2. 滚动更新 (RollingUpdate)
+## 1. 控制器模型
 
-这是 Deployment 的默认策略, 旨在实现零停机更新. 其核心参数如下:
-
-*   **maxSurge**: 更新过程中可以额外创建的 Pod 比例或数量. 默认为 25%. 这决定了更新瞬间对资源的额外消耗.
-*   **maxUnavailable**: 更新过程中不可用的 Pod 最大比例或数量. 默认为 25%. 这决定了更新过程中服务容量的下限.
-
-### 更新过程解析
+### 1.1 层级关系
 
 ```mermaid
 graph TD
-    A[V1 ReplicaSet: 4 Pods] -->|Update| B[Create V2 ReplicaSet]
-    B -->|maxSurge| C[V2: 1 Pod Running]
-    C -->|maxUnavailable| D[V1: Kill 1 Pod]
-    D -->|Loop| E[V2: 4 Pods / V1: 0 Pods]
+    Deploy["Deployment"] --> RS1["ReplicaSet v1"]
+    Deploy --> RS2["ReplicaSet v2 (当前)"]
+    RS1 --> Pod1["Pod (已停止)"]
+    RS2 --> Pod2["Pod"]
+    RS2 --> Pod3["Pod"]
+    RS2 --> Pod4["Pod"]
+```
+
+| 对象 | 职责 |
+|------|------|
+| **Deployment** | 版本管理, 更新策略 |
+| **ReplicaSet** | 维护指定数量的 Pod 副本 |
+| **Pod** | 实际运行的工作负载 |
+
+### 1.2 控制循环
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant API as API Server
+    participant DC as Deployment Controller
+    participant RSC as ReplicaSet Controller
+    
+    User->>API: 更新 Deployment
+    API->>DC: 触发 Reconcile
+    DC->>API: 创建新 ReplicaSet
+    DC->>API: 调整副本数
+    API->>RSC: 触发 Reconcile
+    RSC->>API: 创建/删除 Pod
 ```
 
 ---
 
-## 3. 高阶发布策略
+## 2. Deployment 配置
 
-虽然 Deployment 提供了基础的滚动更新, 但在复杂生产环境下, 往往需要更精细的控制:
+### 2.1 完整示例
 
-### 蓝绿发布 (Blue-Green)
-*   **原理**: 同时运行两个完全相同的版本. 通过切换 Service 的 Label Selector 一次性将流量从旧版本 (Blue) 导向新版本 (Green).
-*   **优点**: 切换瞬间完成, 回滚极快.
-*   **缺点**: 需要双倍的硬件资源.
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  replicas: 3
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600
+  selector:
+    matchLabels:
+      app: web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+      - name: web
+        image: nginx:1.21
+        ports:
+        - containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+```
 
-### 金丝雀发布 (Canary)
-*   **原理**: 先更新极小比例的副本 (如 1 个), 观察其业务指标 (如错误率、延迟) 是否正常, 确认无误后再全量更新.
-*   **实现**: 通常配合 **Ingress Nginx (Annotations)** 或 **Service Mesh (Istio)** 来控制流量切分的比例, 而非单纯依靠 Pod 数量.
+### 2.2 关键字段
+
+| 字段 | 描述 |
+|------|------|
+| `revisionHistoryLimit` | 保留的历史 RS 数量 |
+| `progressDeadlineSeconds` | 更新超时时间 |
+| `minReadySeconds` | Pod 就绪后等待时间 |
+| `paused` | 暂停更新 |
 
 ---
 
-## 4. 回滚机制 (Rollback)
+## 3. 更新策略
 
-Kubernetes 会保留 Deployment 的 **Revision (修订版本) 历史**.
+### 3.1 RollingUpdate (滚动更新)
+
+```yaml
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 25%          # 可超出期望值的 Pod 数
+    maxUnavailable: 25%    # 可不可用的 Pod 数
+```
+
+**更新过程**:
+
+```mermaid
+graph TD
+    subgraph "初始状态"
+        RS1_1["RS v1: 4 Pods"]
+    end
+    
+    subgraph "更新中"
+        RS1_2["RS v1: 3 Pods"]
+        RS2_1["RS v2: 2 Pods"]
+    end
+    
+    subgraph "完成状态"
+        RS2_2["RS v2: 4 Pods"]
+    end
+    
+    RS1_1 --> RS1_2
+    RS1_2 --> RS2_2
+```
+
+**计算示例** (replicas=4):
+- maxSurge=25% → 最多 5 个 Pod (4 + 1)
+- maxUnavailable=25% → 最少 3 个可用 (4 - 1)
+
+### 3.2 Recreate (重建)
+
+```yaml
+strategy:
+  type: Recreate
+```
+
+**行为**: 先删除所有旧 Pod, 再创建新 Pod
+
+| 适用场景 |
+|----------|
+| 不能同时运行两个版本 |
+| 有状态应用 (不推荐用 Deployment) |
+| 快速全量更新 |
+
+---
+
+## 4. 更新流程详解
+
+### 4.1 触发更新
 
 ```bash
-# 查看发布历史
-kubectl rollout history deployment/my-app
+# 方式 1: 修改镜像
+kubectl set image deployment/web web=nginx:1.22
 
-# 回滚到上一个版本
-kubectl rollout undo deployment/my-app
+# 方式 2: 编辑配置
+kubectl edit deployment web
 
-# 回滚到特定版本
-kubectl rollout undo deployment/my-app --to-revision=2
+# 方式 3: 应用 YAML
+kubectl apply -f deployment.yaml
+```
+
+### 4.2 更新状态
+
+```bash
+# 查看更新状态
+kubectl rollout status deployment/web
+
+# 输出
+Waiting for deployment "web" spec update to be observed...
+Waiting for deployment "web" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 2 out of 3 new replicas have been updated...
+deployment "web" successfully rolled out
+```
+
+### 4.3 Deployment Conditions
+
+```yaml
+status:
+  conditions:
+  - type: Available
+    status: "True"
+    reason: MinimumReplicasAvailable
+  - type: Progressing
+    status: "True"
+    reason: NewReplicaSetAvailable
+```
+
+| Condition | 含义 |
+|-----------|------|
+| `Available` | 最小可用副本已就绪 |
+| `Progressing` | 正在进行更新 |
+| `ReplicaFailure` | 创建 Pod 失败 |
+
+---
+
+## 5. 回滚机制
+
+### 5.1 查看历史
+
+```bash
+kubectl rollout history deployment/web
+
+# 输出
+REVISION  CHANGE-CAUSE
+1         <none>
+2         kubectl set image deployment/web web=nginx:1.21
+3         kubectl set image deployment/web web=nginx:1.22
+```
+
+### 5.2 记录变更原因
+
+```bash
+kubectl annotate deployment/web kubernetes.io/change-cause="升级到 v1.22"
+```
+
+### 5.3 回滚操作
+
+```bash
+# 回滚到上一版本
+kubectl rollout undo deployment/web
+
+# 回滚到指定版本
+kubectl rollout undo deployment/web --to-revision=2
+
+# 查看特定版本详情
+kubectl rollout history deployment/web --revision=2
+```
+
+### 5.4 回滚原理
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant DC as Deployment Controller
+    participant RS_New as 新 ReplicaSet
+    participant RS_Old as 旧 ReplicaSet
+    
+    User->>DC: rollout undo
+    DC->>RS_Old: 增加副本数
+    DC->>RS_New: 减少副本数
+    Note over RS_Old,RS_New: 滚动替换
 ```
 
 ---
 
-## 5. 优雅更新的最佳实践
+## 6. 高级发布策略
 
-*   **Readiness Probes**: 滚动更新极度依赖就绪探针. 如果不设置探针, K8s 会在 Pod 容器启动后立即认为其就绪并停掉旧副本, 如果此时应用尚未初始化完成, 会导致服务中断.
-*   **minReadySeconds**: 设置 Pod 就绪后等待多久才继续更新下一个副本. 这给应用留出了预热和观察的时间.
-*   **revisionHistoryLimit**: 建议设置为 10 左右, 既能保证回滚能力, 又能避免 etcd 存储过多无效的历史 ReplicaSet.
+### 6.1 蓝绿发布
+
+```mermaid
+graph TD
+    subgraph "蓝绿发布"
+        LB["Service"] --> |"切换 selector"| Blue["Blue Deployment (旧)"]
+        LB -.-> Green["Green Deployment (新)"]
+    end
+```
+
+**实现步骤**:
+1. 部署新版本 (Green) Deployment
+2. 验证新版本正常
+3. 修改 Service selector 指向新版本
+4. 删除旧版本 (Blue) Deployment
+
+```yaml
+# 切换流量
+kubectl patch svc web -p '{"spec":{"selector":{"version":"v2"}}}'
+```
+
+### 6.2 金丝雀发布
+
+```mermaid
+graph TD
+    subgraph "金丝雀发布"
+        LB["Service"] --> |"90%"| Stable["Stable Deployment"]
+        LB --> |"10%"| Canary["Canary Deployment"]
+    end
+```
+
+**基于 Pod 数量**:
+```yaml
+# Stable: 9 个副本
+# Canary: 1 个副本
+# 比例约 90:10
+```
+
+**基于 Ingress (Nginx)**:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "10"
+```
+
+### 6.3 A/B 测试
+
+```yaml
+# 基于 Header
+annotations:
+  nginx.ingress.kubernetes.io/canary: "true"
+  nginx.ingress.kubernetes.io/canary-by-header: "X-Canary"
+  nginx.ingress.kubernetes.io/canary-by-header-value: "true"
+```
+
+---
+
+## 7. 渐进式交付
+
+### 7.1 Argo Rollouts
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: web
+spec:
+  replicas: 5
+  strategy:
+    canary:
+      steps:
+      - setWeight: 20
+      - pause: {duration: 1m}
+      - setWeight: 40
+      - pause: {duration: 1m}
+      - setWeight: 60
+      - pause: {duration: 1m}
+      - setWeight: 80
+      - pause: {duration: 1m}
+  selector:
+    matchLabels:
+      app: web
+  template:
+    # ...
+```
+
+### 7.2 Flagger
+
+```yaml
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: web
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: web
+  progressDeadlineSeconds: 60
+  analysis:
+    interval: 30s
+    threshold: 5
+    maxWeight: 50
+    stepWeight: 10
+    metrics:
+    - name: request-success-rate
+      thresholdRange:
+        min: 99
+```
+
+---
+
+## 8. 最佳实践
+
+### 8.1 就绪探针
+
+```yaml
+# 必须配置, 否则滚动更新可能导致服务中断
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  failureThreshold: 3
+```
+
+### 8.2 优雅关闭
+
+```yaml
+spec:
+  terminationGracePeriodSeconds: 60
+  containers:
+  - lifecycle:
+      preStop:
+        exec:
+          command: ["/bin/sh", "-c", "sleep 10"]
+```
+
+### 8.3 PodDisruptionBudget
+
+```yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web-pdb
+spec:
+  minAvailable: 2  # 或 maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: web
+```
+
+### 8.4 更新建议
+
+| 实践 | 说明 |
+|------|------|
+| **设置 minReadySeconds** | 给应用预热时间 |
+| **保留足够历史** | revisionHistoryLimit >= 10 |
+| **监控更新过程** | 观察错误率, 延迟 |
+| **配合 PDB** | 保证最小可用数 |
+
+---
+
+## 9. 调试命令
+
+```bash
+# 查看 Deployment
+kubectl get deployment web -o wide
+kubectl describe deployment web
+
+# 查看 ReplicaSet
+kubectl get rs -l app=web
+kubectl describe rs <rs-name>
+
+# 查看更新事件
+kubectl get events --field-selector involvedObject.name=web
+
+# 暂停/恢复更新
+kubectl rollout pause deployment/web
+kubectl rollout resume deployment/web
+
+# 重启 Deployment (触发 Pod 重建)
+kubectl rollout restart deployment/web
+```
+
+---
 
 > 理解了 Deployment 的副本演进逻辑, 才能在复杂的流量环境下精准控制发布的节奏与安全.

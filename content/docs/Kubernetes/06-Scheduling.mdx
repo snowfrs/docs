@@ -1,58 +1,321 @@
 ---
 title: "Kubernetes 调度器: 放置 Pod 的艺术"
-description: "深入解析 kube-scheduler 的工作流程, 亲和性与反亲和性策略, 以及抢占与优先级机制."
+description: "深入解析 kube-scheduler 的工作流程, 调度框架插件机制, 亲和性策略及抢占机制."
 ---
 
 **kube-scheduler** 是 Kubernetes 的核心决策者. 它的任务是根据一系列规则, 在庞大的节点资源池中为待调度的 Pod 找到最合适的 "家".
 
-## 1. 调度的两个阶段 (Predicate & Priority)
+---
 
-当一个 Pod 进入调度队列时, 调度器会经历两个核心过滤步骤:
+## 1. 调度器架构
 
-### 阶段一: 过滤 (Filtering/Predicates)
-调度器根据硬性要求排除掉不符合条件的节点.
-*   **资源过滤**: 节点的计算资源 (CPU/RAM) 是否足够?
-*   **端口占用**: Pod 请求的 HostPort 是否已被占用?
-*   **污点检测**: Pod 是否容忍节点上的 Taints?
+```mermaid
+graph TD
+    subgraph "调度流程"
+        Pending["Pending Pod"] --> Queue["调度队列"]
+        Queue --> Filter["过滤阶段 (Filter)"]
+        Filter --> Score["打分阶段 (Score)"]
+        Score --> Bind["绑定 (Bind)"]
+    end
+    
+    subgraph "调度框架"
+        PreFilter["PreFilter"]
+        FilterP["Filter"]
+        PostFilter["PostFilter"]
+        PreScore["PreScore"]
+        ScoreP["Score"]
+        Reserve["Reserve"]
+        Permit["Permit"]
+        PreBind["PreBind"]
+        BindP["Bind"]
+        PostBind["PostBind"]
+    end
+```
 
-### 阶段二: 打分 (Scoring/Priorities)
-在剩下的候选节点中, 根据优选策略打分.
-*   **资源分散 (LeastRequested)**: 倾向于选择资源占用最少的节点, 保持平衡.
-*   **镜像亲和 (ImageLocality)**: 倾向于已经下载了所需镜像的节点, 减少启动时间.
+### 1.1 调度上下文
+
+| 对象 | 描述 |
+|------|------|
+| **Pod** | 待调度的工作负载 |
+| **Node** | 候选节点列表 |
+| **PodInfo** | Pod 的调度相关信息缓存 |
+| **NodeInfo** | 节点资源快照 |
 
 ---
 
-## 2. 亲和性与反亲和性 (Affinity)
+## 2. 调度的两个阶段
 
-通过这些配置, 开发者可以精细控制 Pod 的分布:
+当一个 Pod 进入调度队列时, 调度器会经历两个核心阶段:
 
-*   **Node Affinity**: "我希望运行在标有 `disk=ssd` 的节点上".
-*   **Pod Affinity**: "我希望能和 `auth-service` 的 Pod 运行在同一个可用区".
-*   **Pod Anti-Affinity**: "不要把两个相同的数据库副本放在同一个物理机上" (实现高可用).
+### 2.1 过滤阶段 (Filtering/Predicates)
+
+排除不符合条件的节点:
+
+| 过滤器 | 检查内容 |
+|--------|----------|
+| **PodFitsResources** | CPU/内存资源是否充足 |
+| **PodFitsHostPorts** | HostPort 是否被占用 |
+| **PodMatchNodeSelector** | nodeSelector 是否匹配 |
+| **PodToleratesNodeTaints** | Pod 是否容忍节点 Taints |
+| **CheckNodeUnschedulable** | 节点是否可调度 |
+| **CheckVolumeBinding** | PV 是否可绑定 |
+| **InterPodAffinity** | Pod 亲和性规则检查 |
+
+### 2.2 打分阶段 (Scoring/Priorities)
+
+在候选节点中打分排序:
+
+| 打分器 | 策略 |
+|--------|------|
+| **LeastRequestedPriority** | 倾向资源占用少的节点 (负载均衡) |
+| **BalancedResourceAllocation** | CPU/内存使用比例均衡 |
+| **ImageLocality** | 倾向已有所需镜像的节点 |
+| **NodeAffinityPriority** | 满足 preferredNodeAffinity |
+| **InterPodAffinityPriority** | 满足 podAffinity/antiAffinity |
+| **TaintTolerationPriority** | 容忍更多 Taints 的节点得分更高 |
 
 ---
 
-## 3. Taints (污点) 与 Tolerations (容忍)
+## 3. 调度框架 (Scheduling Framework)
 
-*   **Taints**: 节点拒绝某些 Pod. 例如: `key=value:NoSchedule`.
-*   **Tolerations**: Pod 声明自己能忍受某种污点.
-*   **应用场景**: 专门的 GPU 节点只给 GPU 算法任务使用; 处于不健康状态的节点自动标记污点以防新任务调度.
+Kubernetes 1.19+ 引入了插件化的调度框架, 将调度过程分为多个扩展点:
+
+```mermaid
+graph TD
+    subgraph "调度周期"
+        QueueSort["QueueSort"]
+        PreFilter["PreFilter"]
+        Filter["Filter"]
+        PostFilter["PostFilter"]
+        PreScore["PreScore"]
+        Score["Score"]
+        NormalizeScore["NormalizeScore"]
+        Reserve["Reserve"]
+        Permit["Permit"]
+    end
+    
+    subgraph "绑定周期"
+        PreBind["PreBind"]
+        Bind["Bind"]
+        PostBind["PostBind"]
+    end
+    
+    QueueSort --> PreFilter --> Filter --> PostFilter
+    PostFilter --> PreScore --> Score --> NormalizeScore
+    NormalizeScore --> Reserve --> Permit
+    Permit --> PreBind --> Bind --> PostBind
+```
+
+### 3.1 扩展点说明
+
+| 扩展点 | 阶段 | 作用 |
+|--------|------|------|
+| **QueueSort** | 入队 | 决定 Pod 在队列中的顺序 |
+| **PreFilter** | 预处理 | 检查 Pod 先决条件 |
+| **Filter** | 过滤 | 排除不合格节点 |
+| **PostFilter** | 后处理 | 处理无可用节点的情况 (抢占) |
+| **PreScore** | 打分前 | 准备打分所需信息 |
+| **Score** | 打分 | 为节点评分 |
+| **Reserve** | 预留 | 预留节点资源 |
+| **Permit** | 许可 | 批准/拒绝/等待绑定 |
+| **PreBind** | 绑定前 | 执行绑定前置操作 |
+| **Bind** | 绑定 | 将 Pod 绑定到节点 |
+| **PostBind** | 绑定后 | 清理或通知操作 |
+
+### 3.2 自定义调度插件
+
+```go
+type Plugin interface {
+    Name() string
+}
+
+type FilterPlugin interface {
+    Plugin
+    Filter(ctx context.Context, state *CycleState, pod *v1.Pod, nodeInfo *NodeInfo) *Status
+}
+
+type ScorePlugin interface {
+    Plugin
+    Score(ctx context.Context, state *CycleState, pod *v1.Pod, nodeName string) (int64, *Status)
+}
+```
 
 ---
 
-## 4. 优先级与抢占 (Priority & Preemption)
+## 4. 亲和性与反亲和性
 
-当资源紧张时, 并非先到先得:
-1.  用户可以为 Pod 设置 **PriorityClass**.
-2.  如果高优先级的 Pod 无法调度, 调度器可以选择牺牲 ("驱逐") 某个低优先级的 Pod, 腾出位置给高优先级任务.
+### 4.1 Node Affinity
+
+```yaml
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:  # 硬性要求
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: disktype
+            operator: In
+            values: ["ssd"]
+      preferredDuringSchedulingIgnoredDuringExecution:  # 软性偏好
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: zone
+            operator: In
+            values: ["zone-a"]
+```
+
+### 4.2 Pod Affinity / Anti-Affinity
+
+```yaml
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app: cache
+        topologyKey: kubernetes.io/hostname
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app: web
+          topologyKey: topology.kubernetes.io/zone
+```
+
+| 字段 | 含义 |
+|------|------|
+| `topologyKey` | 定义 "同一位置" 的标准 (主机名, 机架, 可用区) |
+| `labelSelector` | 匹配目标 Pod 的标签 |
+| `namespaceSelector` | 跨 Namespace 匹配 |
 
 ---
 
-## 5. 进阶: 调度框架扩展 (Scheduling Framework)
+## 5. Taints 与 Tolerations
 
-现代 Kubernetes 支持对调度器进行插件化扩展. 开发者可以在以下阶段插入自定义逻辑:
-*   `PreFilter`: 预处理 Pod 信息.
-*   `Filter`: 自定义过滤逻辑.
-*   `Permit`: 允许/拒绝/延迟 Pod 调度.
+### 5.1 Taint 效果
 
-> **总结**: 默认调度器能满足 90% 的场景. 剩下的 10% 需要通过 Affinity、Taints 以及合理的 Resource Quota 来进行精细化微调.
+| Effect | 行为 |
+|--------|------|
+| `NoSchedule` | 不调度新 Pod |
+| `PreferNoSchedule` | 尽量不调度 |
+| `NoExecute` | 驱逐已有 Pod |
+
+```bash
+# 添加 Taint
+kubectl taint nodes node1 key=value:NoSchedule
+
+# 移除 Taint
+kubectl taint nodes node1 key=value:NoSchedule-
+```
+
+### 5.2 Toleration
+
+```yaml
+spec:
+  tolerations:
+  - key: "key"
+    operator: "Equal"
+    value: "value"
+    effect: "NoSchedule"
+  - key: "key"
+    operator: "Exists"
+    effect: "NoExecute"
+    tolerationSeconds: 3600  # 容忍 1 小时后驱逐
+```
+
+---
+
+## 6. 优先级与抢占
+
+### 6.1 PriorityClass
+
+```yaml
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: high-priority
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "用于关键业务"
+```
+
+### 6.2 抢占机制
+
+当高优先级 Pod 无法调度时:
+
+1. 调度器尝试寻找可抢占的低优先级 Pod
+2. 选择 "牺牲者" 使高优先级 Pod 可调度
+3. 优雅终止被抢占的 Pod
+4. 调度高优先级 Pod
+
+```mermaid
+sequenceDiagram
+    participant Scheduler as 调度器
+    participant Node as 节点
+    participant LowPod as 低优先级 Pod
+    participant HighPod as 高优先级 Pod
+    
+    HighPod->>Scheduler: 无法调度 (资源不足)
+    Scheduler->>Node: 识别可抢占的 Pod
+    Scheduler->>LowPod: 发送删除信号
+    LowPod->>Node: 优雅终止
+    Scheduler->>HighPod: 调度到节点
+```
+
+---
+
+## 7. Descheduler (反调度器)
+
+调度器只负责 Pod 的初始放置. **Descheduler** 可以重新平衡已运行的 Pod:
+
+### 7.1 使用场景
+
+- 节点资源利用率不均衡
+- 新节点加入集群
+- 节点 Taint 变更
+- Pod 亲和性规则违反
+
+### 7.2 常用策略
+
+| 策略 | 作用 |
+|------|------|
+| `RemoveDuplicates` | 移除同节点上的重复 Pod |
+| `LowNodeUtilization` | 从高负载节点迁移到低负载节点 |
+| `RemovePodsViolatingInterPodAntiAffinity` | 移除违反反亲和性的 Pod |
+| `RemovePodsViolatingNodeAffinity` | 移除违反节点亲和性的 Pod |
+| `RemovePodsViolatingTopologySpreadConstraint` | 重新平衡拓扑分布 |
+
+---
+
+## 8. Topology Spread Constraints
+
+控制 Pod 在拓扑域间的分布:
+
+```yaml
+spec:
+  topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app: web
+  - maxSkew: 2
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+```
+
+| 字段 | 含义 |
+|------|------|
+| `maxSkew` | 允许的最大差异 |
+| `topologyKey` | 拓扑域标签 |
+| `whenUnsatisfiable` | 不满足时的行为 |
+
+---
+
+> 默认调度器能满足 90% 的场景. 剩下的 10% 需要通过 Affinity, Taints, PriorityClass 以及合理的 Resource Quota 来进行精细化微调.
