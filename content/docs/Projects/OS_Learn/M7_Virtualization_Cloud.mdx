@@ -69,7 +69,7 @@ sequenceDiagram
 传统两级地址转换（GVA -> GPA -> HPA）效率极低。Intel **EPT (Extended Page Tables)** 实现了硬件级的嵌套页表走步。
 
 ```mermaid
-graph LR
+graph TD
     GVA["GVA (Guest Virtual)"] -- "Guest 页表" --> GPA["GPA (Guest Physical)"]
     GPA -- "EPT 页表" --> HPA["HPA (Host Physical)"]
     

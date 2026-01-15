@@ -5,3 +5,47 @@
 :root {
     --fd-sidebar-width: 260px;
 }
+
+/* Mermaid diagram font size improvements */
+.mermaid {
+    font-size: 16px !important;
+}
+
+.mermaid svg {
+    max-width: 100%;
+    height: auto;
+    min-height: 200px;
+}
+
+.mermaid .nodeLabel,
+.mermaid .edgeLabel,
+.mermaid .label {
+    font-size: 14px !important;
+    font-family: ui-sans-serif, system-ui, sans-serif !important;
+}
+
+.mermaid .node rect,
+.mermaid .node circle,
+.mermaid .node ellipse,
+.mermaid .node polygon,
+.mermaid .node path {
+    stroke-width: 2px;
+}
+
+.mermaid .edgePath .path {
+    stroke-width: 2px;
+}
+
+/* Sequence diagram specific */
+.mermaid .actor {
+    font-size: 14px !important;
+}
+
+.mermaid .messageText {
+    font-size: 13px !important;
+}
+
+/* Dark mode adjustments */
+.dark .mermaid {
+    filter: invert(0.9) hue-rotate(180deg);
+}

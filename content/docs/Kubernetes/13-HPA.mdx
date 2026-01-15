@@ -14,7 +14,7 @@ HPA 的运行依赖于一个闭环的监控与决策系统:
 3.  **Scale Subresource**: HPA 控制器通过修改 Deployment/StatefulSet 的 `replicas` 字段触发扩缩容.
 
 ```mermaid
-graph LR
+graph TD
     A[Pod] -->|CAdvisor| B[Kubelet]
     B --> C[Metrics Server]
     D[HPA Controller] -->|Query| C

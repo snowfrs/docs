@@ -63,7 +63,7 @@ graph TB
 内存管理单元 (MMU) 负责将程序使用的虚拟地址转换为内存芯片的物理地址：
 
 ```mermaid
-graph LR
+graph TD
     VA[虚拟地址<br/>Virtual Address] --> Seg[分段单元]
     Seg --> LA[线性地址<br/>Linear Address]
     LA --> Paging[分页单元]

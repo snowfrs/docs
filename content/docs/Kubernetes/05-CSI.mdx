@@ -22,7 +22,7 @@ K8s 会寻找符合 PVC 要求的 PV 并将两者绑定 (Bound). 只有绑定后
 **CSI (容器存储接口)** 将存储控制逻辑从 Kubernetes 主代码中分离出来.
 
 ```mermaid
-graph LR
+graph TD
     A[Kubelet] -->|GRPC| B[CSI Node Plugin]
     C[Kube-Controller-Manager] -->|GRPC| D[CSI Controller Plugin]
     B --> E[Mount/Unmount]

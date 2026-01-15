@@ -73,7 +73,7 @@ graph TB
 **没有中断会怎样?**
 
 ```mermaid
-graph LR
+graph TD
     subgraph Polling ["轮询 (Polling)"]
         direction TB
         P_Loop[while true] --> P_Keyboard{Keyboard?}
@@ -171,7 +171,7 @@ Intel x86 定义 256 个中断向量 (0-255):
 ### 2.1 中断控制器演进
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph evolution["中断控制器演进"]
         PIC["8259 PIC<br/>(1981)<br/>15 个中断线<br/>级联主从"]
         APIC["APIC<br/>(1990s)<br/>多 CPU 支持<br/>Local + I/O"]
@@ -188,7 +188,7 @@ flowchart LR
 ### 2.2 8259 PIC (Programmable Interrupt Controller)
 
 ```mermaid
-graph LR
+graph TD
     Dev1[Timer] --> Master[主 8259]
     Dev2[Keyboard] --> Master
     Master -->|INTR| CPU[CPU]

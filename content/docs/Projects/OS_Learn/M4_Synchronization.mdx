@@ -234,7 +234,7 @@ void enter_critical_section(int i) {
 | 进程同步 | Synchronization | 多进程在执行顺序上的协调 | 生产者-消费者 |
 
 ```mermaid
-graph LR
+graph TD
     subgraph Mutex ["互斥 (Mutex): 互不打扰"]
         A1[进程 A: CS] -. "抢占失败" .-> B1[进程 B: 等待]
     end
@@ -1104,7 +1104,7 @@ void spin_lock(struct ticket_lock *lock) {
 MCS Lock 通过构建进程链表，让每个 CPU 仅在本地变量上自旋，避免了全局变量的缓存一致性开销：
 
 ```mermaid
-graph LR
+graph TD
     H[Lock Header] --> CPU0[CPU 0: 持有]
     CPU0 -- next --> CPU1[CPU 1: 自旋于 node1.wait]
     CPU1 -- next --> CPU2[CPU 2: 自旋于 node2.wait]
@@ -1178,7 +1178,7 @@ graph TB
 **死锁 (Deadlock)**: 一组进程中每个进程都在等待只能由该组其他进程引发的事件，导致所有进程永久阻塞。
 
 ```mermaid
-graph LR
+graph TD
     PA[进程 A] -- "请求 (Wait)" --> RY[资源 Y]
     RY -- "持有 (Hold)" --> PB[进程 B]
     PB -- "请求 (Wait)" --> RX[资源 X]

@@ -4,11 +4,22 @@ import { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 import { RefreshCcw } from 'lucide-react';
 
-// Initialize mermaid
+// Initialize mermaid with improved font sizes
 mermaid.initialize({
     startOnLoad: false,
     theme: 'default',
     suppressErrorRendering: true,
+    fontSize: 16,
+    flowchart: {
+        htmlLabels: true,
+        curve: 'basis',
+        nodeSpacing: 50,
+        rankSpacing: 50,
+    },
+    themeVariables: {
+        fontSize: '16px',
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+    },
 });
 
 export function Mermaid({ code }: { code: string }) {

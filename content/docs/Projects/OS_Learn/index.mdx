@@ -23,26 +23,29 @@ title: "操作系统深度学习大纲"
 ## 知识模块总览
 
 ```mermaid
-flowchart TB
-    subgraph OS["操作系统知识图谱"]
-        M1["M1 系统架构<br/>CPU 模式 / 启动流程 / 演化史 / 内核结构"]
-        M2["M2 交互边界<br/>中断处理 / 异常嵌入 / 系统调用 / 动态追踪 / eBPF"]
-        M3["M3 进程调度<br/>PCB (task_struct) / CFS / 线程模型 / Cgroups v2"]
-        M4["M4 同步机制<br/>qspinlock / 屏障 / 死锁 / RCU / futex"]
-        M5["M5 存储治理<br/>多级页表 / 伙伴系统 / NUMA / CXL / 分级存储"]
-        M6["M6 持久化抽象<br/>VFS 对象 / ext4 Extent / io_uring / 异步 IO"]
-        M7["M7 基础设施<br/>硬件虚拟化 / VT-x / VirtIO / 容器运行时"]
-        
-        M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M7
+graph TD
+    subgraph Phase1["阶段 1: 基础构建"]
+        M1["M1: 系统架构"]
+        M2["M2: 交互边界"]
     end
     
-    style M1 fill:#1a73e8,color:#fff
-    style M2 fill:#34a853,color:#fff
-    style M3 fill:#fbbc04,color:#000
-    style M4 fill:#ea4335,color:#fff
-    style M5 fill:#9c27b0,color:#fff
-    style M6 fill:#00acc1,color:#fff
-    style M7 fill:#607d8b,color:#fff
+    subgraph Phase2["阶段 2: 核心机制"]
+        M3["M3: 进程调度"]
+        M4["M4: 同步机制"]
+        M5["M5: 存储治理"]
+    end
+    
+    subgraph Phase3["阶段 3: 持久化与基础设施"]
+        M6["M6: 文件系统"]
+        M7["M7: 虚拟化"]
+    end
+    
+    M1 --> M2
+    M2 --> M3
+    M3 --> M4
+    M4 --> M5
+    M5 --> M6
+    M6 --> M7
 ```
 
 ---

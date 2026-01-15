@@ -587,7 +587,7 @@ graph BT
 | **SEV** | AMD | 内存加密 (Secure Encrypted Virtualization) | 为每个虚拟机提供独立的加密密钥 |
 
 ```mermaid
-graph LR
+graph TD
     subgraph NormalWorld ["普通世界 (Normal World)"]
         direction TB
         App[用户应用] --> Kernel[操作系统内核]
@@ -889,7 +889,7 @@ flowchart TD
 ### 10.3 关键应用场景
 
 ```mermaid
-graph LR
+graph TD
     subgraph Kernel ["内核 (Kernel Space)"]
         Prog[eBPF 程序]
         Verifier[验证器]
