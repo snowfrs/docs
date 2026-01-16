@@ -1,0 +1,480 @@
+---
+title: "Week 06: 高级协作模式与工具"
+description: "掌握 Worktree, Stash, Patch 工作流, Git LFS, GPG 签名等高级协作技术."
+---
+
+## 1. Worktree (多工作目录)
+
+### 1.1 什么是 Worktree
+
+Worktree 允许**同时检出多个分支到不同目录**, 共享同一个 `.git` 仓库.
+
+```
+project/
+├── .git/                 # 共享仓库
+├── main/                 # main 分支工作区
+├── feature-a/            # feature-a 分支工作区
+└── hotfix/               # hotfix 分支工作区
+```
+
+### 1.2 Worktree 操作
+
+```bash
+# 创建 worktree
+git worktree add ../feature feature-branch
+git worktree add -b new-feature ../new-feature  # 同时创建新分支
+
+# 列出所有 worktree
+git worktree list
+# /home/user/project       abc1234 [main]
+# /home/user/project-feature def5678 [feature]
+
+# 删除 worktree
+git worktree remove ../feature
+
+# 清理无效 worktree
+git worktree prune
+```
+
+### 1.3 使用场景
+
+1. **并行开发**: 同时在多个功能分支工作
+2. **长时间构建**: 构建一个分支时继续开发另一个
+3. **比较运行结果**: 在不同分支运行应用并对比
+4. **紧急修复**: 不打断当前工作处理 hotfix
+
+---
+
+## 2. Stash (暂存工作)
+
+### 2.1 基本操作
+
+```bash
+# 暂存当前工作
+git stash
+git stash push -m "Work in progress"
+
+# 查看暂存列表
+git stash list
+# stash@{0}: On main: Work in progress
+# stash@{1}: WIP on main: abc1234 Previous commit
+
+# 恢复最近的暂存
+git stash pop       # 恢复并删除
+git stash apply     # 恢复但保留
+
+# 恢复指定暂存
+git stash pop stash@{1}
+
+# 删除暂存
+git stash drop stash@{0}
+git stash clear     # 清除所有
+```
+
+### 2.2 高级用法
+
+```bash
+# 包含未跟踪文件
+git stash -u
+git stash --include-untracked
+
+# 包含忽略的文件
+git stash -a
+git stash --all
+
+# 只暂存暂存区的内容
+git stash --staged
+
+# 交互式选择要暂存的内容
+git stash -p
+
+# 基于暂存创建分支
+git stash branch new-feature stash@{0}
+
+# 查看暂存内容
+git stash show stash@{0}
+git stash show -p stash@{0}  # 详细差异
+```
+
+### 2.3 Stash 的本质
+
+Stash 内部创建了两个提交:
+1. **Index 提交**: 暂存区内容
+2. **Working 提交**: 工作区内容 (父提交是 Index 提交)
+
+```bash
+# 查看 stash 结构
+git log --oneline stash@{0}
+# abc1234 WIP on main: ...
+# def5678 index on main: ...
+# ghi9012 (main) Parent commit
+```
+
+---
+
+## 3. Patch 工作流
+
+### 3.1 什么是 Patch
+
+Patch 是包含代码差异的文本文件, 用于在不直接访问仓库的情况下共享代码.
+
+**适用场景**:
+- 邮件列表 (Linux Kernel 开发)
+- 离线代码审查
+- 跨网络隔离的仓库同步
+
+### 3.2 创建 Patch
+
+```bash
+# 从提交创建 patch
+git format-patch HEAD~3      # 最近 3 个提交
+git format-patch main        # 与 main 分支的差异
+git format-patch -o patches/ # 输出到指定目录
+
+# 生成文件命名
+# 0001-First-commit.patch
+# 0002-Second-commit.patch
+# 0003-Third-commit.patch
+```
+
+**Patch 文件内容**
+
+```diff
+From abc1234... Mon Sep 17 00:00:00 2001
+From: Author <author@email.com>
+Date: Mon, 1 Jan 2024 00:00:00 +0000
+Subject: [PATCH] Add new feature
+
+This is the commit message body.
+
+---
+ file.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/file.txt b/file.txt
+index abc1234..def5678 100644
+--- a/file.txt
++++ b/file.txt
+@@ -1,1 +1,1 @@
+-old content
++new content
+--
+2.30.0
+```
+
+### 3.3 应用 Patch
+
+```bash
+# 应用 patch 并创建提交
+git am patches/*.patch
+
+# 应用单个 patch
+git am 0001-First-commit.patch
+
+# 应用时解决冲突
+git am --3way patches/*.patch
+
+# 冲突时继续
+git am --continue
+
+# 跳过当前 patch
+git am --skip
+
+# 中止应用
+git am --abort
+```
+
+### 3.4 简单 Diff/Apply
+
+```bash
+# 创建简单 diff (不含元数据)
+git diff > changes.patch
+git diff main..feature > feature.patch
+
+# 应用 diff (不创建提交)
+git apply changes.patch
+
+# 检查 patch 是否可应用
+git apply --check changes.patch
+
+# 逆向应用
+git apply -R changes.patch
+```
+
+---
+
+## 4. Blame 与日志分析
+
+### 4.1 Blame (追溯)
+
+```bash
+# 查看文件每行的作者
+git blame file.txt
+
+# 指定行范围
+git blame -L 10,20 file.txt
+
+# 忽略空格变更
+git blame -w file.txt
+
+# 追踪代码移动
+git blame -C file.txt         # 同文件内
+git blame -C -C file.txt      # 跨文件
+git blame -C -C -C file.txt   # 跨提交
+
+# 显示提交信息
+git blame --show-name file.txt
+```
+
+### 4.2 Log 高级用法
+
+```bash
+# 搜索提交信息
+git log --grep="fix"
+
+# 搜索代码变更
+git log -S "function_name"    # 添加或删除的提交
+git log -G "regex_pattern"    # 正则匹配
+
+# 查看某行的历史
+git log -L 10,20:file.txt
+
+# 按作者过滤
+git log --author="Alice"
+
+# 按时间过滤
+git log --since="2024-01-01"
+git log --until="2024-12-31"
+
+# 显示统计
+git log --stat
+git log --numstat
+git log --shortstat
+
+# 自定义格式
+git log --format="%h %an %s"
+```
+
+---
+
+## 5. Git LFS (大文件存储)
+
+### 5.1 为什么需要 LFS
+
+Git 对大文件效率低下:
+- 每次 clone 下载完整历史
+- 二进制文件无法 delta 压缩
+- 仓库体积快速膨胀
+
+### 5.2 LFS 原理
+
+LFS 将大文件存储在远程服务器, 仓库中只保存**指针文件**:
+
+```
+version https://git-lfs.github.com/spec/v1
+oid sha256:abc123...
+size 12345678
+```
+
+### 5.3 使用 LFS
+
+```bash
+# 安装 LFS
+git lfs install
+
+# 跟踪大文件类型
+git lfs track "*.psd"
+git lfs track "*.mp4"
+git lfs track "assets/**"
+
+# 查看跟踪规则
+cat .gitattributes
+# *.psd filter=lfs diff=lfs merge=lfs -text
+
+# 提交 .gitattributes
+git add .gitattributes
+git commit -m "Configure LFS"
+
+# 正常使用
+git add large-file.psd
+git commit -m "Add design file"
+git push
+
+# 查看 LFS 文件
+git lfs ls-files
+```
+
+### 5.4 LFS 操作
+
+```bash
+# 获取 LFS 文件内容
+git lfs fetch
+git lfs pull
+
+# 推送 LFS 文件
+git lfs push origin main
+
+# 迁移现有仓库
+git lfs migrate import --include="*.psd"
+
+# 查看 LFS 信息
+git lfs env
+```
+
+---
+
+## 6. GPG 签名
+
+### 6.1 为什么要签名
+
+签名证明提交确实由声称的作者创建, 防止伪造.
+
+### 6.2 配置 GPG
+
+```bash
+# 生成 GPG 密钥
+gpg --full-generate-key
+
+# 列出密钥
+gpg --list-secret-keys --keyid-format=long
+# sec   rsa4096/ABC123DEF456 2024-01-01 [SC]
+
+# 配置 Git 使用该密钥
+git config --global user.signingkey ABC123DEF456
+git config --global commit.gpgsign true  # 自动签名
+
+# 导出公钥 (添加到 GitHub)
+gpg --armor --export ABC123DEF456
+```
+
+### 6.3 签名操作
+
+```bash
+# 签名提交
+git commit -S -m "Signed commit"
+
+# 签名标签
+git tag -s v1.0.0 -m "Signed release"
+
+# 验证签名
+git log --show-signature
+git verify-commit abc1234
+git verify-tag v1.0.0
+```
+
+### 6.4 在 CI/CD 中验证
+
+```bash
+# 要求所有提交都有签名
+git log --pretty="format:%H %G?" main..HEAD | grep -v " G$"
+# 输出非空则有未签名提交
+```
+
+---
+
+## 7. 其他高级工具
+
+### 7.1 Notes (注释)
+
+为提交添加额外信息 (不修改提交本身):
+
+```bash
+# 添加注释
+git notes add -m "This needs review" abc1234
+
+# 查看注释
+git notes show abc1234
+git log --show-notes
+
+# 编辑注释
+git notes edit abc1234
+
+# 删除注释
+git notes remove abc1234
+
+# 推送/拉取注释
+git push origin refs/notes/*
+git fetch origin refs/notes/*:refs/notes/*
+```
+
+### 7.2 Bundle (离线打包)
+
+将仓库打包为单个文件, 用于离线传输:
+
+```bash
+# 创建 bundle
+git bundle create repo.bundle main
+git bundle create repo.bundle --all  # 所有分支
+
+# 从 bundle 克隆
+git clone repo.bundle -b main new-repo
+
+# 从 bundle 获取更新
+git fetch repo.bundle main
+
+# 验证 bundle
+git bundle verify repo.bundle
+```
+
+### 7.3 Archive (导出快照)
+
+导出特定版本的源码 (不含 .git):
+
+```bash
+# ZIP 格式
+git archive --format=zip -o release.zip HEAD
+
+# TAR.GZ 格式
+git archive --format=tar.gz -o release.tar.gz v1.0.0
+
+# 导出子目录
+git archive --format=zip -o src.zip HEAD src/
+```
+
+---
+
+## 8. 练习
+
+### 8.1 Worktree 练习
+
+1. 创建一个项目的多个 worktree.
+2. 在不同 worktree 中同时开发.
+3. 合并并清理 worktree.
+
+### 8.2 Patch 工作流
+
+1. 创建几个提交.
+2. 导出为 patch 文件.
+3. 在新仓库中应用这些 patch.
+
+### 8.3 LFS 配置
+
+1. 配置 LFS 跟踪某类大文件.
+2. 添加大文件并推送.
+3. 重新克隆验证 LFS 工作正常.
+
+---
+
+## 9. 思考题
+
+1. Worktree 和 clone 多个仓库有什么区别?
+2. Stash 丢失了如何恢复?
+3. `git format-patch` 和 `git diff` 生成的 patch 有什么区别?
+4. LFS 的指针文件丢失会怎样?
+5. 未签名的提交一定不安全吗?
+
+---
+
+## 10. 本周小结
+
+- **Worktree**: 同时检出多个分支.
+- **Stash**: 临时保存工作进度.
+- **Patch**: 文本形式的代码差异.
+- **Blame/Log**: 代码追溯和历史分析.
+- **LFS**: 大文件的高效存储.
+- **GPG**: 提交和标签的签名验证.
+- **Notes/Bundle/Archive**: 其他实用工具.
+
+---
+
+> 高级工具不是炫技, 而是在特定场景下大幅提升效率的利器.
