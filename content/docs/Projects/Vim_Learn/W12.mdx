@@ -1,0 +1,513 @@
+---
+title: "W12: 性能基准与软件开发工作流"
+description: "执行启动时间剖析、实现配置的自动化同步, 并掌握 Vim/Neovim 辅助软件开发的完整工作流."
+---
+
+## 1. 极致启动: Performance Profiling
+
+一个好的 PDE 在加载 50+ 个插件时, 启动时间应控制在 **100ms** 以内.
+
+### 1.1 测量启动时间
+
+```bash
+# 测量启动时间
+nvim --startuptime startup.log
+
+# 查看启动日志
+cat startup.log | sort -k2 -n | tail -20
+```
+
+### 1.2 lazy.nvim Profile
+
+```
+:Lazy profile
+```
+
+查看每个插件的加载时间, 识别瓶颈.
+
+### 1.3 延迟加载策略
+
+```lua
+-- 事件触发加载
+{ "plugin", event = "BufReadPost" }  -- 读取文件时
+{ "plugin", event = "InsertEnter" }  -- 进入插入模式时
+{ "plugin", event = "VeryLazy" }     -- 启动完成后
+
+-- 命令触发
+{ "plugin", cmd = "Telescope" }
+
+-- 文件类型触发
+{ "plugin", ft = { "python", "go" } }
+
+-- 按键触发
+{ "plugin", keys = { "<leader>f" } }
+```
+
+### 1.4 优化技巧
+
+```lua
+-- 禁用不需要的内置插件
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
+vim.g.loaded_matchit = 1
+vim.g.loaded_matchparen = 1
+vim.g.loaded_2html_plugin = 1
+vim.g.loaded_tohtml = 1
+vim.g.loaded_tutor_mode_plugin = 1
+
+-- 使用 impatient.nvim 加速 Lua 加载 (Neovim < 0.9)
+-- Neovim 0.9+ 已内置 Lua 缓存
+```
+
+---
+
+## 2. Dotfiles 管理
+
+### 2.1 配置仓库结构
+
+```
+dotfiles/
+├── nvim/
+│   └── .config/nvim/
+│       ├── init.lua
+│       └── lua/
+├── zsh/
+│   └── .zshrc
+├── git/
+│   └── .gitconfig
+├── tmux/
+│   └── .tmux.conf
+├── install.sh
+└── README.md
+```
+
+### 2.2 GNU Stow 符号链接
+
+```bash
+# 安装 stow
+brew install stow  # macOS
+apt install stow   # Ubuntu
+
+# 创建符号链接
+cd ~/dotfiles
+stow nvim    # 链接 nvim/.config/nvim -> ~/.config/nvim
+stow zsh     # 链接 zsh/.zshrc -> ~/.zshrc
+```
+
+### 2.3 自动化安装脚本
+
+```bash
+#!/bin/bash
+# install.sh
+
+set -e
+
+echo "Installing dotfiles..."
+
+# 检测操作系统
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    if ! command -v brew &> /dev/null; then
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+    brew install neovim ripgrep fd fzf stow
+elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Linux
+    sudo apt update
+    sudo apt install -y neovim ripgrep fd-find fzf stow
+fi
+
+# 备份现有配置
+if [ -d ~/.config/nvim ]; then
+    mv ~/.config/nvim ~/.config/nvim.bak.$(date +%Y%m%d)
+fi
+
+# 创建符号链接
+cd ~/dotfiles
+stow nvim
+stow zsh
+stow git
+
+# 安装 Neovim 插件
+nvim --headless "+Lazy! sync" +qa
+
+echo "Done! Please restart your terminal."
+```
+
+### 2.4 Project-Local Configuration
+
+Neovim 支持项目级配置文件 (`.nvim.lua`), 但需要明确启用 `exrc` 选项.
+
+```lua
+-- init.lua
+vim.opt.exrc = true           -- 启用项目级配置
+vim.opt.secure = true         -- 禁止执行危险命令
+```
+
+**项目根目录创建 `.nvim.lua`**:
+
+```lua
+-- .nvim.lua (项目根目录)
+vim.opt_local.tabstop = 2
+vim.opt_local.shiftwidth = 2
+vim.keymap.set("n", "<leader>rr", "<cmd>!npm run dev<CR>", { buffer = true })
+```
+
+**安全注意**: 只在你信任的项目中启用 `exrc`, 以防止执行恶意代码.
+
+---
+
+## 3. 软件开发工作流
+
+### 3.1 项目导航
+
+#### Telescope 集成
+
+```lua
+-- 常用 Telescope 操作
+keymap("n", "<leader>ff", ":Telescope find_files<CR>")    -- 查找文件
+keymap("n", "<leader>fg", ":Telescope live_grep<CR>")     -- 全局搜索
+keymap("n", "<leader>fb", ":Telescope buffers<CR>")       -- 缓冲区列表
+keymap("n", "<leader>fh", ":Telescope help_tags<CR>")     -- 帮助文档
+keymap("n", "<leader>fr", ":Telescope oldfiles<CR>")      -- 最近文件
+keymap("n", "<leader>fc", ":Telescope commands<CR>")      -- 命令列表
+keymap("n", "<leader>fs", ":Telescope lsp_document_symbols<CR>")  -- 符号导航
+keymap("n", "<leader>fd", ":Telescope diagnostics<CR>")   -- 诊断列表
+keymap("n", "<leader>gc", ":Telescope git_commits<CR>")   -- Git 提交
+keymap("n", "<leader>gb", ":Telescope git_branches<CR>")  -- Git 分支
+```
+
+### 3.2 Git 集成
+
+#### lazygit 集成
+
+```lua
+-- 在 Neovim 中打开 lazygit
+keymap("n", "<leader>gg", function()
+    local Terminal = require("toggleterm.terminal").Terminal
+    local lazygit = Terminal:new({
+        cmd = "lazygit",
+        hidden = true,
+        direction = "float",
+    })
+    lazygit:toggle()
+end)
+```
+
+#### gitsigns.nvim
+
+```lua
+{
+    "lewis6991/gitsigns.nvim",
+    event = { "BufReadPre", "BufNewFile" },
+    opts = {
+        signs = {
+            add = { text = "│" },
+            change = { text = "│" },
+            delete = { text = "_" },
+            topdelete = { text = "‾" },
+            changedelete = { text = "~" },
+        },
+        on_attach = function(bufnr)
+            local gs = package.loaded.gitsigns
+            local opts = { buffer = bufnr }
+
+            -- 导航
+            vim.keymap.set("n", "]h", gs.next_hunk, opts)
+            vim.keymap.set("n", "[h", gs.prev_hunk, opts)
+
+            -- 操作
+            vim.keymap.set("n", "<leader>hs", gs.stage_hunk, opts)
+            vim.keymap.set("n", "<leader>hr", gs.reset_hunk, opts)
+            vim.keymap.set("n", "<leader>hu", gs.undo_stage_hunk, opts)
+            vim.keymap.set("n", "<leader>hp", gs.preview_hunk, opts)
+            vim.keymap.set("n", "<leader>hb", gs.blame_line, opts)
+        end,
+    },
+}
+```
+
+### 3.3 调试 (DAP)
+
+```lua
+{
+    "mfussenegger/nvim-dap",
+    dependencies = {
+        "rcarriga/nvim-dap-ui",
+        "theHamsta/nvim-dap-virtual-text",
+    },
+    keys = {
+        { "<leader>db", function() require("dap").toggle_breakpoint() end, desc = "Toggle Breakpoint" },
+        { "<leader>dc", function() require("dap").continue() end, desc = "Continue" },
+        { "<leader>di", function() require("dap").step_into() end, desc = "Step Into" },
+        { "<leader>do", function() require("dap").step_over() end, desc = "Step Over" },
+        { "<leader>dO", function() require("dap").step_out() end, desc = "Step Out" },
+        { "<leader>dr", function() require("dap").repl.open() end, desc = "Open REPL" },
+        { "<leader>du", function() require("dapui").toggle() end, desc = "Toggle UI" },
+    },
+}
+```
+
+### 3.4 终端集成
+
+```lua
+{
+    "akinsho/toggleterm.nvim",
+    keys = { { "<C-\\>", "<cmd>ToggleTerm<CR>", desc = "Toggle Terminal" } },
+    opts = {
+        size = function(term)
+            if term.direction == "horizontal" then
+                return 15
+            elseif term.direction == "vertical" then
+                return vim.o.columns * 0.4
+            end
+        end,
+        open_mapping = [[<C-\>]],
+        direction = "float",
+        float_opts = { border = "curved" },
+    },
+}
+```
+
+### 3.5 任务运行
+
+```lua
+-- 文件类型特定运行命令
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = "python",
+    callback = function()
+        vim.keymap.set("n", "<leader>rr", ":!python %<CR>", { buffer = true })
+        vim.keymap.set("n", "<leader>rt", ":!pytest %<CR>", { buffer = true })
+    end,
+})
+
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = "go",
+    callback = function()
+        vim.keymap.set("n", "<leader>rr", ":!go run %<CR>", { buffer = true })
+        vim.keymap.set("n", "<leader>rt", ":!go test ./...<CR>", { buffer = true })
+        vim.keymap.set("n", "<leader>rb", ":!go build<CR>", { buffer = true })
+    end,
+})
+
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = { "javascript", "typescript" },
+    callback = function()
+        vim.keymap.set("n", "<leader>rr", ":!npm run dev<CR>", { buffer = true })
+        vim.keymap.set("n", "<leader>rt", ":!npm test<CR>", { buffer = true })
+    end,
+})
+```
+
+---
+
+## 4. 高级配置模式 (Advanced Config Patterns)
+
+随着配置规模扩大, 你需要更优雅的代码组织方式.
+
+### 4.1 ftplugin: 特定语言配置
+
+不要把所有特定语言的按键和选项都塞进 `init.lua`. 使用 `ftplugin/` 目录.
+
+```
+~/.config/nvim/
+└── ftplugin/
+    ├── go.lua      " 仅在进入 .go 文件时加载
+    ├── python.lua  " 仅在进入 .py 文件时加载
+    └── markdown.lua
+```
+
+**示例 (ftplugin/go.lua)**:
+
+```lua
+vim.opt_local.shiftwidth = 4
+vim.opt_local.tabstop = 4
+vim.keymap.set("n", "<leader>rr", "<cmd>!go run %<CR>", { buffer = true })
+```
+
+### 4.2 augroup: 自动命令组
+
+使用自动命令 (autocmands) 时, 必须使用 `augroup` 包装, 否则每次重新加载配置都会创建重复的命令, 导致性能下降.
+
+```lua
+-- lua/core/autocmds.lua
+local function augroup(name)
+    return vim.api.nvim_create_augroup("lazyvim_" .. name, { clear = true })
+end
+
+-- 示例: 复制时高亮
+vim.api.nvim_create_autocmd("TextYankPost", {
+    group = augroup("highlight_yank"),
+    callback = function()
+        vim.highlight.on_yank()
+    end,
+})
+
+-- 示例: 进入插入模式时关闭相对行号, 退出时回复
+vim.api.nvim_create_autocmd({ "InsertEnter" }, {
+    group = augroup("toggle_relnum"),
+    callback = function() vim.opt.relativenumber = false end,
+})
+vim.api.nvim_create_autocmd({ "InsertLeave" }, {
+    group = augroup("toggle_relnum"),
+    callback = function() vim.opt.relativenumber = true end,
+})
+```
+
+---
+
+## 5. 现代 AI 增强 (AI Intelligence)
+
+在 2024 年以后的 PDE 中, AI 辅助已经是不可或缺的一部分.
+
+### 5.1 GitHub Copilot (zbirenbaum/copilot.lua)
+
+这是目前最成熟的、原生 Lua 实现的 Copilot 插件.
+
+```lua
+-- plugins/copilot.lua
+return {
+    "zbirenbaum/copilot.lua",
+    cmd = "Copilot",
+    event = "InsertEnter",
+    config = function()
+        require("copilot").setup({
+            suggestion = {
+                enabled = true,
+                auto_trigger = true,
+                keymap = {
+                    accept = "<C-l>",
+                },
+            },
+        })
+    end,
+}
+```
+
+### 5.2 Avante.nvim (类似 Cursor 的体验)
+
+如果你想要类似 Cursor 的代码 AI 体验 (智能重构、对话), 可以尝试 `yetone/avante.nvim`.
+
+### 5.3 AI 哲学: 辅助而非主导
+
+虽然 AI 强大, 但大师依然建议维持对每一行代码的**语义掌控**. 使用 AI 生成样板代码, 但使用 Vim 技巧进行精细微调.
+
+---
+
+## 6. 日常开发键位总结
+
+### 4.1 文件操作
+
+| 快捷键 | 功能 |
+|--------|------|
+| `<leader>ff` | 查找文件 |
+| `<leader>fg` | 全局搜索 |
+| `<leader>fb` | 缓冲区列表 |
+| `<leader>fr` | 最近文件 |
+| `<leader>e` | 文件浏览器 |
+
+### 4.2 代码导航
+
+| 快捷键 | 功能 |
+|--------|------|
+| `gd` | 跳转定义 |
+| `gr` | 查找引用 |
+| `gi` | 跳转实现 |
+| `K` | 悬浮文档 |
+| `<leader>fs` | 符号导航 |
+| `[d` / `]d` | 诊断跳转 |
+
+### 4.3 代码编辑
+
+| 快捷键 | 功能 |
+|--------|------|
+| `<leader>rn` | 重命名 |
+| `<leader>ca` | 代码操作 |
+| `<leader>f` | 格式化 |
+| `gcc` | 切换注释 |
+| `gc` + motion | 注释操作 |
+
+### 4.4 Git 操作
+
+| 快捷键 | 功能 |
+|--------|------|
+| `<leader>gg` | 打开 lazygit |
+| `]h` / `[h` | 下/上一个 hunk |
+| `<leader>hs` | 暂存 hunk |
+| `<leader>hr` | 重置 hunk |
+| `<leader>hp` | 预览 hunk |
+| `<leader>hb` | Blame 当前行 |
+
+### 4.5 调试
+
+| 快捷键 | 功能 |
+|--------|------|
+| `<leader>db` | 切换断点 |
+| `<leader>dc` | 继续执行 |
+| `<leader>di` | 步入 |
+| `<leader>do` | 步过 |
+| `<leader>dO` | 步出 |
+| `<leader>du` | 切换调试 UI |
+
+---
+
+## 7. 持续进化的心法
+
+### 5.1 定期审查
+
+每月审查你的配置:
+- 删除过去 30 天未使用的插件
+- 优化常用操作的键位
+- 更新插件版本
+
+### 5.2 心流监控
+
+观察你在哪里卡顿:
+- 使用了鼠标? → 创建键位映射
+- 重复操作? → 录制宏或创建命令
+- 等待? → 检查性能瓶颈
+
+### 5.3 学习资源
+
+- [Neovim 官方文档](https://neovim.io/doc/)
+- [Awesome Neovim](https://github.com/rockerBOO/awesome-neovim)
+- [ThePrimeagen YouTube](https://www.youtube.com/@ThePrimeagen)
+- [TJ DeVries YouTube](https://www.youtube.com/@tjdevries)
+
+---
+
+## 8. 本周深度任务清单
+
+### 6.1 性能优化
+
+1. 运行 `nvim --startuptime` 测量启动时间
+2. 使用 `:Lazy profile` 识别慢插件
+3. 优化延迟加载, 目标 < 100ms
+
+### 6.2 Dotfiles 部署
+
+1. 创建 GitHub 仓库存放 dotfiles
+2. 使用 stow 或符号链接管理配置
+3. 编写 `install.sh` 脚本
+
+### 6.3 完整项目实战
+
+选取一个真实项目, 完成以下操作:
+1. 使用 Telescope 导航代码
+2. 使用 LSP 进行重构
+3. 使用 Git 集成提交代码
+4. 使用调试器解决问题
+
+---
+
+## 10. 思考题
+
+1. 为什么延迟加载对启动时间如此重要?
+2. Dotfiles 版本控制有什么好处?
+3. 如何在新机器上快速部署开发环境?
+4. Neovim 作为 IDE 相比 VS Code 有什么优劣?
+5. 如何持续改进你的工作流?
+
+---
+
+> **结语**: 这 12 周你不仅掌握了一个编辑器, 你更重构了自己的数字工作流. 现在的你, 手中的键盘已经成为意识的直接延伸.

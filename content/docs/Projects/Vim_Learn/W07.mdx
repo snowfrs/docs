@@ -1,0 +1,401 @@
+---
+title: "W07: 开发者流水线"
+description: "掌握 Quickfix 列表、Location List 与动态折叠, 构建属于专业架构师的项目通知中心."
+---
+
+## 1. Quickfix 列表
+
+Quickfix 是 Vim 的"任务中心", 用于收集和导航编译错误、搜索结果等.
+
+### 1.1 基本操作
+
+```vim
+:copen              " 打开 Quickfix 窗口
+:cclose             " 关闭 Quickfix
+:cwindow            " 有内容时打开, 否则关闭
+:cnext              " 跳到下一个条目
+:cprev              " 跳到上一个条目
+:cfirst             " 跳到第一个
+:clast              " 跳到最后一个
+:cc {n}             " 跳到第 n 个条目
+:clist              " 列出所有条目
+```
+
+### 1.2 快捷键建议
+
+```lua
+vim.keymap.set("n", "]q", ":cnext<CR>", { silent = true })
+vim.keymap.set("n", "[q", ":cprev<CR>", { silent = true })
+vim.keymap.set("n", "<leader>qo", ":copen<CR>", { silent = true })
+vim.keymap.set("n", "<leader>qc", ":cclose<CR>", { silent = true })
+```
+
+### 1.3 填充 Quickfix
+
+```vim
+" 编译 (make)
+:make
+
+" Grep 搜索
+:vimgrep /pattern/ **/*.go
+:grep pattern **/*.go       " 使用外部 grep
+
+" 从文件加载
+:cfile errors.txt
+
+" 从表达式
+:cexpr system('go build 2>&1')
+```
+
+### 1.4 vimgrep
+
+```vim
+" 基本搜索
+:vimgrep /TODO/ **/*.py
+
+" 使用正则
+:vimgrep /\vfunc\s+\w+/ **/*.go
+
+" 只记录第一个匹配 (每文件)
+:vimgrep /pattern/j **/*.js
+
+" 追加到现有列表
+:vimgrepadd /FIXME/ **/*.py
+```
+
+### 1.5 Quickfix 历史
+
+```vim
+:colder             " 上一个 Quickfix 列表
+:cnewer             " 下一个 Quickfix 列表
+:chistory           " 查看历史
+```
+
+---
+
+## 2. Location List
+
+与 Quickfix 类似, 但绑定到特定窗口.
+
+### 2.1 区别
+
+| 特性 | Quickfix | Location List |
+|------|----------|---------------|
+| 作用域 | 全局 | 窗口级别 |
+| 数量 | 1 个 | 每窗口 1 个 |
+| 用途 | 编译错误, 项目搜索 | LSP 诊断, 局部搜索 |
+
+### 2.2 基本操作
+
+```vim
+:lopen              " 打开 Location List
+:lclose             " 关闭
+:lnext              " 下一个
+:lprev              " 上一个
+:ll {n}             " 跳到第 n 个
+:llist              " 列出所有
+```
+
+### 2.3 填充 Location List
+
+```vim
+:lvimgrep /pattern/ %       " 当前文件搜索
+:lmake                      " 编译填充到 Location List
+:lexpr {expr}               " 从表达式
+```
+
+---
+
+## 3. 代码折叠 (Folding)
+
+在大文件中隐藏细节, 专注结构.
+
+### 3.1 基本操作
+
+```vim
+za                  " 切换折叠 (打开/关闭)
+zo                  " 打开折叠
+zc                  " 关闭折叠
+zA                  " 递归切换
+zO                  " 递归打开
+zC                  " 递归关闭
+zR                  " 打开所有折叠
+zM                  " 关闭所有折叠
+zr                  " 减少折叠级别
+zm                  " 增加折叠级别
+zj                  " 跳到下一个折叠
+zk                  " 跳到上一个折叠
+```
+
+### 3.2 折叠方法
+
+```vim
+:set foldmethod=manual      " 手动折叠 (默认)
+:set foldmethod=indent      " 按缩进
+:set foldmethod=syntax      " 按语法 (需语言支持)
+:set foldmethod=marker      " 按标记 {{{ }}}
+:set foldmethod=expr        " 按表达式
+:set foldmethod=diff        " 按 diff
+```
+
+### 3.3 手动折叠
+
+```vim
+" 可视模式选择后
+zf                  " 创建折叠
+
+" 使用 motion
+zf{motion}          " 如 zfap (折叠段落)
+
+" 使用范围
+:10,20 fold         " 折叠 10-20 行
+```
+
+### 3.4 Marker 折叠
+
+```vim
+:set foldmethod=marker
+
+" 在代码中添加标记
+// Section 1 {{{
+...
+// }}}
+
+// Section 2 {{{
+...
+// }}}
+```
+
+### 3.5 折叠配置
+
+```lua
+-- init.lua
+
+-- 使用 Treesitter 折叠 (推荐)
+vim.opt.foldmethod = "expr"
+vim.opt.foldexpr = "nvim_treesitter#foldexpr()"
+vim.opt.foldlevel = 99      -- 默认展开所有
+vim.opt.foldenable = true
+
+-- 或使用缩进折叠
+vim.opt.foldmethod = "indent"
+vim.opt.foldlevel = 99
+```
+
+---
+
+## 4. 格式化
+
+### 4.1 内置格式化
+
+```vim
+=                   " 格式化 motion
+==                  " 格式化当前行
+=ap                 " 格式化段落
+gg=G                " 格式化整个文件
+='<,'>              " 格式化选区
+```
+
+### 4.2 外部格式化
+
+```vim
+" 使用外部工具
+:%!gofmt            " Go
+:%!prettier --stdin-filepath %  " JS/TS
+:%!black -         " Python
+:%!rustfmt         " Rust
+```
+
+### 4.3 格式化配置
+
+```lua
+-- 使用 conform.nvim 或 null-ls 自动格式化
+vim.keymap.set("n", "<leader>f", function()
+    vim.lsp.buf.format({ async = true })
+end, { desc = "Format buffer" })
+
+-- 保存时自动格式化
+vim.api.nvim_create_autocmd("BufWritePre", {
+    pattern = { "*.go", "*.rs", "*.lua" },
+    callback = function()
+        vim.lsp.buf.format({ async = false })
+    end,
+})
+```
+
+---
+
+## 5. 编译与错误导航
+
+### 5.1 Make 集成
+
+```vim
+:set makeprg=go\ build          " 设置编译命令
+:make                           " 执行编译
+:copen                          " 查看错误
+:cn                             " 跳到下一个错误
+```
+
+### 5.2 自定义编译
+
+```lua
+-- 按文件类型设置 makeprg
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = "go",
+    callback = function()
+        vim.opt_local.makeprg = "go build"
+    end,
+})
+
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = "rust",
+    callback = function()
+        vim.opt_local.makeprg = "cargo build"
+    end,
+})
+
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = "python",
+    callback = function()
+        vim.opt_local.makeprg = "python -m py_compile %"
+    end,
+})
+```
+
+### 5.3 错误格式
+
+```vim
+" Go 错误格式
+:set errorformat=%f:%l:%c:\ %m
+
+" 通用格式
+:set errorformat=%f:%l:\ %m,%f:%l:%c:\ %m
+```
+
+---
+
+## 6. Diff 模式
+
+### 6.1 启动 Diff
+
+```bash
+# 命令行
+nvim -d file1 file2
+
+# 或在 Vim 中
+:diffsplit file2
+:vert diffsplit file2
+```
+
+### 6.2 Diff 操作
+
+```vim
+]c                  " 跳到下一个差异
+[c                  " 跳到上一个差异
+do                  " 获取另一边的内容 (diff obtain)
+dp                  " 推送到另一边 (diff put)
+:diffupdate         " 更新 diff
+:diffoff            " 关闭 diff 模式
+```
+
+### 6.3 Git Diff
+
+```vim
+:Gvdiffsplit        " 与暂存区对比 (需要 fugitive)
+:Gvdiffsplit HEAD~1 " 与上一个提交对比
+```
+
+---
+
+## 7. 拼写检查 (Spell Check)
+
+作为开发者, 拼写错误不仅影响文档质量, 也会导致变量名拼错. Vim 内置了强大的拼写检查功能.
+
+### 7.1 基础命令
+
+```vim
+:set spell          " 开启拼写检查
+:set nospell        " 关闭
+:set spelllang=en,cjk " 设置语言 (支持英文和中日韩字符跳过)
+
+]s                  " 跳到下一个错误
+[s                  " 跳到上一个错误
+z=                  " 显示建议列表
+zg                  " 将单词加入字典 (Good)
+zw                  " 将单词标记为错误 (Wrong)
+zug                 " 撤销 zg/zw 操作
+```
+
+### 7.2 字典管理
+
+Vim 会将你的个人字典保存在 `~/.vim/spell/en.utf-8.add`. 你可以手动编辑该文件来清理误加的单词.
+
+### 7.3 现代增强
+
+配合 LSP (如 `ltex-ls`), 你可以获得更强大的语法和拼写检查, 直接显示在代码诊断列表中.
+
+---
+
+## 8. 本周实战任务
+
+### 7.1 Quickfix 练习
+
+1. 使用 `:vimgrep /TODO/ **/*.py` 搜索所有 TODO
+2. 使用 `:copen` 查看结果
+3. 使用 `]q` 和 `[q` 快速跳转
+
+### 7.2 折叠练习
+
+1. 设置 `foldmethod=indent`
+2. 练习 `za`, `zM`, `zR` 打开/关闭折叠
+3. 尝试 Treesitter 折叠
+
+### 7.3 格式化练习
+
+1. 配置文件类型的 `makeprg`
+2. 使用 `:make` 编译项目
+3. 通过 Quickfix 跳转修复错误
+
+---
+
+## 9. 配置建议
+
+```lua
+-- init.lua
+
+-- Quickfix 快捷键
+vim.keymap.set("n", "]q", ":cnext<CR>zz", { silent = true, desc = "Next quickfix" })
+vim.keymap.set("n", "[q", ":cprev<CR>zz", { silent = true, desc = "Prev quickfix" })
+vim.keymap.set("n", "<leader>qo", ":copen<CR>", { desc = "Open quickfix" })
+vim.keymap.set("n", "<leader>qc", ":cclose<CR>", { desc = "Close quickfix" })
+
+-- Location List 快捷键
+vim.keymap.set("n", "]l", ":lnext<CR>zz", { silent = true, desc = "Next location" })
+vim.keymap.set("n", "[l", ":lprev<CR>zz", { silent = true, desc = "Prev location" })
+
+-- 自动打开 Quickfix
+vim.api.nvim_create_autocmd("QuickFixCmdPost", {
+    pattern = { "[^l]*" },
+    command = "cwindow",
+})
+
+-- 折叠配置
+vim.opt.foldlevel = 99
+vim.opt.foldlevelstart = 99
+vim.keymap.set("n", "zR", require("ufo").openAllFolds or "zR")
+vim.keymap.set("n", "zM", require("ufo").closeAllFolds or "zM")
+```
+
+---
+
+## 10. 思考题
+
+1. Quickfix 和 Location List 有什么区别?
+2. 哪种折叠方法最适合你的语言?
+3. 如何自定义编译命令?
+4. `=` 格式化和 LSP 格式化有什么区别?
+5. 如何保存折叠状态?
+
+---
+
+> Quickfix 是开发者的任务中心. 掌握它, 你将拥有系统化处理编译错误和搜索结果的能力.

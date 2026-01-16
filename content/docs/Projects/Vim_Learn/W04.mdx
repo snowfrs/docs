@@ -1,0 +1,329 @@
+---
+title: "W04: 多文件架构与项目控制"
+description: "掌握窗口、标签页与参数列表 (Arglist) 的编排, 实现大规模项目的全局控制与状态持久化."
+---
+
+## 1. 窗口管理 (Windows)
+
+### 1.1 分割窗口
+
+```vim
+:split              " 水平分割 (当前文件)
+:sp                 " 同上 (简写)
+:split {file}       " 水平分割并打开文件
+:vsplit             " 垂直分割
+:vsp                " 同上 (简写)
+:new                " 水平分割新空窗口
+:vnew               " 垂直分割新空窗口
+```
+
+### 1.2 窗口导航
+
+```vim
+Ctrl+w h            " 移动到左侧窗口
+Ctrl+w j            " 移动到下方窗口
+Ctrl+w k            " 移动到上方窗口
+Ctrl+w l            " 移动到右侧窗口
+Ctrl+w w            " 循环切换窗口
+Ctrl+w p            " 上一个访问的窗口
+```
+
+### 1.3 窗口调整
+
+```vim
+Ctrl+w =            " 等分所有窗口
+Ctrl+w _            " 最大化当前窗口高度
+Ctrl+w |            " 最大化当前窗口宽度
+Ctrl+w +            " 增加高度
+Ctrl+w -            " 减少高度
+Ctrl+w >            " 增加宽度
+Ctrl+w <            " 减少宽度
+:resize 20          " 设置高度为 20 行
+:vertical resize 80 " 设置宽度为 80 列
+```
+
+### 1.4 窗口移动
+
+```vim
+Ctrl+w H            " 将窗口移到最左侧
+Ctrl+w J            " 将窗口移到最下方
+Ctrl+w K            " 将窗口移到最上方
+Ctrl+w L            " 将窗口移到最右侧
+Ctrl+w r            " 旋转窗口
+Ctrl+w R            " 反向旋转
+Ctrl+w x            " 交换窗口位置
+```
+
+### 1.5 关闭窗口
+
+```vim
+:q                  " 关闭当前窗口
+:close              " 关闭当前窗口 (保留最后一个)
+:only               " 关闭其他所有窗口
+Ctrl+w c            " 关闭当前窗口
+Ctrl+w o            " 关闭其他窗口
+```
+
+---
+
+## 2. 标签页 (Tabs)
+
+### 2.1 标签页概念
+
+Vim 的 Tab 不是单个文件, 而是**窗口布局的集合 (Viewport)**.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  [Tab 1: 代码开发]  [Tab 2: 测试]  [Tab 3: 文档]        │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│     Tab 1 的窗口布局 (可以是多个分割窗口)               │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 2.2 标签页操作
+
+```vim
+:tabnew             " 新建标签页
+:tabnew {file}      " 新建并打开文件
+:tabedit {file}     " 同上
+:tabclose           " 关闭当前标签页
+:tabonly            " 关闭其他标签页
+gt                  " 下一个标签页
+gT                  " 上一个标签页
+{n}gt               " 跳转到第 n 个标签页
+:tabs               " 列出所有标签页
+:tabmove {n}        " 移动标签页到位置 n
+```
+
+### 2.3 标签页工作流
+
+```vim
+" Tab 1: 主代码开发 (三栏布局)
+:tabnew
+:vsp service.go
+:sp model.go
+
+" Tab 2: 测试
+:tabnew test/
+:vsp coverage.html
+
+" Tab 3: 参考文档
+:tabnew docs/api.md
+```
+
+---
+
+## 3. 参数列表 (Arglist)
+
+Arglist 是专门用于处理"任务相关"文件集合的高级工具.
+
+### 3.1 Arglist 与 Buffer 的区别
+
+```
+Buffer List:  所有打开过的文件 (可能很多, 包括临时查看的)
+Arglist:      任务相关的文件子集 (用于批量操作)
+```
+
+### 3.2 Arglist 操作
+
+```vim
+:args                   " 查看当前参数列表
+:args **/*.go           " 加载所有 Go 文件
+:args src/*.js test/*.js " 加载多个模式
+:argadd {file}          " 添加文件到列表
+:argdelete {pattern}    " 从列表删除
+:argdo {cmd}            " 对所有文件执行命令
+:first                  " 跳到第一个参数
+:last                   " 跳到最后一个
+:next                   " 下一个
+:prev                   " 上一个
+```
+
+### 3.3 Arglist 批量操作
+
+```vim
+" 全项目搜索替换
+:args **/*.py
+:argdo %s/old_func/new_func/ge | update
+
+" 批量格式化
+:args **/*.go
+:argdo !gofmt -w % | e
+
+" 批量添加版权头
+:args **/*.js
+:argdo 0r header.txt | update
+```
+
+**参数解释**:
+- `e` 标志: 忽略"没有匹配"的错误
+- `update`: 自动保存已修改的文件
+- `%`: 当前文件名
+
+### 3.4 安全的批量操作
+
+```vim
+" 先预览要操作的文件
+:args **/*.py
+:args
+
+" 执行操作
+:argdo {cmd}
+
+" 如果出错, 撤销所有更改
+:argdo u | update
+```
+
+---
+
+## 4. 会话持久化 (Session)
+
+### 4.1 保存与恢复会话
+
+```vim
+:mksession {file}       " 保存当前会话
+:mksession! {file}      " 覆盖保存
+:source {file}          " 恢复会话
+nvim -S {file}          " 命令行恢复会话
+```
+
+### 4.2 会话保存的内容
+
+- 打开的缓冲区
+- 窗口布局
+- 标签页
+- 当前目录
+- 光标位置
+- 折叠状态
+
+### 4.3 自动会话管理
+
+```lua
+-- init.lua: 自动保存/恢复会话
+local session_dir = vim.fn.stdpath("data") .. "/sessions/"
+vim.fn.mkdir(session_dir, "p")
+
+-- 保存会话
+vim.keymap.set("n", "<leader>ss", function()
+    local session_name = vim.fn.input("Session name: ", vim.fn.getcwd():gsub("/", "_"))
+    vim.cmd("mksession! " .. session_dir .. session_name .. ".vim")
+    print("Session saved: " .. session_name)
+end, { desc = "Save session" })
+
+-- 恢复会话
+vim.keymap.set("n", "<leader>sr", function()
+    local sessions = vim.fn.glob(session_dir .. "*.vim", false, true)
+    -- 使用 Telescope 或 fzf 选择会话
+    vim.ui.select(sessions, { prompt = "Select session:" }, function(choice)
+        if choice then vim.cmd("source " .. choice) end
+    end)
+end, { desc = "Restore session" })
+```
+
+---
+
+## 5. 视图保存 (Views)
+
+视图保存单个窗口的状态 (折叠、光标位置等).
+
+```vim
+:mkview             " 保存当前视图
+:loadview           " 恢复视图
+```
+
+```lua
+-- 自动保存/恢复视图
+vim.api.nvim_create_autocmd("BufWinLeave", {
+    pattern = "*.*",
+    command = "silent! mkview",
+})
+
+vim.api.nvim_create_autocmd("BufWinEnter", {
+    pattern = "*.*",
+    command = "silent! loadview",
+})
+```
+
+---
+
+## 6. 项目导航配置
+
+### 6.1 常用键位映射
+
+```lua
+-- 窗口导航 (使用 Ctrl+方向)
+vim.keymap.set("n", "<C-h>", "<C-w>h")
+vim.keymap.set("n", "<C-j>", "<C-w>j")
+vim.keymap.set("n", "<C-k>", "<C-w>k")
+vim.keymap.set("n", "<C-l>", "<C-w>l")
+
+-- 窗口大小调整
+vim.keymap.set("n", "<A-h>", ":vertical resize -2<CR>")
+vim.keymap.set("n", "<A-l>", ":vertical resize +2<CR>")
+vim.keymap.set("n", "<A-j>", ":resize -2<CR>")
+vim.keymap.set("n", "<A-k>", ":resize +2<CR>")
+
+-- 标签页导航
+vim.keymap.set("n", "<leader>tn", ":tabnew<CR>")
+vim.keymap.set("n", "<leader>tc", ":tabclose<CR>")
+vim.keymap.set("n", "<leader>to", ":tabonly<CR>")
+vim.keymap.set("n", "]t", ":tabnext<CR>")
+vim.keymap.set("n", "[t", ":tabprev<CR>")
+
+-- 快速新建分割窗口
+vim.keymap.set("n", "<leader>sv", ":vsplit<CR>")
+vim.keymap.set("n", "<leader>sh", ":split<CR>")
+```
+
+### 6.2 工作布局
+
+```lua
+-- 创建开发布局
+vim.keymap.set("n", "<leader>dev", function()
+    vim.cmd("only")        -- 关闭其他窗口
+    vim.cmd("vsplit")      -- 垂直分割
+    vim.cmd("wincmd l")    -- 移到右窗口
+    vim.cmd("split")       -- 水平分割
+    vim.cmd("wincmd h")    -- 回到左窗口
+    -- 左侧: 主代码  右上: 相关文件  右下: 终端
+end, { desc = "Development layout" })
+```
+
+---
+
+## 7. 本周实战任务
+
+### 7.1 窗口编排
+
+1. 创建三栏开发布局 (主代码 | 测试 | 终端)
+2. 使用 `Ctrl+w` 系列命令在窗口间快速切换
+3. 调整窗口大小以适应不同任务
+
+### 7.2 Arglist 批量操作
+
+1. 使用 `:args src/**/*.py` 加载文件
+2. 执行 `:argdo %s/old_api/new_api/ge | update` 批量替换
+3. 验证修改结果
+
+### 7.3 会话管理
+
+1. 配置复杂的多窗口布局
+2. 使用 `:mksession!` 保存
+3. 关闭 Vim 后用 `nvim -S` 恢复
+4. 验证布局完全还原
+
+---
+
+## 8. 思考题
+
+1. 窗口和缓冲区的关系是什么?
+2. 标签页适合什么场景?
+3. Arglist 与缓冲区列表有何区别?
+4. 为什么 `:argdo` 命令需要 `| update`?
+5. 会话恢复不完整时如何排查?
+
+---
+
+> 大规模项目需要大规模的控制能力. 窗口、标签页和 Arglist 是你的项目指挥中心.

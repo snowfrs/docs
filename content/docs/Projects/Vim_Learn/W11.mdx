@@ -1,0 +1,471 @@
+---
+title: "W11: 工作流重塑 (Oil & Keymap)"
+description: "使用 Oil.nvim 管理文件系统, 深度抽象你的按键映射体系以实现极致的心流一致性."
+---
+
+## 1. Oil.nvim: 文件即 Buffer
+
+传统文件树 (NvimTree, NERDTree) 需要学习专用操作. Oil.nvim 将目录显示为普通 Buffer, 用 Vim 原生操作管理文件.
+
+### 1.1 核心理念
+
+```
+传统文件树:
+  - 专用快捷键 (a=新建, d=删除, r=重命名)
+  - 需要额外记忆
+
+Oil.nvim:
+  - 目录 = Buffer
+  - 编辑文件名 = 重命名
+  - 删除行 = 删除文件
+  - 剪切粘贴行 = 移动文件
+  - 使用 Vim 原生操作
+```
+
+### 1.2 安装配置
+
+```lua
+-- plugins/oil.lua
+return {
+    {
+        "stevearc/oil.nvim",
+        dependencies = { "nvim-tree/nvim-web-devicons" },
+        keys = {
+            { "-", "<cmd>Oil<CR>", desc = "Open parent directory" },
+            { "<leader>e", "<cmd>Oil<CR>", desc = "File explorer" },
+        },
+        opts = {
+            default_file_explorer = true,
+            columns = {
+                "icon",
+                -- "permissions",
+                -- "size",
+                -- "mtime",
+            },
+            view_options = {
+                show_hidden = true,
+            },
+            keymaps = {
+                ["g?"] = "actions.show_help",
+                ["<CR>"] = "actions.select",
+                ["-"] = "actions.parent",
+                ["_"] = "actions.open_cwd",
+                ["`"] = "actions.cd",
+                ["~"] = "actions.tcd",
+                ["gs"] = "actions.change_sort",
+                ["gx"] = "actions.open_external",
+                ["g."] = "actions.toggle_hidden",
+                ["g\\"] = "actions.toggle_trash",
+            },
+            use_default_keymaps = true,
+            float = {
+                padding = 2,
+                max_width = 80,
+                max_height = 30,
+            },
+        },
+    },
+}
+```
+
+### 1.3 基本操作
+
+| 操作 | 方法 |
+|------|------|
+| 打开目录 | `-` 或 `<leader>e` |
+| 进入目录 | `<CR>` |
+| 返回上级 | `-` |
+| 新建文件 | 新建一行输入文件名, `:w` 保存 |
+| 新建目录 | 新建一行输入 `dirname/`, `:w` |
+| 重命名 | 直接编辑文件名, `:w` |
+| 删除 | `dd` 删除行, `:w` |
+| 移动 | `dd` 剪切, 到目标目录 `p` 粘贴, `:w` |
+| 复制 | `yy` 复制, 到目标目录 `p` 粘贴, `:w` |
+
+### 1.4 批量操作
+
+```vim
+" 批量重命名
+1. 打开目录
+2. 可视选择多行
+3. :s/old/new/g 批量替换
+4. :w 保存
+
+" 批量移动
+1. 打开源目录
+2. dd 或可视选择 + d 剪切多个文件
+3. - 返回上级, 进入目标目录
+4. p 粘贴
+5. :w 保存
+```
+
+---
+
+## 2. 按键映射体系
+
+随着插件增多, 需要建立语义化的快捷键层级.
+
+### 2.1 映射分层设计
+
+```lua
+-- 使用 <leader> 前缀组织
+-- <leader>f: Find / Files
+-- <leader>g: Git
+-- <leader>l: LSP
+-- <leader>b: Buffer
+-- <leader>w: Window
+-- <leader>t: Toggle / Tab
+-- <leader>x: Trouble / Diagnostics
+-- <leader>s: Search / Session
+-- <leader>h: Harpoon
+```
+
+### 2.2 完整映射示例
+
+```lua
+-- core/keymaps.lua
+local keymap = vim.keymap.set
+local opts = { noremap = true, silent = true }
+
+-- Leader
+vim.g.mapleader = " "
+
+-- === 基础操作 ===
+keymap("n", "<leader>w", ":w<CR>", { desc = "Save" })
+keymap("n", "<leader>q", ":q<CR>", { desc = "Quit" })
+keymap("n", "<leader>x", ":x<CR>", { desc = "Save and quit" })
+keymap("n", "<Esc>", ":noh<CR>", { desc = "Clear search" })
+
+-- === Buffer (b) ===
+keymap("n", "<leader>bd", ":bdelete<CR>", { desc = "Delete buffer" })
+keymap("n", "<leader>bn", ":bnext<CR>", { desc = "Next buffer" })
+keymap("n", "<leader>bp", ":bprev<CR>", { desc = "Prev buffer" })
+keymap("n", "<S-l>", ":bnext<CR>", opts)
+keymap("n", "<S-h>", ":bprev<CR>", opts)
+
+-- === Window (w) ===
+keymap("n", "<leader>wv", ":vsplit<CR>", { desc = "Vertical split" })
+keymap("n", "<leader>wh", ":split<CR>", { desc = "Horizontal split" })
+keymap("n", "<leader>wc", ":close<CR>", { desc = "Close window" })
+keymap("n", "<leader>wo", ":only<CR>", { desc = "Close others" })
+keymap("n", "<leader>w=", "<C-w>=", { desc = "Equal size" })
+keymap("n", "<C-h>", "<C-w>h", opts)
+keymap("n", "<C-j>", "<C-w>j", opts)
+keymap("n", "<C-k>", "<C-w>k", opts)
+keymap("n", "<C-l>", "<C-w>l", opts)
+
+-- === Find (f) - Telescope ===
+keymap("n", "<leader>ff", "<cmd>Telescope find_files<CR>", { desc = "Find files" })
+keymap("n", "<leader>fg", "<cmd>Telescope live_grep<CR>", { desc = "Live grep" })
+keymap("n", "<leader>fb", "<cmd>Telescope buffers<CR>", { desc = "Buffers" })
+keymap("n", "<leader>fr", "<cmd>Telescope oldfiles<CR>", { desc = "Recent files" })
+keymap("n", "<leader>fs", "<cmd>Telescope lsp_document_symbols<CR>", { desc = "Symbols" })
+keymap("n", "<leader>fd", "<cmd>Telescope diagnostics<CR>", { desc = "Diagnostics" })
+
+-- === Git (g) ===
+keymap("n", "<leader>gg", "<cmd>LazyGit<CR>", { desc = "LazyGit" })
+keymap("n", "<leader>gc", "<cmd>Telescope git_commits<CR>", { desc = "Commits" })
+keymap("n", "<leader>gb", "<cmd>Telescope git_branches<CR>", { desc = "Branches" })
+keymap("n", "<leader>gs", "<cmd>Telescope git_status<CR>", { desc = "Status" })
+keymap("n", "]h", "<cmd>Gitsigns next_hunk<CR>", { desc = "Next hunk" })
+keymap("n", "[h", "<cmd>Gitsigns prev_hunk<CR>", { desc = "Prev hunk" })
+
+-- === LSP (l) ===
+keymap("n", "<leader>ld", vim.lsp.buf.definition, { desc = "Definition" })
+keymap("n", "<leader>lr", vim.lsp.buf.references, { desc = "References" })
+keymap("n", "<leader>li", vim.lsp.buf.implementation, { desc = "Implementation" })
+keymap("n", "<leader>lR", vim.lsp.buf.rename, { desc = "Rename" })
+keymap("n", "<leader>la", vim.lsp.buf.code_action, { desc = "Code action" })
+keymap("n", "<leader>lf", vim.lsp.buf.format, { desc = "Format" })
+
+-- === Toggle (t) ===
+keymap("n", "<leader>te", "<cmd>Oil<CR>", { desc = "File explorer" })
+keymap("n", "<leader>tt", "<cmd>ToggleTerm<CR>", { desc = "Terminal" })
+keymap("n", "<leader>tn", function()
+    vim.opt.relativenumber = not vim.opt.relativenumber:get()
+end, { desc = "Toggle relative numbers" })
+```
+
+### 2.3 which-key 集成
+
+```lua
+-- plugins/which-key.lua
+return {
+    {
+        "folke/which-key.nvim",
+        event = "VeryLazy",
+        opts = {
+            plugins = { spelling = true },
+        },
+        config = function(_, opts)
+            local wk = require("which-key")
+            wk.setup(opts)
+
+            wk.register({
+                ["<leader>f"] = { name = "+find" },
+                ["<leader>g"] = { name = "+git" },
+                ["<leader>l"] = { name = "+lsp" },
+                ["<leader>b"] = { name = "+buffer" },
+                ["<leader>w"] = { name = "+window" },
+                ["<leader>t"] = { name = "+toggle" },
+                ["<leader>h"] = { name = "+harpoon" },
+            })
+        end,
+    },
+}
+```
+
+按 `<leader>` 后会显示可用的快捷键提示.
+
+---
+
+## 3. 效率三剑客 (Efficiency Trinity)
+
+除了 UI 和资源管理, 以下三个插件是现代 Neovim 编辑效率的核心支柱.
+
+### 3.1 Surround: 环绕控制 (kylechui/nvim-surround)
+
+专门用于处理成对的符号 (引号、括号、HTML 标签).
+
+```vim
+" 助记: ys{motion}{char} - Add surround
+"      ds{char}         - Delete surround
+"      cs{target}{new}  - Change surround
+
+" 示例: hello → "hello"
+ysiw"
+
+" 示例: [hello] → {hello}
+cs[{
+
+" 示例: <div>hello</div> → <p>hello</p>
+cst<p>
+```
+
+### 3.2 Comment: 智能注释 (numToStr/Comment.nvim)
+
+基于 Treesitter 的智能注释, 能够识别嵌套语言 (如 HTML 里的 JS).
+
+```vim
+" gcc  - 注释当前行
+" gbc  - 块注释当前行
+" gc{motion} - 注释动作范围
+" 可视模式下 gc 批量注释
+```
+
+### 3.3 Autopairs: 自动配对 (windwp/nvim-autopairs)
+
+输入左括号自动补全右括号, 并在按回车时智能缩进.
+
+```lua
+-- plugins/autopairs.lua
+return {
+    "windwp/nvim-autopairs",
+    event = "InsertEnter",
+    opts = {}
+}
+```
+
+---
+
+## 4. UI 增强
+
+### 3.1 Lualine 状态栏
+
+```lua
+-- plugins/lualine.lua
+return {
+    {
+        "nvim-lualine/lualine.nvim",
+        event = "VeryLazy",
+        dependencies = { "nvim-tree/nvim-web-devicons" },
+        opts = {
+            options = {
+                theme = "catppuccin",
+                component_separators = "|",
+                section_separators = { left = "", right = "" },
+            },
+            sections = {
+                lualine_a = { "mode" },
+                lualine_b = { "branch", "diff", "diagnostics" },
+                lualine_c = { { "filename", path = 1 } },
+                lualine_x = { "encoding", "fileformat", "filetype" },
+                lualine_y = { "progress" },
+                lualine_z = { "location" },
+            },
+        },
+    },
+}
+```
+
+### 3.2 主题配置
+
+```lua
+-- plugins/colorscheme.lua
+return {
+    {
+        "catppuccin/nvim",
+        name = "catppuccin",
+        lazy = false,
+        priority = 1000,
+        opts = {
+            flavour = "mocha",  -- latte, frappe, macchiato, mocha
+            integrations = {
+                cmp = true,
+                gitsigns = true,
+                nvimtree = true,
+                telescope = true,
+                treesitter = true,
+                which_key = true,
+            },
+        },
+        config = function(_, opts)
+            require("catppuccin").setup(opts)
+            vim.cmd.colorscheme("catppuccin")
+        end,
+    },
+}
+```
+
+### 3.3 缩进线
+
+```lua
+return {
+    {
+        "lukas-reineke/indent-blankline.nvim",
+        event = { "BufReadPost", "BufNewFile" },
+        main = "ibl",
+        opts = {
+            indent = { char = "│" },
+            scope = { enabled = true },
+            exclude = {
+                filetypes = { "help", "dashboard", "lazy", "mason" },
+            },
+        },
+    },
+}
+```
+
+### 3.4 通知美化
+
+```lua
+return {
+    {
+        "rcarriga/nvim-notify",
+        opts = {
+            timeout = 3000,
+            max_height = function()
+                return math.floor(vim.o.lines * 0.75)
+            end,
+            max_width = function()
+                return math.floor(vim.o.columns * 0.75)
+            end,
+        },
+        config = function(_, opts)
+            require("notify").setup(opts)
+            vim.notify = require("notify")
+        end,
+    },
+}
+```
+
+---
+
+## 5. 完整配置示例
+
+### 4.1 目录结构
+
+```
+~/.config/nvim/
+├── init.lua
+├── lazy-lock.json
+└── lua/
+    ├── core/
+    │   ├── options.lua
+    │   ├── keymaps.lua
+    │   └── autocmds.lua
+    └── plugins/
+        ├── init.lua
+        ├── lsp.lua
+        ├── completion.lua
+        ├── treesitter.lua
+        ├── telescope.lua
+        ├── oil.lua
+        ├── git.lua
+        ├── ui.lua
+        └── which-key.lua
+```
+
+### 4.2 init.lua
+
+```lua
+-- ~/.config/nvim/init.lua
+
+-- Bootstrap lazy.nvim
+local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+if not vim.loop.fs_stat(lazypath) then
+    vim.fn.system({
+        "git", "clone", "--filter=blob:none",
+        "https://github.com/folke/lazy.nvim.git",
+        "--branch=stable", lazypath,
+    })
+end
+vim.opt.rtp:prepend(lazypath)
+
+-- Load core config
+require("core.options")
+require("core.keymaps")
+require("core.autocmds")
+
+-- Load plugins
+require("lazy").setup("plugins", {
+    defaults = { lazy = true },
+    install = { colorscheme = { "catppuccin" } },
+    performance = {
+        rtp = {
+            disabled_plugins = {
+                "gzip", "matchit", "matchparen",
+                "netrwPlugin", "tarPlugin", "tohtml",
+                "tutor", "zipPlugin",
+            },
+        },
+    },
+})
+```
+
+---
+
+## 6. 本周实战任务
+
+### 5.1 Oil.nvim
+
+1. 安装 Oil.nvim
+2. 使用 `-` 打开目录
+3. 练习重命名、新建、删除文件
+4. 尝试批量移动文件
+
+### 5.2 按键映射
+
+1. 整理所有快捷键到分层结构
+2. 安装 which-key.nvim
+3. 验证按 `<leader>` 时显示提示
+
+### 5.3 UI 配置
+
+1. 配置 Lualine 显示 Git 分支和诊断
+2. 选择并配置主题
+3. 添加缩进线和通知美化
+
+---
+
+## 7. 思考题
+
+1. Oil.nvim 相比 NvimTree 有什么优势?
+2. 如何设计可记忆的快捷键体系?
+3. which-key 如何帮助学习快捷键?
+4. 状态栏应该显示哪些信息?
+5. 如何在多台机器间同步配置?
+
+---
+
+> 工作流的一致性是心流的基础. 统一的按键体系让你的手指记住操作, 大脑专注于问题.

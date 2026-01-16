@@ -1,0 +1,405 @@
+---
+title: "W06: Unix 哲学与寄存器堆栈"
+description: "将 Vim 打造成 Unix 管道的中心, 深入理解寄存器架构对多重剪贴与宏协作的支持."
+---
+
+## 1. Vim 与 Unix 集成
+
+从不在编辑器里重复造轮子, 而是调用 Shell 进行原子处理.
+
+### 1.1 执行外部命令
+
+```vim
+:!{cmd}             " 执行命令, 显示结果
+:!!                 " 重复上次的外部命令
+:shell              " 进入 Shell (exit 返回)
+```
+
+### 1.2 过滤器模式 (Filters)
+
+将文本通过外部命令处理:
+
+```vim
+:{range}!{cmd}      " 将范围内文本作为输入, 输出替换原文本
+```
+
+**示例**:
+
+```vim
+" JSON 格式化
+:%!jq .
+
+" 表格对齐
+:'<,'>!column -t
+
+" 排序并去重
+:%!sort -u
+
+" 数字排序
+:%!sort -n
+
+" 反向排序
+:%!sort -r
+
+" 统计词频
+:%!sort | uniq -c | sort -rn
+
+" 调用 Python
+:%!python -c "import sys, json; print(json.dumps(json.load(sys.stdin), indent=2))"
+```
+
+### 1.3 读取命令输出
+
+```vim
+:r !{cmd}           " 将命令输出插入到当前位置
+
+" 示例
+:r !date            " 插入当前日期
+:r !ls              " 插入目录列表
+:r !curl -s URL     " 插入 URL 内容
+:r !git log -1      " 插入最近提交信息
+```
+
+### 1.4 写入到命令
+
+```vim
+:w !{cmd}           " 将缓冲区内容作为命令输入
+
+" 示例
+:w !wc -l           " 计算行数
+:w !pbcopy          " macOS: 复制到剪贴板
+:w !xclip           " Linux: 复制到剪贴板
+:'<,'>w !sh         " 执行选中的 Shell 脚本
+```
+
+### 1.5 常用过滤命令
+
+| 命令 | 功能 |
+|------|------|
+| `sort` | 排序 |
+| `uniq` | 去重 |
+| `wc` | 统计 |
+| `head` / `tail` | 首尾行 |
+| `cut` | 列提取 |
+| `awk` | 文本处理 |
+| `sed` | 流编辑 |
+| `tr` | 字符替换 |
+| `column -t` | 表格对齐 |
+| `jq` | JSON 处理 |
+| `xmllint` | XML 处理 |
+
+---
+
+## 2. 文件编码与格式 (File Encoding & Format)
+
+在跨平台和国际化项目中, 正确处理文件编码至关重要.
+
+### 2.1 编码检测与设置
+
+```vim
+:set encoding=utf-8      " Vim 内部编码
+:set fileencoding=utf-8  " 当前文件编码
+:set fileencodings=utf-8,gbk,gb2312,cp936  " 自动检测顺序
+
+" 查看当前编码
+:set fileencoding?
+:set encoding?
+```
+
+### 2.2 编码转换
+
+```vim
+" 以指定编码重新加载文件
+:e ++enc=gbk
+
+" 转换文件编码并保存
+:set fileencoding=utf-8
+:w
+```
+
+### 2.3 行尾格式 (End-of-Line)
+
+```vim
+:set fileformat=unix     " LF (\n)
+:set fileformat=dos      " CRLF (\r\n)
+:set fileformat=mac      " CR (\r, 旧 Mac)
+
+" 查看当前格式
+:set fileformat?
+
+" 转换行尾 (替换 ^M)
+:%s/\r$//                " 删除 CRLF 的 CR
+```
+
+### 2.4 BOM (Byte Order Mark)
+
+```vim
+:set bomb                " 添加 BOM
+:set nobomb              " 移除 BOM
+```
+
+### 2.5 实战配置
+
+```lua
+-- init.lua
+vim.opt.encoding = "utf-8"
+vim.opt.fileencoding = "utf-8"
+vim.opt.fileencodings = "utf-8,gbk,gb2312,gb18030,cp936"
+vim.opt.fileformat = "unix"
+vim.opt.fileformats = "unix,dos,mac"
+```
+
+---
+
+## 3. 寄存器架构 (Registers)
+
+Vim 的寄存器不是一个剪贴板, 而是**多组不同职责的内存存储**.
+
+### 2.1 寄存器类型
+
+| 寄存器 | 说明 |
+|--------|------|
+| `"` | 默认寄存器 (无名寄存器) |
+| `0` | 最近一次复制 (yank) |
+| `1-9` | 最近 9 次删除历史 |
+| `a-z` | 命名寄存器 (用户使用) |
+| `A-Z` | 追加到对应小写寄存器 |
+| `+` | 系统剪贴板 |
+| `*` | 系统选择区 (X11) |
+| `_` | 黑洞寄存器 (静默删除) |
+| `/` | 最近搜索模式 |
+| `:` | 最近执行的命令 |
+| `.` | 最近插入的文本 |
+| `%` | 当前文件名 |
+| `#` | 备用文件名 |
+| `=` | 表达式寄存器 |
+
+### 2.2 使用寄存器
+
+```vim
+" 复制到寄存器 a
+"ayy                " 复制当前行到 a
+"ayw                " 复制单词到 a
+"ayap               " 复制段落到 a
+
+" 从寄存器粘贴
+"ap                 " 粘贴 a 的内容
+"0p                 " 粘贴最近复制的内容
+"+p                 " 粘贴系统剪贴板
+```
+
+### 2.3 查看寄存器
+
+```vim
+:reg                " 查看所有寄存器
+:reg a              " 查看寄存器 a
+:reg 012            " 查看多个寄存器
+```
+
+### 2.4 Yank 寄存器 (`0`)
+
+这是最实用的技巧之一:
+
+```vim
+" 场景: 复制 A, 删除 B, 想粘贴 A
+yy                  " 复制 A → 进入 "0 和 ""
+dd                  " 删除 B → 进入 "" (覆盖)
+p                   " 粘贴 → 得到 B (不是想要的!)
+"0p                 " 粘贴 → 得到 A (正确!)
+```
+
+### 2.5 黑洞寄存器 (`_`)
+
+删除但不影响其他寄存器:
+
+```vim
+"_dd                " 删除行, 不存入任何寄存器
+"_dw                " 删除单词, 保护剪贴板
+```
+
+### 2.6 追加到寄存器
+
+使用大写字母追加:
+
+```vim
+"ayy                " 复制到 a
+j
+"Ayy                " 追加到 a
+"ap                 " 粘贴两行
+```
+
+### 2.7 系统剪贴板
+
+```vim
+" 复制到系统剪贴板
+"+yy                " 复制行
+"+yap               " 复制段落
+
+" 从系统剪贴板粘贴
+"+p
+
+" 配置: 自动使用系统剪贴板
+set clipboard=unnamedplus
+```
+
+---
+
+## 3. 表达式寄存器 (`=`)
+
+在插入模式或命令行中计算表达式:
+
+### 3.1 插入模式使用
+
+```vim
+" 进入插入模式
+i
+" 按 Ctrl+r =
+" 输入表达式, 如: 5+3
+" 按 Enter
+" 结果 8 被插入
+```
+
+### 3.2 命令行使用
+
+```vim
+:echo @=            " 查看表达式寄存器
+:let @a = 5+3       " 设置寄存器值
+```
+
+### 3.3 实用表达式
+
+```vim
+" 插入当前日期
+Ctrl+r = strftime("%Y-%m-%d")
+
+" 插入随机数
+Ctrl+r = rand()
+
+" 插入文件名
+Ctrl+r = expand("%")
+
+" 计算
+Ctrl+r = 100 * 1.08
+```
+
+---
+
+## 4. 寄存器与宏协作
+
+宏本质上就是存储在寄存器中的按键序列.
+
+### 4.1 查看宏内容
+
+```vim
+:reg a              " 查看宏 a 的内容
+```
+
+### 4.2 编辑宏
+
+```vim
+" 粘贴宏内容
+"ap
+
+" 编辑 (^[ 表示 Esc)
+...
+
+" 存回寄存器
+0"ay$
+```
+
+### 4.3 创建宏 (不录制)
+
+```vim
+:let @a = "0i// \<Esc>j"
+@a                  " 执行: 在行首添加注释
+```
+
+---
+
+## 5. 高级集成
+
+### 5.1 Make 集成
+
+```vim
+:make               " 运行 make 并收集错误
+:copen              " 打开 Quickfix 查看错误
+:cn / :cp           " 跳转错误
+```
+
+### 5.2 Grep 集成
+
+```vim
+:grep pattern **/*.go   " 搜索并填充 Quickfix
+:copen
+:cn
+```
+
+### 5.3 编译程序
+
+```vim
+:set makeprg=go\ build
+:make
+
+" 或直接执行
+:!go build
+:!cargo run
+:!npm test
+```
+
+---
+
+## 6. 本周实战任务
+
+### 6.1 过滤器练习
+
+1. 使用 `:%!jq .` 格式化 JSON 文件
+2. 使用 `:%!sort -u` 对列表去重排序
+3. 使用 `:'<,'>!column -t` 对齐表格
+
+### 6.2 寄存器练习
+
+1. 练习 `"0p` 恢复之前复制的内容
+2. 使用 `"ayy` 和 `"Ayy` 收集多行
+3. 配置 `clipboard=unnamedplus` 使用系统剪贴板
+
+### 6.3 表达式寄存器
+
+1. 在插入模式使用 `Ctrl+r =` 计算表达式
+2. 插入当前日期: `Ctrl+r = strftime("%Y-%m-%d")`
+
+---
+
+## 7. 配置建议
+
+```lua
+-- init.lua
+
+-- 系统剪贴板集成
+vim.opt.clipboard = "unnamedplus"
+
+-- 快捷粘贴系统剪贴板
+vim.keymap.set("n", "<leader>p", '"+p', { desc = "Paste from clipboard" })
+vim.keymap.set("n", "<leader>P", '"+P', { desc = "Paste before from clipboard" })
+vim.keymap.set("v", "<leader>y", '"+y', { desc = "Yank to clipboard" })
+
+-- 黑洞删除 (不影响剪贴板)
+vim.keymap.set("n", "<leader>d", '"_d', { desc = "Delete to black hole" })
+vim.keymap.set("v", "<leader>d", '"_d', { desc = "Delete to black hole" })
+
+-- 快速执行当前行作为 Shell 命令
+vim.keymap.set("n", "<leader>!", ":.!sh<CR>", { desc = "Execute line in shell" })
+```
+
+---
+
+## 8. 思考题
+
+1. 过滤器 (`!`) 和读取 (`:r !`) 有什么区别?
+2. 为什么 `"0` 寄存器如此有用?
+3. 黑洞寄存器的使用场景是什么?
+4. 如何用寄存器在多个文件间传递内容?
+5. 表达式寄存器能做什么?
+
+---
+
+> Vim 是 Unix 工具链的一部分. 善用过滤器和寄存器, 你的编辑能力将无限扩展.

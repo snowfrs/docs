@@ -1,0 +1,490 @@
+---
+title: "W09: 现代 IDE 协议栈"
+description: "通过 LSP 语义分析、Mason 环境管理与异步补全框架, 赋予 NeoVim 工业级智能能力."
+---
+
+## 1. 插件管理: lazy.nvim
+
+### 1.1 安装 lazy.nvim
+
+```lua
+-- ~/.config/nvim/lua/plugins/init.lua
+
+local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+if not vim.loop.fs_stat(lazypath) then
+    vim.fn.system({
+        "git", "clone", "--filter=blob:none",
+        "https://github.com/folke/lazy.nvim.git",
+        "--branch=stable", lazypath,
+    })
+end
+vim.opt.rtp:prepend(lazypath)
+
+require("lazy").setup({
+    -- 在这里添加插件
+    spec = {
+        { import = "plugins.ui" },
+        { import = "plugins.editor" },
+        { import = "plugins.lsp" },
+        { import = "plugins.completion" },
+    },
+    defaults = { lazy = true },  -- 默认延迟加载
+    performance = {
+        rtp = {
+            disabled_plugins = {
+                "gzip", "tarPlugin", "tohtml", "tutor", "zipPlugin",
+            },
+        },
+    },
+})
+```
+
+### 1.2 插件定义示例
+
+```lua
+-- ~/.config/nvim/lua/plugins/ui.lua
+return {
+    -- 主题
+    {
+        "catppuccin/nvim",
+        name = "catppuccin",
+        lazy = false,    -- 立即加载
+        priority = 1000, -- 最先加载
+        config = function()
+            vim.cmd.colorscheme("catppuccin")
+        end,
+    },
+
+    -- 状态栏
+    {
+        "nvim-lualine/lualine.nvim",
+        event = "VeryLazy",  -- 延迟加载
+        dependencies = { "nvim-tree/nvim-web-devicons" },
+        config = function()
+            require("lualine").setup({
+                options = { theme = "catppuccin" },
+            })
+        end,
+    },
+
+    -- 缩进线
+    {
+        "lukas-reineke/indent-blankline.nvim",
+        event = { "BufReadPost", "BufNewFile" },
+        main = "ibl",
+        opts = {
+            indent = { char = "│" },
+            scope = { enabled = true },
+        },
+    },
+}
+```
+
+---
+
+## 2. LSP (Language Server Protocol)
+
+### 2.1 LSP 架构
+
+```
+┌─────────────────┐     JSON-RPC      ┌─────────────────┐
+│    Neovim       │ ←───────────────→ │  Language       │
+│    (Client)     │                   │  Server         │
+│                 │                   │  (gopls, etc.)  │
+└─────────────────┘                   └─────────────────┘
+         │
+         ▼
+    智能功能:
+    - 代码补全
+    - 跳转定义
+    - 查找引用
+    - 重命名
+    - 悬浮文档
+    - 代码诊断
+```
+
+### 2.2 LSP 核心配置
+
+```lua
+-- ~/.config/nvim/lua/plugins/lsp.lua
+return {
+    {
+        "neovim/nvim-lspconfig",
+        event = { "BufReadPre", "BufNewFile" },
+        dependencies = {
+            "williamboman/mason.nvim",
+            "williamboman/mason-lspconfig.nvim",
+        },
+        config = function()
+            -- Mason: LSP 服务器管理
+            require("mason").setup({
+                ui = {
+                    icons = {
+                        package_installed = "✓",
+                        package_pending = "➜",
+                        package_uninstalled = "✗",
+                    },
+                },
+            })
+
+            require("mason-lspconfig").setup({
+                ensure_installed = {
+                    "lua_ls",      -- Lua
+                    "gopls",       -- Go
+                    "pyright",     -- Python
+                    "ts_ls",       -- TypeScript
+                    "rust_analyzer", -- Rust
+                },
+                automatic_installation = true,
+            })
+
+            -- LSP 键位映射
+            local on_attach = function(client, bufnr)
+                local opts = { buffer = bufnr, silent = true }
+                local keymap = vim.keymap.set
+
+                -- 跳转
+                keymap("n", "gd", vim.lsp.buf.definition, opts)
+                keymap("n", "gD", vim.lsp.buf.declaration, opts)
+                keymap("n", "gi", vim.lsp.buf.implementation, opts)
+                keymap("n", "gr", vim.lsp.buf.references, opts)
+                keymap("n", "gt", vim.lsp.buf.type_definition, opts)
+
+                -- 文档
+                keymap("n", "K", vim.lsp.buf.hover, opts)
+                keymap("n", "<C-k>", vim.lsp.buf.signature_help, opts)
+
+                -- 重构
+                keymap("n", "<leader>rn", vim.lsp.buf.rename, opts)
+                keymap("n", "<leader>ca", vim.lsp.buf.code_action, opts)
+
+                -- 诊断
+                keymap("n", "[d", vim.diagnostic.goto_prev, opts)
+                keymap("n", "]d", vim.diagnostic.goto_next, opts)
+                keymap("n", "<leader>d", vim.diagnostic.open_float, opts)
+                keymap("n", "<leader>q", vim.diagnostic.setloclist, opts)
+
+                -- 格式化
+                keymap("n", "<leader>f", function()
+                    vim.lsp.buf.format({ async = true })
+                end, opts)
+            end
+
+            -- 配置各语言服务器
+            local lspconfig = require("lspconfig")
+            local capabilities = require("cmp_nvim_lsp").default_capabilities()
+
+            -- Lua
+            lspconfig.lua_ls.setup({
+                on_attach = on_attach,
+                capabilities = capabilities,
+                settings = {
+                    Lua = {
+                        diagnostics = { globals = { "vim" } },
+                        workspace = { checkThirdParty = false },
+                    },
+                },
+            })
+
+            -- Go
+            lspconfig.gopls.setup({
+                on_attach = on_attach,
+                capabilities = capabilities,
+                settings = {
+                    gopls = {
+                        gofumpt = true,
+                        staticcheck = true,
+                    },
+                },
+            })
+
+            -- Python
+            lspconfig.pyright.setup({
+                on_attach = on_attach,
+                capabilities = capabilities,
+            })
+
+            -- TypeScript
+            lspconfig.ts_ls.setup({
+                on_attach = on_attach,
+                capabilities = capabilities,
+            })
+
+            -- Rust
+            lspconfig.rust_analyzer.setup({
+                on_attach = on_attach,
+                capabilities = capabilities,
+            })
+        end,
+    },
+}
+```
+
+---
+
+## 3. 代码补全: nvim-cmp
+
+### 3.1 补全架构
+
+```
+┌─────────────────────────────────────────┐
+│              nvim-cmp                   │
+│         (补全引擎)                       │
+└────────────────┬────────────────────────┘
+                 │
+    ┌────────────┼────────────┬────────────┐
+    ▼            ▼            ▼            ▼
+┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
+│  LSP   │ │ Buffer │ │  Path  │ │Snippet │
+│ Source │ │ Source │ │ Source │ │ Source │
+└────────┘ └────────┘ └────────┘ └────────┘
+```
+
+### 3.2 补全配置
+
+```lua
+-- ~/.config/nvim/lua/plugins/completion.lua
+return {
+    {
+        "hrsh7th/nvim-cmp",
+        event = "InsertEnter",
+        dependencies = {
+            "hrsh7th/cmp-nvim-lsp",     -- LSP 补全
+            "hrsh7th/cmp-buffer",        -- 缓冲区补全
+            "hrsh7th/cmp-path",          -- 路径补全
+            "hrsh7th/cmp-cmdline",       -- 命令行补全
+            "L3MON4D3/LuaSnip",          -- 代码片段引擎
+            "saadparwaiz1/cmp_luasnip",  -- 代码片段补全
+            "rafamadriz/friendly-snippets", -- 预置代码片段
+        },
+        config = function()
+            local cmp = require("cmp")
+            local luasnip = require("luasnip")
+
+            -- 加载预置代码片段
+            require("luasnip.loaders.from_vscode").lazy_load()
+
+            cmp.setup({
+                snippet = {
+                    expand = function(args)
+                        luasnip.lsp_expand(args.body)
+                    end,
+                },
+                mapping = cmp.mapping.preset.insert({
+                    ["<C-b>"] = cmp.mapping.scroll_docs(-4),
+                    ["<C-f>"] = cmp.mapping.scroll_docs(4),
+                    ["<C-Space>"] = cmp.mapping.complete(),
+                    ["<C-e>"] = cmp.mapping.abort(),
+                    ["<CR>"] = cmp.mapping.confirm({ select = true }),
+                    ["<Tab>"] = cmp.mapping(function(fallback)
+                        if cmp.visible() then
+                            cmp.select_next_item()
+                        elseif luasnip.expand_or_jumpable() then
+                            luasnip.expand_or_jump()
+                        else
+                            fallback()
+                        end
+                    end, { "i", "s" }),
+                    ["<S-Tab>"] = cmp.mapping(function(fallback)
+                        if cmp.visible() then
+                            cmp.select_prev_item()
+                        elseif luasnip.jumpable(-1) then
+                            luasnip.jump(-1)
+                        else
+                            fallback()
+                        end
+                    end, { "i", "s" }),
+                }),
+                sources = cmp.config.sources({
+                    { name = "nvim_lsp", priority = 1000 },
+                    { name = "luasnip", priority = 750 },
+                    { name = "buffer", priority = 500 },
+                    { name = "path", priority = 250 },
+                }),
+                formatting = {
+                    format = function(entry, vim_item)
+                        vim_item.menu = ({
+                            nvim_lsp = "[LSP]",
+                            luasnip = "[Snip]",
+                            buffer = "[Buf]",
+                            path = "[Path]",
+                        })[entry.source.name]
+                        return vim_item
+                    end,
+                },
+            })
+
+            -- 命令行补全
+            cmp.setup.cmdline(":", {
+                mapping = cmp.mapping.preset.cmdline(),
+                sources = {
+                    { name = "cmdline" },
+                    { name = "path" },
+                },
+            })
+
+            -- 搜索补全
+            cmp.setup.cmdline("/", {
+                mapping = cmp.mapping.preset.cmdline(),
+                sources = {
+                    { name = "buffer" },
+                },
+            })
+        end,
+    },
+}
+```
+
+### 3.3 自定义代码片段 (Custom Snippets)
+
+除了使用预置片段, 你可以通过 Lua 定义自己的私有片段.
+
+```lua
+-- ~/.config/nvim/lua/snippets.lua
+local ls = require("luasnip")
+local s = ls.snippet
+local t = ls.text_node
+local i = ls.insert_node
+
+ls.add_snippets("go", {
+    s("errp", {
+        t("if err != nil {"),
+        t({"", "    panic(err)"}),
+        t({"", "}"}),
+        i(0)
+    }),
+})
+```
+
+**技巧**: 将通用片段放在 `friendly-snippets`, 将业务相关的特定片段放在自定义 Lua 文件中.
+
+---
+
+## 4. 代码诊断与格式化
+
+### 4.1 诊断显示配置
+
+```lua
+-- 在 LSP 配置中添加
+vim.diagnostic.config({
+    virtual_text = {
+        prefix = "●",
+        source = "if_many",
+    },
+    signs = true,
+    underline = true,
+    update_in_insert = false,
+    severity_sort = true,
+    float = {
+        border = "rounded",
+        source = "always",
+    },
+})
+
+-- 自定义诊断图标
+local signs = { Error = " ", Warn = " ", Hint = "󰌵 ", Info = " " }
+for type, icon in pairs(signs) do
+    local hl = "DiagnosticSign" .. type
+    vim.fn.sign_define(hl, { text = icon, texthl = hl, numhl = hl })
+end
+```
+
+### 4.2 格式化 (conform.nvim)
+
+```lua
+return {
+    {
+        "stevearc/conform.nvim",
+        event = { "BufWritePre" },
+        cmd = { "ConformInfo" },
+        keys = {
+            {
+                "<leader>f",
+                function()
+                    require("conform").format({ async = true, lsp_fallback = true })
+                end,
+                desc = "Format buffer",
+            },
+        },
+        opts = {
+            formatters_by_ft = {
+                lua = { "stylua" },
+                python = { "black", "isort" },
+                javascript = { "prettier" },
+                typescript = { "prettier" },
+                go = { "gofumpt", "goimports" },
+                rust = { "rustfmt" },
+                json = { "prettier" },
+                yaml = { "prettier" },
+                markdown = { "prettier" },
+            },
+            format_on_save = {
+                timeout_ms = 500,
+                lsp_fallback = true,
+            },
+        },
+    },
+}
+```
+
+---
+
+## 5. 开发工作流快捷键
+
+### 5.1 LSP 快捷键总结
+
+| 快捷键 | 功能 |
+|--------|------|
+| `gd` | 跳转到定义 |
+| `gD` | 跳转到声明 |
+| `gi` | 跳转到实现 |
+| `gr` | 查找引用 |
+| `K` | 悬浮文档 |
+| `<leader>rn` | 重命名符号 |
+| `<leader>ca` | 代码操作 |
+| `[d` / `]d` | 上/下一个诊断 |
+| `<leader>f` | 格式化代码 |
+
+### 5.2 补全快捷键
+
+| 快捷键 | 功能 |
+|--------|------|
+| `<C-Space>` | 触发补全 |
+| `<Tab>` / `<S-Tab>` | 下/上一个补全项 |
+| `<CR>` | 确认补全 |
+| `<C-e>` | 取消补全 |
+| `<C-b>` / `<C-f>` | 滚动文档 |
+
+---
+
+## 6. 本周实战任务
+
+### 6.1 基础搭建
+
+1. 安装 lazy.nvim 并按模块化结构组织配置
+2. 安装并配置 Mason (`:Mason` UI 管理)
+3. 为你的主要语言安装对应的 LSP Server
+
+### 6.2 LSP 验证
+
+1. 打开一个项目, 验证 `gd` (跳转定义) 和 `gr` (查找引用)
+2. 尝试 `<leader>rn` 重命名一个变量
+3. 使用 `K` 查看函数文档
+
+### 6.3 性能优化
+
+运行 `:Lazy profile` 观察插件加载时间, 确保启动在 100ms 以内.
+
+---
+
+## 7. 思考题
+
+1. LSP 和传统的 ctags 有什么区别?
+2. 为什么 nvim-cmp 需要多个 source?
+3. `format_on_save` 有什么潜在问题?
+4. 如何判断 LSP 是否正常工作?
+5. Mason 和直接安装 LSP Server 有什么优势?
+
+---
+
+> LSP 让 Neovim 拥有了与 VS Code 同等的语义分析能力, 但保持了 Vim 的键盘驱动效率.
