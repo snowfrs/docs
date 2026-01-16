@@ -2,10 +2,13 @@
     "pages": [
         "Project_Management",
         "K8s_Learn",
+        "Go_Learn",
         "Ansible_Learn",
         "Vim_Learn",
         "Git_Learn",
         "OS_Learn",
+        "C_Learn",
+        "Python_Learn",
         "---Storage---",
         "beegfs",
         "beegfs方案对比",
