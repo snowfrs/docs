@@ -81,29 +81,19 @@ graph TB
 
 进程在内存中的布局 (x86-64 Linux):
 
-```
-用户地址空间 (0x0 ~ 0x7FFFFFFFFFFF):
-┌─────────────────────────────────────────────────────────────┐ 0x7FFFFFFFFFFF
-│                         栈 (Stack)                           │
-│                         ↓ 向下增长                            │
-│                                                              │
-│                     (未映射区域)                              │
-│                                                              │
-│                         ↑ 向上增长                            │
-│                         堆 (Heap)                            │
-├─────────────────────────────────────────────────────────────┤
-│                    内存映射区域 (mmap)                        │
-│                    共享库 (.so)                              │
-├─────────────────────────────────────────────────────────────┤
-│                         堆 (Heap)                            │
-│                    brk/sbrk 管理                             │
-├─────────────────────────────────────────────────────────────┤
-│                   BSS (未初始化全局变量)                      │
-├─────────────────────────────────────────────────────────────┤
-│                   Data (已初始化全局变量)                     │
-├─────────────────────────────────────────────────────────────┤
-│                   Text (代码段, 只读可执行)                   │
-└─────────────────────────────────────────────────────────────┘ 0x0
+```mermaid
+graph TD
+    subgraph UserSpace ["User Address Space (0x0 ~ 0x7FFFFFFFFFFF)"]
+        Stack["Stack (Downward)"]
+        Unmapped["Unmapped Area"]
+        MMAP["Memory Mapping Region (mmap) / Shared Libs"]
+        Heap["Heap (Upward) / brk/sbrk"]
+        BSS["BSS (Uninitialized Data)"]
+        Data["Data (Initialized Data)"]
+        Text["Text (Code, Read-only)"]
+        
+        Stack --- Unmapped --- MMAP --- Heap --- BSS --- Data --- Text
+    end
 ```
 
 ---
@@ -253,7 +243,7 @@ if (pid == 0) {
 
 ### 3.2 内核创建流程
 
-Linux 内核通过 `kernel_clone()` 函数（旧版本为 `_do_fork`）实现进程创建，其核心逻辑高度模块化：
+Linux 内核通过 `kernel_clone()` 函数(旧版本为 `_do_fork`)实现进程创建, 其核心逻辑高度模块化: 
 
 ```mermaid
 flowchart TD
@@ -300,7 +290,7 @@ flowchart TD
 
 ### 3.4 Copy-on-Write (COW) 写时复制
 
-为了减少 `fork()` 的开销，Linux 并不立即复制内存，而是采用延迟复制策略：
+为了减少 `fork()` 的开销, Linux 并不立即复制内存, 而是采用延迟复制策略: 
 
 ```mermaid
 sequenceDiagram
@@ -308,7 +298,7 @@ sequenceDiagram
     participant Page as 物理内存页
     participant C as 子进程 (Child)
 
-    Note over P, C: fork() 完成，初始状态
+    Note over P, C: fork() 完成, 初始状态
     P->>Page: 读权限 (共享)
     C->>Page: 读权限 (共享)
     
@@ -650,7 +640,7 @@ vruntime += delta_exec × (NICE_0_LOAD / weight)
 
 ### 6.3 EEVDF 调度器 (Linux 6.6+)
 
-从 Linux 6.6 开始, EEVDF (Earliest Eligible Virtual Deadline First) 取代了 CFS 成为默认调度器. 它通过将“公平性”与“延迟控制”解耦, 解决了 CFS 在处理延迟敏感任务时的先天不足.
+从 Linux 6.6 开始, EEVDF (Earliest Eligible Virtual Deadline First) 取代了 CFS 成为默认调度器. 它通过将"公平性"与"延迟控制"解耦, 解决了 CFS 在处理延迟敏感任务时的先天不足.
 
 | 特性 | CFS | EEVDF |
 |------|-----|-------|
@@ -661,7 +651,7 @@ vruntime += delta_exec × (NICE_0_LOAD / weight)
 **EEVDF 核心机制**:
 1. **Lag (滞后)**: 进程实际获得的 CPU 时间与理论公平份额的差值 (`Lag = Shared - Actual`).
 2. **Eligible (合格)**: 只有 `Lag >= 0` (即之前没跑够) 的进程才有资格被调度.
-3. **Virtual Deadline (虚拟截止时间)**: 计算进程在未来的什么时候应该完成它的下一个时间片. EEVDF 始终选择当前合格且截止时间最早的任务。
+3. **Virtual Deadline (虚拟截止时间)**: 计算进程在未来的什么时候应该完成它的下一个时间片. EEVDF 始终选择当前合格且截止时间最早的任务.
 ```
 
 ### 6.3 nice 值与权重
@@ -671,39 +661,35 @@ vruntime += delta_exec × (NICE_0_LOAD / weight)
 const int sched_prio_to_weight[40] = {
     /* -20 */ 88761, 71755, 56483, 46273, 36291,
     /* -15 */ 29154, 23254, 18705, 14949, 11916,
-    /* -10 */ 9548,  7620,  6100,  4904,  3906,
-    /*  -5 */ 3121,  2501,  1991,  1586,  1277,
-    /*   0 */ 1024,  820,   655,   526,   423,   // nice 0 = 1024
-    /*   5 */ 335,   272,   215,   172,   137,
-    /*  10 */ 110,   87,    70,    56,    45,
-    /*  15 */ 36,    29,    23,    18,    15,    // nice 19
+    /* -10 */ 9548, 7620, 6100, 4904, 3906,
+    /*  -5 */ 3121, 2501, 1991, 1586, 1277,
+    /*   0 */ 1024, 820,  655,  526,  423,  // nice 0 = 1024
+    /*   5 */ 335,  272,  215,  172,  137,
+    /*  10 */ 110,  87,   70,   56,   45,
+    /*  15 */ 36,   29,   23,   18,   15,   // nice 19
 };
 ```
 
 **权重比例**: 相邻 nice 值的权重比约为 1.25, 即 nice 每差 1, CPU 时间差 10%.
-
 ### 6.4 红黑树组织
 
 CFS 使用红黑树按 vruntime 排序可运行进程:
 
-```
-                        运行队列 (cfs_rq)
-                              │
-                  ┌───────────┼───────────┐
-                  │     红黑树 (tasks_timeline)
-                  │           │
-                  │    ┌──────┴──────┐
-                  │    │  vruntime  │
-                  │    │  = 1000    │ (root)
-                  │    └──────┬─────┘
-                  │     ┌─────┴─────┐
-                  │  ┌──┴──┐     ┌──┴──┐
-                  │  │ 800 │     │1200 │
-                  │  └──┬──┘     └─────┘
-                  │  ┌──┴──┐
-                  │  │ 600 │ ← 最左节点 (min_vruntime)
-                  │  └─────┘      ↑
-         rb_leftmost ─────────────┘ 下次调度选中
+```mermaid
+graph TD
+    subgraph RQ ["CFS Runqueue (cfs_rq)"]
+        Root["vruntime = 1000<br/>(Root)"]
+        L1["vruntime = 800"]
+        R1["vruntime = 1200"]
+        L2["vruntime = 600<br/>(min_vruntime)"]
+        
+        Root --- L1
+        Root --- R1
+        L1 --- L2
+    end
+    
+    LM["rb_leftmost"] --> L2
+    style L2 fill:#e8f0fe,stroke:#4285f4
 ```
 
 ### 6.5 CFS 核心代码路径
@@ -775,9 +761,9 @@ sched_min_granularity_ns = 0.75ms
 struct sched_attr attr = {
     .size = sizeof(attr),
     .sched_policy = SCHED_DEADLINE,
-    .sched_runtime  = 10000000,   // 10ms 执行时间
-    .sched_deadline = 30000000,   // 30ms 截止时间
-    .sched_period   = 30000000,   // 30ms 周期
+    .sched_runtime  = 10000000,  // 10ms 执行时间
+    .sched_deadline = 30000000,  // 30ms 截止时间
+    .sched_period   = 30000000,  // 30ms 周期
 };
 sched_setattr(pid, &attr, 0);
 ```
@@ -845,13 +831,13 @@ max 100000    → 无限制
 cat /proc/$PID/status
 
 # 关键字段
-State:  S (sleeping)
-Pid:    12345
-PPid:   1234
+State: S (sleeping)
+Pid:   12345
+PPid:  1234
 Threads: 4
-VmPeak:  1234 kB    # 虚拟内存峰值
-VmRSS:   567 kB     # 常驻内存
-voluntary_ctxt_switches:    100
+VmPeak: 1234 kB    # 虚拟内存峰值
+VmRSS:  567 kB     # 常驻内存
+voluntary_ctxt_switches:   100
 nonvoluntary_ctxt_switches: 50
 ```
 
@@ -921,24 +907,22 @@ renice -n -5 -p $PID
 
 ### 10.2 共享内存详解
 
+```mermaid
+graph LR
+    subgraph PA ["Process A"]
+        VA["Virtual Address"]
+    end
+    
+    subgraph PB ["Process B"]
+        VB["Virtual Address"]
+    end
+    
+    VA --> Phys["Physical Memory Page<br/>(Shared Frame)"]
+    VB --> Phys
+```
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        共享内存原理                                      │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  进程 A                           进程 B                                 │
-│  ┌────────────────┐               ┌────────────────┐                   │
-│  │ 虚拟地址空间    │               │ 虚拟地址空间    │                   │
-│  │ ┌────────────┐ │               │ ┌────────────┐ │                   │
-│  │ │ 共享区域    │─│───────┬───────│─│ 共享区域    │ │                   │
-│  │ └────────────┘ │       │       │ └────────────┘ │                   │
-│  └────────────────┘       │       └────────────────┘                   │
-│                           ↓                                             │
-│                   ┌───────────────┐                                     │
-│                   │  物理内存页   │                                     │
-│                   │  (同一页帧)   │                                     │
-│                   └───────────────┘                                     │
-│                                                                         │
 │  优点: 零拷贝, 速度最快                                                  │
 │  缺点: 需要同步机制 (互斥锁/信号量) 保护                                  │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -1290,30 +1274,24 @@ clone(CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
 
 ### 18.3 线程共享与独立
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     进程 (多线程)                                        │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─────────────────── 共  享 ──────────────────────────────────┐        │
-│  │  虚拟地址空间 (代码, 堆, 全局变量)                             │        │
-│  │  文件描述符表                                                  │        │
-│  │  信号处理程序                                                  │        │
-│  │  内存映射                                                      │        │
-│  │  PID (对外呈现)                                                │        │
-│  └──────────────────────────────────────────────────────────────┘        │
-│                                                                         │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                              │
-│  │ 线程 1   │  │ 线程 2   │  │ 线程 3   │   ← 独立部分                  │
-│  │ ──────── │  │ ──────── │  │ ──────── │                              │
-│  │ TID      │  │ TID      │  │ TID      │   (内核中是不同的 task)       │
-│  │ 栈       │  │ 栈       │  │ 栈       │                              │
-│  │ 寄存器   │  │ 寄存器   │  │ 寄存器   │                              │
-│  │ errno    │  │ errno    │  │ errno    │   (TLS: 线程本地存储)         │
-│  │ 信号掩码 │  │ 信号掩码 │  │ 信号掩码 │                              │
-│  └──────────┘  └──────────┘  └──────────┘                              │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph Process ["Process (Multi-threaded)"]
+        subgraph Shared ["Shared Resources"]
+            VA["Virtual Address Space (Code, Heap, Globals)"]
+            FD["File Descriptor Table"]
+            SH["Signal Handlers"]
+            MM["Memory Mappings"]
+        end
+        
+        subgraph Threads ["Threads"]
+            T1["Thread 1<br/>(TID, Stack, Regs, TLS)"]
+            T2["Thread 2<br/>(TID, Stack, Regs, TLS)"]
+            T3["Thread 3<br/>(TID, Stack, Regs, TLS)"]
+        end
+        
+        Shared --- Threads
+    end
 ```
 
 ---
@@ -1377,33 +1355,19 @@ clone(CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
 
 ### 20.2 僵尸进程详解
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     僵尸进程产生过程                                      │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  父进程                           子进程                                 │
-│  ┌────────────┐                   ┌────────────┐                       │
-│  │  fork()    │ ────────────────→ │  创建      │                       │
-│  └────────────┘                   └────────────┘                       │
-│       │                                │                                │
-│       │                                ↓                                │
-│  忙于其他工作                       执行任务                             │
-│       │                                │                                │
-│       │                                ↓                                │
-│  .    │                           ┌────────────┐                       │
-│       │                           │  exit()    │                       │
-│       │                           └─────┬──────┘                       │
-│       │                                 │                               │
-│       │                                 ↓                               │
-│       │                           ┌────────────┐                       │
-│   未 wait()                       │  ZOMBIE    │ ← 保留退出状态         │
-│       │                           │  状态 Z    │   PID 和 task_struct   │
-│       │                           └────────────┘   占用资源             │
-│       ↓                                                                 │
-│  大量僵尸 → PID 耗尽!                                                    │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant P as Parent Process
+    participant C as Child Process
+    
+    P->>C: fork()
+    C->>C: Execute Task
+    C->>P: exit()
+    Note over C: Become ZOMBIE (State Z)
+    Note over C: Retain exit status, PID, task_struct
+    P->>P: Busy with other work
+    Note over P: No wait() called
+    Note over P,C: Large number of zombies -> PID Hub Exhaustion!
 ```
 
 **诊断**:

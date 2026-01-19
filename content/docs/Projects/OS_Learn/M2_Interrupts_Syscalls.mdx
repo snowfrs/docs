@@ -285,10 +285,10 @@ struct idt_gate {
 
 // 异常处理程序注册
 static const __initconst struct idt_data def_idts[] = {
-    INTG(X86_TRAP_DE,        asm_exc_divide_error),       // #DE
-    INTG(X86_TRAP_NMI,       asm_exc_nmi),                // NMI
-    INTG(X86_TRAP_BP,        asm_exc_int3),               // #BP
-    INTG(X86_TRAP_PF,        asm_exc_page_fault),         // #PF
+    INTG(X86_TRAP_DE,       asm_exc_divide_error),      // #DE
+    INTG(X86_TRAP_NMI,      asm_exc_nmi),               // NMI
+    INTG(X86_TRAP_BP,       asm_exc_int3),              // #BP
+    INTG(X86_TRAP_PF,       asm_exc_page_fault),        // #PF
     // ...
 };
 
@@ -447,23 +447,23 @@ queue_work(my_wq, &my_work);
 ```c
 // include/linux/interrupt.h
 enum {
-    HI_SOFTIRQ,           // 高优先级 tasklet
-    TIMER_SOFTIRQ,        // 定时器
-    NET_TX_SOFTIRQ,       // 网络发送
-    NET_RX_SOFTIRQ,       // 网络接收
-    BLOCK_SOFTIRQ,        // 块设备
-    IRQ_POLL_SOFTIRQ,     // IRQ 轮询
-    TASKLET_SOFTIRQ,      // tasklet
-    SCHED_SOFTIRQ,        // 调度器
-    HRTIMER_SOFTIRQ,      // 高精度定时器
-    RCU_SOFTIRQ,          // RCU 回调
+    HI_SOFTIRQ,          // 高优先级 tasklet
+    TIMER_SOFTIRQ,       // 定时器
+    NET_TX_SOFTIRQ,      // 网络发送
+    NET_RX_SOFTIRQ,      // 网络接收
+    BLOCK_SOFTIRQ,       // 块设备
+    IRQ_POLL_SOFTIRQ,    // IRQ 轮询
+    TASKLET_SOFTIRQ,     // tasklet
+    SCHED_SOFTIRQ,       // 调度器
+    HRTIMER_SOFTIRQ,     // 高精度定时器
+    RCU_SOFTIRQ,         // RCU 回调
     NR_SOFTIRQS           // softirq 数量
 };
 ```
 
 ### 4.5 中断处理全流程深度解析
 
-从硬件信号产生到执行完成，整个路径跨越了硬件、CPU 固件和内核软件三个层次：
+从硬件信号产生到执行完成, 整个路径跨越了硬件、CPU 固件和内核软件三个层次: 
 
 ```mermaid
 flowchart TD
@@ -870,34 +870,24 @@ struct pt_regs {
 
 ### 10.1 eBPF 核心架构
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           用户空间                                       │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │  BPF 程序 (C/Rust)  →  LLVM/Clang  →  BPF 字节码                  │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                 │                                       │
-│                   bpf() 系统调用 │                                       │
-├─────────────────────────────────┼───────────────────────────────────────┤
-│                           内核空间                                       │
-│                                 ↓                                       │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                      验证器 (Verifier)                            │   │
-│  │  - 禁止无限循环                                                   │   │
-│  │  - 禁止非法内存访问                                                │   │
-│  │  - 确保程序在有限步骤内完成                                        │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                 ↓                                       │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                   JIT 编译器 (Just-In-Time)                       │   │
-│  │  将 BPF 字节码编译为原生机器码 (x86, ARM64)                         │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                 ↓                                       │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                      挂载到 Hook 点执行                            │   │
-│  │  kprobes / tracepoints / XDP / TC / LSM / ...                    │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph UserSpace["User Space"]
+        BPF["BPF Program (C/Rust)"] --> LLVM["LLVM/Clang"] --> Bytecode["BPF Bytecode"]
+    end
+    
+    Bytecode -->|"bpf() syscall"| Verifier
+    
+    subgraph KernelSpace["Kernel Space"]
+        Verifier["Verifier<br/>• No infinite loops<br/>• No illegal memory access<br/>• Finite execution steps"]
+        JIT["JIT Compiler<br/>Bytecode → Native Code (x86/ARM64)"]
+        Hooks["Hook Points<br/>kprobes / tracepoints / XDP / TC / LSM"]
+        
+        Verifier --> JIT --> Hooks
+    end
+    
+    style UserSpace fill:#f5f5f5
+    style KernelSpace fill:#e3f2fd
 ```
 
 ### 10.2 Hook 点类型
@@ -1001,7 +991,7 @@ bpftrace -e 'tracepoint:raw_syscalls:sys_enter { @start[tid] = nsecs; }
 
 ### 7.1 动态追踪原语 (Kprobes & Uprobes)
 
-操作系统专家如何实现在不重新编译内核的情况下进行亚微秒级观测？其核心在于**运行时指令替换**。
+操作系统专家如何实现在不重新编译内核的情况下进行亚微秒级观测?其核心在于**运行时指令替换**.
 
 | 技术 | 观测范围 | 实现机制 | 性能影响 |
 |------|----------|----------|----------|
@@ -1026,11 +1016,11 @@ sequenceDiagram
 
 ### 7.2 零拷贝绕过 (vDPA & XDP)
 
-为了消除内核态/用户态上下文切换以及内存拷贝的开销，现代高性能系统采用“绕过”策略：
+为了消除内核态/用户态上下文切换以及内存拷贝的开销, 现代高性能系统采用"绕过"策略: 
 
-1.  **VDSO**: (见 §6) 共享数据页。
-2.  **vDPA (vHost Data Path Acceleration)**: 在虚拟化场景下，硬件网卡直接将数据推送到虚拟机的 VirtIO 队列中，绕过主机内核协议栈。
-3.  **XDP (eXpress Data Path)**: 在网卡驱动层直接运行 eBPF 程序，在 `sk_buff` 分配前决定丢弃或转发数据包。
+1.  **VDSO**: (见 §6) 共享数据页.
+2.  **vDPA (vHost Data Path Acceleration)**: 在虚拟化场景下, 硬件网卡直接将数据推送到虚拟机的 VirtIO 队列中, 绕过主机内核协议栈.
+3.  **XDP (eXpress Data Path)**: 在网卡驱动层直接运行 eBPF 程序, 在 `sk_buff` 分配前决定丢弃或转发数据包.
 
 ### 7.3 用户态中断 (User Interrupts - UINTR)
 

@@ -11,7 +11,7 @@ title: "M5: 存储层次抽象与内存治理"
 ## 关键概念速查
 
 | 概念 | 英文 | 定义 | 关联内核源码 |
-|------|------|------|--------------|
+| :--- | :--- | :--- | :--- |
 | 页 | Page | 虚拟地址空间的固定块 (4KB) | `include/linux/mm_types.h` |
 | 页帧 | Page Frame | 物理内存的固定块 | `struct page` |
 | 页表 | Page Table | 虚拟页到物理页的映射 | `arch/x86/include/asm/pgtable.h` |
@@ -60,7 +60,7 @@ graph TB
 
 ### 1.1 地址转换流程
 
-内存管理单元 (MMU) 负责将程序使用的虚拟地址转换为内存芯片的物理地址：
+内存管理单元 (MMU) 负责将程序使用的虚拟地址转换为内存芯片的物理地址: 
 
 ```mermaid
 graph TD
@@ -75,7 +75,7 @@ graph TD
     end
 ```
 
-> **注**: 在 x86-64 的 64 位模式下, 段机制被弱化 (Base=0, Limit=Max), 此时 **虚拟地址 ≈ 线性地址**。
+> **注**: 在 x86-64 的 64 位模式下, 段机制被弱化 (Base=0, Limit=Max), 此时 **虚拟地址 ≈ 线性地址**.
 
 ### 1.1 地址类型
 
@@ -104,7 +104,7 @@ x86-64 虽然有 64 位地址空间, 但仅使用 48 位 (或 57 位, 启用 5 �
 
 ### 1.3 Linux 进程地址空间布局
 
-每个进程都认为自己拥有完整的地址空间，内核通过 VMA (Virtual Memory Area) 管理这些区域：
+每个进程都认为自己拥有完整的地址空间, 内核通过 VMA (Virtual Memory Area) 管理这些区域: 
 
 ```mermaid
 graph BT
@@ -208,20 +208,21 @@ graph TD
 
 为了解决可变分区的外部碎片问题, 引入分页:
 
+```mermaid
+graph LR
+    subgraph Contiguous ["Variable Partitioning (Contiguous)"]
+        P["Process (50KB)"]
+        M["Memory Block"]
+        P --- M
+    end
+    
+    subgraph Paging ["Paging (Non-contiguous)"]
+        LP["Logical Pages"]
+        PT["Page Table"]
+        PF["Physical Frames"]
+        LP --> PT --> PF
+    end
 ```
-可变分区 (连续分配):           分页 (非连续分配):
-┌───────────────────┐         ┌───┬───┬───┬───┬───┐
-│ 进程需要 50KB     │         │ P │ P │ P │ P │ P │  进程 (逻辑连续)
-│ 连续空间         │         └─┬─┴─┬─┴─┬─┴─┬─┴─┬─┘
-│ 只能放在一块中    │           │   │   │   │   │   页表映射
-└───────────────────┘         ┌─┴─┐ │ ┌─┴─┐ │ ┌─┴─┐
-                              │   │ │ │   │ │ │   │  物理页帧
-                              │ 1 │ │ │ 5 │ │ │ 9 │  (可以分散)
-                              └───┘ │ └───┘ │ └───┘
-                                  ┌─┴─┐   ┌─┴─┐
-                                  │ 3 │   │ 7 │
-                                  └───┘   └───┘
-
 优势:
 - 消除外部碎片
 - 只有页内部碎片 (平均半页)
@@ -271,7 +272,7 @@ graph TD
 
 ### 2.3 地址转换 (4级页表 Walk)
 
-x86-64 采用多级页表（如 PML4）来减少稀疏地址空间的页表大小：
+x86-64 采用多级页表(如 PML4)来减少稀疏地址空间的页表大小: 
 
 ```mermaid
 graph TD
@@ -347,7 +348,7 @@ pte = pte_offset_map(pmd, addr);
 
 ### 3.1 TLB 原理
 
-TLB 是 MMU 内部的高速缓冲，存储了最近使用的 VPN -> PFN 映射：
+TLB 是 MMU 内部的高速缓冲, 存储了最近使用的 VPN -> PFN 映射: 
 
 ```mermaid
 flowchart TD
@@ -576,12 +577,12 @@ static unsigned long shrink_page_list(struct list_head *page_list, ...)
 管理连续物理页帧:
 
 ```
-Order:  页数
-0:      1 页   (4KB)
-1:      2 页   (8KB)
-2:      4 页   (16KB)
+Order: 页数
+0:     1 页   (4KB)
+1:     2 页   (8KB)
+2:     4 页   (16KB)
 ...
-10:     1024 页 (4MB)
+10:    1024 页 (4MB)
 
 分配 5 页:
 1. 没有 order-2 (4页) 可用的
@@ -606,12 +607,12 @@ Order:  页数
 cat /proc/buddyinfo
 # Node 0, zone   Normal   1289  790  568  371  200  143   51   12    8    2   38
 #                          ^    ^    ^    ^    ^    ^    ^    ^    ^    ^    ^
-# Order:                   0    1    2    3    4    5    6    7    8    9   10
+# Order:                  0    1    2    3    4    5    6    7    8    9   10
 ```
 
 #### 6.3.1 Slab / SLUB 分配器架构
 
-Slab 通过维护不同状态的对象桶（Cache），实现极致的小对象分配性能：
+Slab 通过维护不同状态的对象桶(Cache), 实现极致的小对象分配性能: 
 
 ```mermaid
 graph TD
@@ -631,19 +632,19 @@ graph TD
 ```
 
 **核心优势**:
-- **消除内部碎片**: 按需切分。
-- **对象缓存**: 预先调用构造函数，减少初始化开销。
-- **CPU 本地化**: 每个 CPU 拥有自己的 slab，减少锁竞争。
+- **消除内部碎片**: 按需切分.
+- **对象缓存**: 预先调用构造函数, 减少初始化开销.
+- **CPU 本地化**: 每个 CPU 拥有自己的 slab, 减少锁竞争.
 
 **API**:
 
 ```c
 // 创建 cache
 struct kmem_cache *my_cache = kmem_cache_create(
-    "my_struct",                    // 名称
-    sizeof(struct my_struct),       // 对象大小
-    0,                              // 对齐
-    SLAB_HWCACHE_ALIGN,             // 标志
+    "my_struct",                   // 名称
+    sizeof(struct my_struct),      // 对象大小
+    0,                             // 对齐
+    SLAB_HWCACHE_ALIGN,            // 标志
     NULL                            // 构造函数
 );
 
@@ -866,31 +867,15 @@ echo z3fold > /sys/module/zswap/parameters/zpool
 
 ### 16.2 图解
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     进程 A 内存组成                                      │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                    VSS (虚拟地址空间)                            │   │
-│  │  ┌─────────────────────────────────────────────────────────┐    │   │
-│  │  │              RSS (实际驻留内存)                          │    │   │
-│  │  │  ┌────────────────┐  ┌──────────────────────────────┐   │    │   │
-│  │  │  │     USS        │  │        共享内存               │   │    │   │
-│  │  │  │  (独占内存)     │  │  (libc.so, libpthread.so)    │   │    │   │
-│  │  │  │                │  │                              │   │    │   │
-│  │  │  │  杀进程后      │  │  与其他进程共享               │   │    │   │
-│  │  │  │  立即回收      │  │  按使用者数平摊 → PSS         │   │    │   │
-│  │  │  └────────────────┘  └──────────────────────────────┘   │    │   │
-│  │  └─────────────────────────────────────────────────────────┘    │   │
-│  │                                                                  │   │
-│  │  ┌─────────────────────────────────────────────────────────┐    │   │
-│  │  │         Reserved 但未使用的虚拟地址                       │    │   │
-│  │  │         (mmap 但未访问, malloc 未实际分配)                │    │   │
-│  │  └─────────────────────────────────────────────────────────┘    │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph VSS ["VSS (Virtual Set Size)"]
+        subgraph RSS ["RSS (Resident Set Size)"]
+            USS["USS (Unique Set Size)"]
+            Shared["Shared Libraries (PSS part)"]
+        end
+        Unused["Unused Virtual Memory (mmap/malloc without access)"]
+    end
 ```
 
 ### 16.3 查看方法
@@ -910,7 +895,7 @@ smem -p
 ```bash
 $ free -h
               total        used        free      shared  buff/cache   available
-Mem:           7.7G        1.5G        3.2G        120M        3.0G        5.9G
+Mem:          7.7G        1.5G        3.2G        120M        3.0G        5.9G
 ```
 
 **常见误解**: "free 只有 3.2G, 内存快满了!"
@@ -947,7 +932,7 @@ Mem:           7.7G        1.5G        3.2G        120M        3.0G        5.9G
 │  │                                                                  │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
-│  kswapd 特点:                                                           │
+│  kswapd 特点:                                                          │
 │  - 后台内核线程                                                          │
 │  - 异步执行, 不阻塞用户进程                                               │
 │  - 每个 NUMA node 一个 kswapd                                            │
@@ -1254,7 +1239,7 @@ echo -1000 > /proc/$(pidof mysqld)/oom_score_adj
 
 ### 12.1 NUMA 架构概念
 
-在大型服务器中，内存不再是统一访问的，而是分布在不同的插槽（Socket）中：
+在大型服务器中, 内存不再是统一访问的, 而是分布在不同的插槽(Socket)中: 
 
 ```mermaid
 graph TD
@@ -1274,8 +1259,8 @@ graph TD
     style Node1 stroke-dasharray: 5 5
 ```
 
-- **Local Access**: CPU 0 访问本地 Node 0 内存，延迟极低（~80ns）。
-- **Remote Access**: CPU 0 访问 Node 1 内存，需跨越互联总线，延迟显著增加（~150ns+）。
+- **Local Access**: CPU 0 访问本地 Node 0 内存, 延迟极低(~80ns).
+- **Remote Access**: CPU 0 访问 Node 1 内存, 需跨越互联总线, 延迟显著增加(~150ns+).
 
 ### 12.2 NUMA 调优
 
@@ -1486,7 +1471,7 @@ sendfile(socket_fd, file_fd, NULL, file_size);
 
 ### 17.1 分级存储与 CXL (Compute Express Link)
 
-随着 DRAM 容量成本的增加, 现代 OS 正向**分级存储 (Tiered Memory)** 演进。
+随着 DRAM 容量成本的增加, 现代 OS 正向**分级存储 (Tiered Memory)** 演进.
 
 | 层级 | 介质 | 访问时延 | 管理机制 |
 |------|------|----------|----------|
@@ -1495,17 +1480,17 @@ sendfile(socket_fd, file_fd, NULL, file_size);
 | **Tier 2** | Remote DRAM (CXL) | ~200-400ns | 通过池化扩展容量 |
 | **Tier 3** | 持久内存 (PMEM) | ~500ns+ | 使用 DAX 直连映射 |
 
-**内核策略**: Linux 使用 `memory tiering` 机制, 结合 **MGLRU** 将不活跃的 Page 自动降级 (Promotion/Demotion) 到慢速节点。
+**内核策略**: Linux 使用 `memory tiering` 机制, 结合 **MGLRU** 将不活跃的 Page 自动降级 (Promotion/Demotion) 到慢速节点.
 
 ### 17.2 内核空间安全加固
 
 1.  **KASLR (Kernel Address Space Layout Randomization)**:
-    - 每次启动时, 内核代码段和模块会被加载到不同的随机地址。
-    - 破坏攻击者利用硬编码偏移量进行 ROP (Return Oriented Programming) 攻击。
+    - 每次启动时, 内核代码段和模块会被加载到不同的随机地址.
+    - 破坏攻击者利用硬编码偏移量进行 ROP (Return Oriented Programming) 攻击.
 2.  **CET (Control-flow Enforcement Technology)**:
-    - 硬件辅助的**影子栈 (Shadow Stack)**, 防止函数返回地址被篡改。
+    - 硬件辅助的**影子栈 (Shadow Stack)**, 防止函数返回地址被篡改.
 3.  **KPTI (Kernel Page-Table Isolation)**:
-    - 隔离内核与用户态页表, 彻底防御 **Meltdown** 漏洞。
+    - 隔离内核与用户态页表, 彻底防御 **Meltdown** 漏洞.
 
 ---
 
