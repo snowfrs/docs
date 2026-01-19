@@ -21,10 +21,11 @@ yarn-debug.log*
 yarn-error.log*
 
 # sitemaps
-/public/sitemap*.xml
-/public/robots.txt
+#/public/sitemap*.xml
+#/public/robots.txt
 
 # others
 .env*.local
 .vercel
 next-env.d.ts
+.agent/
