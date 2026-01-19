@@ -369,9 +369,162 @@ class CallbackModule(CallbackBase):
 
 ---
 
-## 5. 企业级集成平台
+## 5. 性能分析与瓶颈定位
 
-### 5.1 AWX / Ansible Automation Platform 架构
+在大规模环境中, 识别性能瓶颈需要可观测性工具. Ansible 提供了多种内置机制用于执行分析.
+
+### 5.1 Callback 插件: 执行时间分析
+
+**`profile_tasks`**: 显示每个任务的执行时间:
+
+```ini
+# ansible.cfg
+[defaults]
+callbacks_enabled = profile_tasks, timer
+callback_whitelist = profile_tasks, timer
+```
+
+**输出示例**:
+
+```
+PLAY RECAP ******************************************************
+Friday 17 January 2025  10:23:45 +0000 (0:00:05.123)    0:02:34.567 ******
+===============================================================================
+Install packages ------------------------------------------ 45.23s
+Deploy configuration -------------------------------------- 12.45s
+Restart service -------------------------------------------- 5.12s
+Gathering Facts -------------------------------------------- 3.21s
+```
+
+**`profile_roles`**: 按 Role 聚合时间统计:
+
+```ini
+callbacks_enabled = profile_tasks, profile_roles, timer
+```
+
+### 5.2 详细调试输出
+
+```bash
+# 显示详细执行信息
+ansible-playbook site.yml -vvv
+
+# 显示 SSH 连接详情
+ansible-playbook site.yml -vvvv
+
+# 仅对特定任务启用调试
+ansible-playbook site.yml -v --start-at-task="Deploy configuration"
+```
+
+### 5.3 执行时间分析脚本
+
+```python
+#!/usr/bin/env python3
+# analyze_timing.py - 分析 Ansible JSON 日志
+
+import json
+import sys
+from collections import defaultdict
+
+def analyze_log(log_file):
+    with open(log_file) as f:
+        data = json.load(f)
+    
+    task_times = defaultdict(list)
+    host_times = defaultdict(float)
+    
+    for play in data.get('plays', []):
+        for task in play.get('tasks', []):
+            task_name = task.get('task', {}).get('name', 'Unknown')
+            for host, result in task.get('hosts', {}).items():
+                duration = result.get('duration', {})
+                elapsed = duration.get('end', 0) - duration.get('start', 0)
+                task_times[task_name].append(elapsed)
+                host_times[host] += elapsed
+    
+    print("=== Top 10 Slowest Tasks ===")
+    sorted_tasks = sorted(
+        [(name, sum(times)/len(times)) for name, times in task_times.items()],
+        key=lambda x: x[1],
+        reverse=True
+    )[:10]
+    for name, avg_time in sorted_tasks:
+        print(f"  {avg_time:.2f}s - {name}")
+    
+    print("\n=== Slowest Hosts ===")
+    sorted_hosts = sorted(host_times.items(), key=lambda x: x[1], reverse=True)[:10]
+    for host, total_time in sorted_hosts:
+        print(f"  {total_time:.2f}s - {host}")
+
+if __name__ == "__main__":
+    analyze_log(sys.argv[1])
+```
+
+**启用 JSON 日志**:
+
+```ini
+# ansible.cfg
+[defaults]
+callbacks_enabled = json
+log_path = /var/log/ansible/ansible.json
+```
+
+### 5.4 内存优化策略
+
+当管理大量主机时, 控制节点的内存消耗会显著增加:
+
+| 优化项 | 配置 | 效果 |
+|--------|------|------|
+| 减少 Forks | `forks = 20` (降低) | 减少并发进程内存占用 |
+| 禁用 Facts 缓存到内存 | 使用 jsonfile 缓存 | Facts 不保留在内存中 |
+| 避免大变量 | 使用 `no_log: true` | 减少日志缓冲 |
+| 分批执行 | `serial: 50` | 限制每批主机数量 |
+
+**监控控制节点资源**:
+
+```yaml
+- name: Monitor controller resources
+  local_action:
+    module: shell
+    cmd: "ps -o rss,vsz,pid,comm -p {{ ansible_pid }} | tail -1"
+  register: controller_mem
+  run_once: true
+  delegate_to: localhost
+  tags: [debug]
+```
+
+### 5.5 网络瓶颈诊断
+
+```yaml
+# 测量到每个主机的 SSH 延迟
+- name: Measure SSH latency
+  shell: "echo 'latency test'"
+  register: latency_test
+  changed_when: false
+
+- name: Report slow hosts
+  debug:
+    msg: "Host {{ inventory_hostname }} response time: {{ latency_test.delta }}"
+  when: latency_test.delta | float > 2.0
+```
+
+**网络带宽估算**:
+
+```bash
+# 模块传输大小 (典型)
+# - 小模块 (ping, debug): ~10KB
+# - 中等模块 (yum, apt): ~50KB
+# - 大模块 (包含复杂逻辑): ~200KB
+
+# 带宽计算
+# 500 hosts * 50KB * 10 tasks = 250MB 数据传输
+# 在 100Mbps 网络上约需 20 秒
+```
+
+---
+
+## 6. 企业级集成平台
+
+### 6.1 AWX / Ansible Automation Platform 架构
 
 ```mermaid
 graph TD
@@ -402,7 +555,7 @@ graph TD
 | **PostgreSQL** | 存储配置, 历史, 凭据 |
 | **Redis** | 任务队列和缓存 |
 
-### 5.2 RBAC (基于角色的访问控制)
+### 6.2 RBAC (基于角色的访问控制)
 
 AWX 提供细粒度的权限控制:
 
@@ -419,7 +572,7 @@ AWX 提供细粒度的权限控制:
 - 运维: Inventory Update + Template Execute
 - 管理员: Organization Admin
 
-### 5.3 Workflow (工作流 DAG)
+### 6.3 Workflow (工作流 DAG)
 
 ```yaml
 # 工作流示例: 蓝绿部署
@@ -436,7 +589,7 @@ graph TD
 - 支持跨项目调用
 - 支持审批节点
 
-### 5.4 动态清单集成
+### 6.4 动态清单集成
 
 #### 云平台清单
 
@@ -470,7 +623,7 @@ services:
 
 ---
 
-## 6. 本周实战任务
+## 7. 本周实战任务
 
 ### 6.1 性能基准测试
 

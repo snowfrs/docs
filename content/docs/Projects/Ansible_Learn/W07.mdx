@@ -153,10 +153,165 @@ graph TD
     EDA2 --> Redis
 ```
 
-**高可用考虑**:
-- 多实例部署, 使用 Redis 共享状态
-- 事件去重, 防止重复执行
-- 健康检查和自动故障转移
+### 1.7 生产级高可用部署
+
+#### 事件去重机制
+
+在多实例部署中, 同一事件可能被多个 EDA 控制器接收. 需要使用分布式锁实现事件去重:
+
+```yaml
+# rulebook.yml - 带去重的规则
+---
+- name: 带去重的事件处理
+  hosts: all
+  sources:
+    - ansible.eda.alertmanager:
+        host: 0.0.0.0
+        port: 5001
+  
+  rules:
+    - name: 去重处理服务告警
+      condition: event.alert.labels.alertname == "ServiceDown"
+      action:
+        run_playbook:
+          name: playbooks/remediate.yml
+          extra_vars:
+            alert_fingerprint: "{{ event.alert.fingerprint }}"
+      throttle:
+        # 相同 fingerprint 的事件在 5 分钟内仅触发一次
+        group_by:
+          - event.alert.fingerprint
+        once_within: 5 minutes
+```
+
+#### 告警风暴抑制
+
+当出现级联故障时, 可能在短时间内产生大量告警. 需要配置抑制策略:
+
+```yaml
+rules:
+  - name: 抑制告警风暴
+    condition: event.alert.labels.alertname is defined
+    throttle:
+      group_by:
+        - event.alert.labels.alertname
+      once_within: 1 minute
+      max_events: 10  # 同类告警最多处理 10 个
+    action:
+      run_playbook:
+        name: playbooks/handle_alert.yml
+
+  - name: 聚合告警
+    condition: |
+      events.host_alerts is defined and
+      events.host_alerts | length > 5
+    action:
+      run_playbook:
+        name: playbooks/handle_mass_outage.yml
+        extra_vars:
+          affected_hosts: "{{ events.host_alerts | map(attribute='labels.instance') | list }}"
+```
+
+#### Kubernetes 部署示例
+
+```yaml
+# eda-deployment.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eda-controller
+  labels:
+    app: eda
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: eda
+  template:
+    metadata:
+      labels:
+        app: eda
+    spec:
+      containers:
+        - name: eda
+          image: quay.io/ansible/eda-server:latest
+          ports:
+            - containerPort: 5001
+          env:
+            - name: EDA_REDIS_HOST
+              value: "redis-service"
+            - name: EDA_DEDUP_ENABLED
+              value: "true"
+          volumeMounts:
+            - name: rulebooks
+              mountPath: /opt/eda/rulebooks
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5001
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5001
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: rulebooks
+          configMap:
+            name: eda-rulebooks
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eda-service
+spec:
+  selector:
+    app: eda
+  ports:
+    - protocol: TCP
+      port: 5001
+      targetPort: 5001
+  type: ClusterIP
+```
+
+#### 监控与告警
+
+```yaml
+# Prometheus ServiceMonitor
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: eda-monitor
+spec:
+  selector:
+    matchLabels:
+      app: eda
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+```
+
+**关键指标**:
+
+| 指标 | 说明 | 告警阈值 |
+|------|------|----------|
+| `eda_events_received_total` | 接收的事件总数 | - |
+| `eda_events_processed_total` | 处理的事件总数 | - |
+| `eda_events_deduplicated_total` | 去重的事件数 | - |
+| `eda_rulebook_execution_errors` | 执行错误数 | > 0 |
+| `eda_action_duration_seconds` | 动作执行时间 | P99 > 60s |
 
 ---
 

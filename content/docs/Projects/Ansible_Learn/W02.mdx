@@ -131,6 +131,138 @@ echo '{"app_version": "2.4.1"}' > /etc/ansible/facts.d/app.fact
     ```
 *   **禁用搜集**: 若 Playbook 纯粹是分发文件或重启服务, 且不涉及变量判断, 声明 `gather_facts: false` 可获得极致速度.
 
+### 3.5 Facts 超时与重试机制
+
+在网络不稳定或 Facts 收集耗时过长的场景下, 需要配置超时和重试策略:
+
+```ini
+# ansible.cfg
+[defaults]
+# 全局任务超时 (秒)
+timeout = 30
+
+# Facts 收集专用超时
+gather_timeout = 30
+
+[connection]
+# SSH 连接超时
+connect_timeout = 10
+```
+
+**任务级别的超时控制**:
+
+```yaml
+- name: Gather facts with extended timeout
+  setup:
+    gather_subset:
+      - hardware
+      - network
+  async: 120
+  poll: 5
+  register: facts_result
+
+- name: Retry on failure
+  setup:
+  retries: 3
+  delay: 10
+  until: facts_result is succeeded
+```
+
+### 3.6 自定义 Facts 收集器开发
+
+除了在远程主机部署静态 `.fact` 文件外, 还可以开发动态的 Facts 收集脚本:
+
+```bash
+#!/bin/bash
+# /etc/ansible/facts.d/app_status.fact
+# 必须可执行: chmod +x /etc/ansible/facts.d/app_status.fact
+
+# 动态收集应用状态
+APP_PID=$(pgrep -f "myapp" 2>/dev/null || echo "")
+APP_VERSION=$(cat /opt/myapp/version.txt 2>/dev/null || echo "unknown")
+APP_UPTIME=""
+
+if [ -n "$APP_PID" ]; then
+    APP_UPTIME=$(ps -o etime= -p $APP_PID | tr -d ' ')
+fi
+
+cat << EOF
+{
+    "app": {
+        "name": "myapp",
+        "version": "${APP_VERSION}",
+        "pid": "${APP_PID}",
+        "uptime": "${APP_UPTIME}",
+        "is_running": $([ -n "$APP_PID" ] && echo "true" || echo "false")
+    }
+}
+EOF
+```
+
+**访问方式**:
+
+```yaml
+- name: Check application status
+  debug:
+    msg: |
+      App Version: {{ ansible_facts['ansible_local']['app_status']['app']['version'] }}
+      Running: {{ ansible_facts['ansible_local']['app_status']['app']['is_running'] }}
+  when: ansible_facts['ansible_local']['app_status'] is defined
+```
+
+### 3.7 Facts 安全过滤 (敏感信息脱敏)
+
+在某些合规场景下, Facts 中可能包含敏感信息 (如硬件序列号, MAC 地址, 用户列表), 需要进行过滤:
+
+**方式 1: 使用 `gather_subset` 排除敏感类别**:
+
+```yaml
+- hosts: all
+  gather_facts: yes
+  gather_subset:
+    - "!hardware"  # 排除硬件信息 (含序列号)
+    - "!facter"    # 排除 facter 数据
+    - network
+    - virtual
+```
+
+**方式 2: 使用 Callback 插件过滤 Facts**:
+
+```python
+# callback_plugins/fact_filter.py
+from ansible.plugins.callback import CallbackBase
+import copy
+
+SENSITIVE_KEYS = [
+    'ansible_product_serial',
+    'ansible_chassis_serial',
+    'ansible_board_serial',
+    'ansible_all_ipv4_addresses',
+    'ansible_all_ipv6_addresses',
+]
+
+class CallbackModule(CallbackBase):
+    CALLBACK_VERSION = 2.0
+    CALLBACK_TYPE = 'aggregate'
+    CALLBACK_NAME = 'fact_filter'
+    
+    def v2_runner_on_ok(self, result):
+        if result._task.action == 'setup' or result._task.action == 'gather_facts':
+            facts = result._result.get('ansible_facts', {})
+            for key in SENSITIVE_KEYS:
+                if key in facts:
+                    facts[key] = '[REDACTED]'
+```
+
+**方式 3: 审计 Facts 使用情况**:
+
+```yaml
+- name: Log which facts are accessed
+  debug:
+    msg: "Accessed fact: ansible_facts['distribution']"
+  tags: [audit]
+```
+
 ---
 
 ## 4. Ad-hoc 指令

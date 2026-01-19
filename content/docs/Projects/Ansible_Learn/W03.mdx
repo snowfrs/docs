@@ -25,75 +25,807 @@ Ansible 的变量覆盖逻辑非常复杂, 共有 22 层. 在冲突时, 编号�
 **核心提示**: 永远不要试图记住所有 22 层. 生产中只需遵循: **默认值放 Role, 环境差异放 Inventory, 临时覆盖用 -e.**
 
 ### 1.2 作用域 (Scopes)
-*   **Global**: 环境变量, `ansible.cfg`.
-*   **Play**: 当前 Play 定义的变量.
 *   **Host**: 与特定主机绑定的变量 (如 Facts).
+
+### 1.3 变量合并行为 (Merging Behavior)
+
+在默认配置下, 当同一变量名在不同层级定义时, Ansible 采用 **"替换 (Replace)"** 策略.
+
+#### 1.1.1 Replace vs Merge
+
+*   **Replace (默认)**: 高优先级的变量会完全替换掉低优先级的变量. 如果变量是字典 (Dictionary), 低优先级字典中的 Key 将全部丢失.
+*   **Merge**: 高优先级的字典会与低优先级的字典进行递归合并.
+
+**示例**:
+
+```yaml
+# group_vars/all.yml
+user_profile:
+  name: admin
+  shell: /bin/bash
+
+# host_vars/web01.yml
+user_profile:
+  shell: /bin/zsh
+```
+
+- **默认行为 (Replace)**: `user_profile` 变为 `{'shell': '/bin/zsh'}` ( `name` 丢失).
+- **开启 Merge**: `user_profile` 变为 `{'name': 'admin', 'shell': '/bin/zsh'}`.
+
+**底层建议**: 虽然 `ansible.cfg` 中可以设置 `hash_behaviour=merge`, 但 **强烈建议保持默认的 `replace`**. `merge` 会导致自动化逻辑难以通过静态代码追踪, 增加调试负担. 推荐通过分层定义不同的 Key (如 `user_profile_default` 和 `user_profile_override`) 并在模板中手动合并.
 
 ---
 
 ## 2. 变量分类与生成方式
 
-变量不仅仅是简单的 `key: value`, Ansible 提供了多种机制来生成、发现和管理数据.
+变量不仅仅是简单的 `key: value`, Ansible 提供了多种机制来生成、发现和管理数据. 理解这些机制的执行时机、作用域和性能影响是运维自动化的基础.
 
 ### 2.1 自定义变量 (Custom Variables)
-这是用户最常用的定义方式, 存在于不同层级:
-*   **Play 级别**: 在 Playbook 中使用 `vars` 定义, 或通过 `vars_files` 引入外部 YAML 文件.
-*   **注册变量 (Register Variables)**: 使用 `register` 关键字捕获任务输出. 它是动态生成的, 仅在当前 Play 生命周期内有效.
-*   **运行时引入**: 使用 `include_vars` 可以在任务执行期间动态加载特定的变量文件.
 
-### 2.2 信息观测站: Ansible Facts
-Facts 是获取自远程主机的实时数据. 
-*   **本质**: 它们是 Host 级别的变量, 存储在控制节点的内存字典中.
-*   **访问**: 推荐使用 `ansible_facts['eth0']['ipv4']['address']` 的方式进行精确访问, 以避免与自定义变量重名.
+自定义变量是运维人员直接控制的数据源, 根据定义位置和加载时机分为多种类型.
 
-### 2.3 魔法变量 (Magic Variables)
-这些变量由 Ansible 内部自动预设, 用于反馈执行环境的元数据:
-*   **`hostvars`**: 极其强大. 允许你在 A 主机的任务中访问 B 主机的变量 (如 `{{ hostvars['db_host']['ansible_facts']['eth0']['ipv4']['address'] }}`).
-*   **`groups`**: 一个字典, key 是 Inventory 中的组名, value 是该组下所有主机的列表. 常用于生成集群配置文件 (如 LB 节点的 Upstream).
-*   **`group_names`**: 当前主机所属的所有组名列表. 常用于在模板中根据主机身份执行逻辑判断.
-*   **`inventory_hostname`**: 远程主机在 Inventory 中定义的名称 (不一定是真实的 Hostname), 是 Ansible 识别主机的唯一标识.
+#### 2.1.1 静态定义 (Static Variables)
 
-### 2.4 增强连接: Lookup 插件
-Lookup 是 Ansible 从外部数据源 (如控制节点的文件、数据库、KV 存储) 检索数据的利器.
-*   **执行位置**: Lookup 始终在 **控制节点 (Control Node)** 执行.
-*   **常用场景**:
-    - **读取文件**: `{{ lookup('file', '/etc/ssh/id_rsa.pub') }}` (用于批量分发公钥).
-    - **环境变量**: `{{ lookup('env', 'DB_PASSWORD') }}`.
-    - **管道输出**: `{{ lookup('pipe', 'date +%Y-%m-%d') }}`.
-    - **模板生成**: `{{ lookup('template', './vhost.j2') }}` (将渲染后的字符串存入变量).
-
-### 2.5 代码综合示例
-通过一个简单的 DNS 配置同步场景, 展示多类型变量的协同工作:
+最常见的变量定义方式, 在 Play 或角色中直接声明:
 
 ```yaml
-- name: Sync DNS Resolver Config
-  hosts: all
-  become: yes
+# Play 级别变量
+- hosts: web_servers
   vars:
-    # 2.4 Lookup: 从控制节点读取公钥
-    authorized_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
-  
+    http_port: 80
+    app_env: production
   tasks:
-    - name: Get current date on control node
+    - debug:
+        msg: "Port: {{ http_port }}, Env: {{ app_env }}"
+```
+
+**文件引用模式**:
+
+当变量数量较多时, 使用 `vars_files` 实现关注点分离:
+
+```yaml
+- hosts: all
+  vars_files:
+    - vars/common.yml
+    - vars/{{ ansible_facts['os_family'] }}.yml  # 动态路径
+  tasks:
+    - debug: var=app_version
+```
+
+**原理要点**: `vars_files` 在 Play 初始化阶段被解析, 这意味着你可以在路径中使用 Facts, 但无法使用 `register` 注册的运行时变量.
+
+#### 2.1.2 注册变量 (Register Variables)
+
+注册变量捕获任务执行的输出, 是实现条件逻辑和故障处理的核心机制.
+
+**基础结构**:
+
+```yaml
+- name: Check if service exists
+  command: systemctl status nginx
+  register: nginx_status
+  ignore_errors: yes
+
+- name: Display full register output
+  debug:
+    var: nginx_status
+```
+
+**输出示例**:
+
+```json
+{
+    "changed": false,
+    "cmd": ["systemctl", "status", "nginx"],
+    "rc": 0,
+    "stdout": "● nginx.service - A high performance web server",
+    "stderr": "",
+    "stdout_lines": ["● nginx.service - A high performance web server"],
+    "failed": false
+}
+```
+
+**关键字段解析**:
+
+| 字段 | 说明 | 典型用途 |
+|------|------|----------|
+| `rc` | 返回码 (Return Code) | 判断命令是否成功 (`rc == 0`) |
+| `stdout` | 标准输出 (字符串) | 提取命令输出内容 |
+| `stdout_lines` | 标准输出 (列表) | 按行遍历输出 |
+| `stderr` | 标准错误输出 | 诊断失败原因 |
+| `changed` | 是否产生变更 | 幂等性判断 |
+| `failed` | 是否失败 | 与 `ignore_errors` 配合使用 |
+
+**高级应用 - 条件执行**:
+
+```yaml
+- name: Detect if database is initialized
+  stat:
+    path: /var/lib/mysql/ibdata1
+  register: mysql_data
+
+- name: Initialize database (only if not exists)
+  command: mysql_install_db
+  when: not mysql_data.stat.exists
+
+- name: Get disk usage
+  shell: df -h / | tail -1 | awk '{print $5}' | sed 's/%//'
+  register: disk_usage
+
+- name: Trigger cleanup if disk > 80%
+  include_tasks: cleanup.yml
+  when: disk_usage.stdout | int > 80
+```
+
+**性能考量**: 注册变量会将整个输出存储在内存中. 对于产生大量输出的命令 (如日志导出), 建议使用 `changed_when: false` 和 `no_log: true` 减少内存占用.
+
+#### 2.1.3 运行时动态加载 (`include_vars`)
+
+`include_vars` 模块允许在任务执行期间根据条件加载特定的变量文件, 实现高度灵活的配置管理.
+
+**基础用法**:
+
+```yaml
+- name: Load environment-specific variables
+  include_vars:
+    file: "vars/{{ env_type }}.yml"
+  when: env_type is defined
+```
+
+**目录批量加载**:
+
+```yaml
+- name: Load all YAML files from directory
+  include_vars:
+    dir: vars/components
+    extensions:
+      - yml
+      - yaml
+    ignore_files:
+      - secrets.yml  # 排除敏感文件
+```
+
+**条件过滤 - 基于主机特征**:
+
+```yaml
+- name: Load OS-specific package lists
+  include_vars: "{{ item }}"
+  with_first_found:
+    - "vars/packages_{{ ansible_facts['distribution'] }}_{{ ansible_facts['distribution_major_version'] }}.yml"
+    - "vars/packages_{{ ansible_facts['os_family'] }}.yml"
+    - "vars/packages_default.yml"
+```
+
+**原理深度**: `include_vars` 是一个任务 (Task), 而不是指令 (Directive). 这意味着:
+1. 它在任务执行时才加载变量, 而非 Play 初始化阶段
+2. 可以使用 `register` 变量和 Facts 构造动态路径
+3. 支持条件判断 (`when`), 可以跳过不必要的加载
+
+#### 2.1.4 运行时事实设定 (`set_fact`)
+
+`set_fact` 用于在 Play 执行期间动态计算和设置变量, 常用于复杂逻辑处理.
+
+**基础用法**:
+
+```yaml
+- name: Calculate derived values
+  set_fact:
+    total_memory_mb: "{{ ansible_facts['memtotal_mb'] }}"
+    available_memory_mb: "{{ ansible_facts['memfree_mb'] + ansible_facts['mem_buffers'] + ansible_facts['cached'] }}"
+    memory_usage_percent: "{{ ((ansible_facts['memtotal_mb'] - ansible_facts['memfree_mb']) / ansible_facts['memtotal_mb'] * 100) | int }}"
+```
+
+**复杂数据结构构造**:
+
+```yaml
+- name: Build cluster node map
+  set_fact:
+    cluster_map: |
+      {% set result = {} %}
+      {% for host in groups['cluster'] %}
+      {%   set _ = result.update({
+             host: {
+               'ip': hostvars[host]['ansible_facts']['default_ipv4']['address'],
+               'role': hostvars[host].get('node_role', 'worker')
+             }
+           }) %}
+      {% endfor %}
+      {{ result }}
+
+- debug:
+    var: cluster_map
+```
+
+**缓存与持久化**: `set_fact` 设置的变量仅在当前 Play 生命周期内有效. 如果需要跨 Play 持久化, 需要使用 `cacheable: yes` 参数 (需要配置 Fact Cache 后端如 Redis/Memcached).
+
+### 2.2 系统观测: Ansible Facts
+
+Facts 是 Ansible 通过 `setup` 模块自动收集的远程主机系统信息. 理解 Facts 的收集机制和数据结构对于编写健壮的 Playbook 至关重要.
+
+#### 2.2.1 Facts 收集机制
+
+**默认行为**: 每个 Play 开始时, Ansible 会隐式执行 `setup` 模块收集 Facts:
+
+```yaml
+# 等效于在每个 Play 开始时自动执行:
+- name: Gathering Facts
+  setup:
+```
+
+**禁用方式** (提升性能):
+
+```yaml
+- hosts: all
+  gather_facts: no  # 跳过自动收集
+  tasks:
+    - name: Manually gather facts if needed
+      setup:
+      when: some_condition
+```
+
+**子集收集** (减少网络开销):
+
+```yaml
+- hosts: all
+  gather_facts: yes
+  gather_subset:
+    - '!all'  # 排除所有
+    - '!min'  # 排除最小集
+    - network  # 仅收集网络信息
+    - virtual  # 仅收集虚拟化信息
+```
+
+**完整子集列表**:
+- `hardware`: CPU, 内存, 磁盘
+- `network`: 网卡, IP, 路由
+- `virtual`: 虚拟化类型 (KVM, VMware, Docker)
+- `ohai`: Chef Ohai 兼容数据 (如果安装)
+- `facter`: Puppet Facter 兼容数据 (如果安装)
+
+#### 2.2.2 Facts 数据结构
+
+**新旧命名空间**:
+
+Ansible 2.5+ 引入了新的 `ansible_facts` 命名空间, 将所有 Facts 归集到一个字典中:
+
+```yaml
+# 旧式访问 (仍然支持, 但不推荐)
+{{ ansible_eth0.ipv4.address }}
+{{ ansible_hostname }}
+
+# 新式访问 (推荐)
+{{ ansible_facts['eth0']['ipv4']['address'] }}
+{{ ansible_facts['hostname'] }}
+```
+
+**推荐使用新式的原因**:
+1. 避免与用户自定义变量冲突 (旧式会占用全局命名空间)
+2. 显式表明数据来源是 Facts 而非自定义变量
+3. 在 `gather_facts: no` 时不会抛出未定义错误 (可配合 `default` 过滤器)
+
+**常用 Facts 清单**:
+
+```yaml
+# 系统识别
+ansible_facts['distribution']           # CentOS, Ubuntu, Debian
+ansible_facts['distribution_version']   # 7.9, 20.04, 10
+ansible_facts['os_family']              # RedHat, Debian, Suse
+ansible_facts['kernel']                 # 5.4.0-42-generic
+
+# 硬件信息
+ansible_facts['processor_cores']        # CPU 核心数
+ansible_facts['memtotal_mb']            # 总内存 (MB)
+ansible_facts['devices']                # 磁盘设备字典
+ansible_facts['mounts']                 # 挂载点列表
+
+# 网络信息
+ansible_facts['default_ipv4']['address']    # 主 IP
+ansible_facts['default_ipv4']['interface']  # 主网卡名
+ansible_facts['all_ipv4_addresses']         # 所有 IPv4 列表
+ansible_facts['interfaces']                 # 所有网卡名称列表
+
+# 虚拟化
+ansible_facts['virtualization_type']    # kvm, vmware, docker, lxc
+ansible_facts['virtualization_role']    # guest, host
+```
+
+**实战案例 - 自适应软件包安装**:
+
+```yaml
+- name: Install web server based on OS
+  package:
+    name: |
+      {% if ansible_facts['os_family'] == 'Debian' %}
+      apache2
+      {% elif ansible_facts['os_family'] == 'RedHat' %}
+      httpd
+      {% endif %}
+    state: present
+```
+
+#### 2.2.3 自定义 Facts
+
+除了系统 Facts, 可以在远程主机上部署自定义 Facts 脚本, 用于暴露应用级别的元数据.
+
+**部署位置**: `/etc/ansible/facts.d/*.fact`
+
+**格式要求**: JSON 或 INI 格式, 文件必须可执行
+
+**JSON 格式示例** (`/etc/ansible/facts.d/app_info.fact`):
+
+```bash
+#!/bin/bash
+cat << EOF
+{
+  "version": "2.1.4",
+  "build_date": "2024-01-15",
+  "environment": "production"
+}
+EOF
+```
+
+**INI 格式示例** (`/etc/ansible/facts.d/database.fact`):
+
+```ini
+[main]
+engine=postgresql
+version=14.2
+port=5432
+
+[replication]
+enabled=true
+role=master
+```
+
+**访问方式**:
+
+```yaml
+- debug:
+    msg: |
+      App Version: {{ ansible_facts['ansible_local']['app_info']['version'] }}
+      DB Engine: {{ ansible_facts['ansible_local']['database']['main']['engine'] }}
+```
+
+**应用场景**:
+- 应用版本检测 (避免重复部署)
+- 数据库主从角色判定
+- 许可证信息查询
+- 业务标签管理 (如 IDC 机房位置, 业务线归属)
+
+### 2.3 魔法变量 (Magic Variables)
+
+魔法变量是 Ansible 运行时自动提供的元数据, 用于实现跨主机数据共享和环境感知.
+
+#### 2.3.1 `hostvars` - 全局主机变量字典
+
+`hostvars` 是一个包含所有主机变量的全局字典, 允许在任意主机的任务中访问其他主机的数据.
+
+**数据结构**:
+
+```python
+hostvars = {
+    'web01': {
+        'ansible_facts': {...},
+        'custom_var': 'value',
+        ...
+    },
+    'db01': {
+        'ansible_facts': {...},
+        ...
+    }
+}
+```
+
+**典型用例 - 获取后端数据库 IP**:
+
+```yaml
+# 在 web 服务器上配置应用连接字符串
+- hosts: web_servers
+  tasks:
+    - name: Configure app database connection
+      template:
+        src: app_config.j2
+        dest: /etc/app/config.ini
+```
+
+**模板内容** (`app_config.j2`):
+
+```ini
+[database]
+host = {{ hostvars['db_primary']['ansible_facts']['default_ipv4']['address'] }}
+port = {{ hostvars['db_primary']['db_port'] | default(5432) }}
+```
+
+**高级应用 - 动态服务发现**:
+
+```yaml
+# 生成所有 web 服务器的 IP 列表
+- set_fact:
+    web_backends: |
+      {% set ips = [] %}
+      {% for host in groups['web_servers'] %}
+      {%   if hostvars[host]['ansible_facts'] is defined %}
+      {%     set _ = ips.append(hostvars[host]['ansible_facts']['default_ipv4']['address']) %}
+      {%   endif %}
+      {% endfor %}
+      {{ ips }}
+```
+
+**性能陷阱**: `hostvars` 访问会触发该主机的 Facts 收集 (如果尚未收集). 在大规模环境 (1000+ 主机) 中, 应避免在循环中频繁访问 `hostvars[host]['ansible_facts']`.
+
+#### 2.3.2 `groups` 和 `group_names`
+
+**`groups`**: Inventory 中所有组的字典, 值为主机名列表
+
+**`group_names`**: 当前主机所属的组名列表
+
+**实战案例 - HAProxy 后端配置**:
+
+```jinja
+# templates/haproxy.cfg.j2
+backend web_cluster
+    balance roundrobin
+    {% for host in groups['web_servers'] %}
+    server {{ host }} {{ hostvars[host]['ansible_facts']['default_ipv4']['address'] }}:80 check
+    {% endfor %}
+
+backend api_cluster
+    balance leastconn
+    {% for host in groups['api_servers'] %}
+    server {{ host }} {{ hostvars[host]['ansible_facts']['default_ipv4']['address'] }}:8080 check
+    {% endfor %}
+```
+
+**条件执行 - 基于组成员身份**:
+
+```yaml
+- name: Install monitoring agent only on production
+  package:
+    name: datadog-agent
+    state: present
+  when: "'production' in group_names"
+
+- name: Configure firewall for database servers
+  firewalld:
+    port: 5432/tcp
+    permanent: yes
+    state: enabled
+  when: "'database_servers' in group_names"
+```
+
+**高级技巧 - 跨组数据聚合**:
+
+```yaml
+- name: Generate complete service mesh map
+  set_fact:
+    service_mesh: |
+      {% set mesh = {} %}
+      {% for group in groups.keys() %}
+      {%   if group not in ['all', 'ungrouped'] %}
+      {%     set hosts = [] %}
+      {%     for host in groups[group] %}
+      {%       set _ = hosts.append({
+                 'name': host,
+                 'ip': hostvars[host]['ansible_facts']['default_ipv4']['address']
+               }) %}
+      {%     endfor %}
+      {%     set _ = mesh.update({group: hosts}) %}
+      {%   endif %}
+      {% endfor %}
+      {{ mesh | to_nice_json }}
+```
+
+#### 2.3.3 `inventory_hostname` vs `ansible_hostname`
+
+**核心区别**:
+
+| 变量 | 来源 | 值示例 | 用途 |
+|------|------|-------|------|
+| `inventory_hostname` | Inventory 文件 | `web01.prod` | Ansible 内部识别符 |
+| `ansible_facts['hostname']` | 远程主机 Facts | `web01` | 实际主机名 (hostname 命令输出) |
+| `ansible_facts['fqdn']` | 远程主机 Facts | `web01.example.com` | 完全限定域名 |
+
+**典型场景 - Inventory 使用 IP**:
+
+```ini
+# inventory
+[web]
+192.168.1.10  hostname=web01
+192.168.1.11  hostname=web02
+```
+
+此时:
+- `inventory_hostname` = `192.168.1.10`
+- `ansible_facts['hostname']` = 远程主机的实际主机名
+- `hostname` (自定义变量) = `web01`
+
+**推荐实践**: 在模板中引用主机名时, 应明确需求:
+- **配置文件需要稳定标识符**: 使用 `inventory_hostname`
+- **日志输出需要可读名称**: 使用 `hostname` 变量或 `ansible_facts['hostname']`
+
+### 2.4 外部数据源: Lookup 插件
+
+Lookup 插件允许 Ansible 从控制节点的文件系统、环境变量、外部 API 甚至数据库中检索数据, 是实现配置集中管理的关键机制.
+
+#### 2.4.1 核心概念
+
+**执行位置**: Lookup 始终在控制节点执行, 而非远程主机
+
+**执行时机**: 在 Jinja2 模板渲染阶段执行, 早于任务执行
+
+**返回值**: 默认返回字符串或列表
+
+#### 2.4.2 文件系统 Lookup
+
+**`file` - 读取文本文件**:
+
+```yaml
+- name: Deploy SSH public key
+  authorized_key:
+    user: deploy
+    key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+
+- name: Inject CA certificate
+  copy:
+    content: "{{ lookup('file', '/etc/ssl/certs/ca-bundle.crt') }}"
+    dest: /usr/local/share/ca-certificates/internal-ca.crt
+```
+
+**`fileglob` - 批量文件匹配**:
+
+```yaml
+- name: Deploy all configuration snippets
+  copy:
+    src: "{{ item }}"
+    dest: "/etc/app/conf.d/{{ item | basename }}"
+  loop: "{{ lookup('fileglob', 'config-snippets/*.conf', wantlist=True) }}"
+```
+
+**`template` - 在控制节点渲染模板**:
+
+```yaml
+- name: Generate complex config and store as variable
+  set_fact:
+    nginx_config: "{{ lookup('template', 'nginx.conf.j2') }}"
+
+- name: Deploy pre-rendered config
+  copy:
+    content: "{{ nginx_config }}"
+    dest: /etc/nginx/nginx.conf
+```
+
+#### 2.4.3 环境与Shell Lookup
+
+**`env` - 读取环境变量**:
+
+```yaml
+- name: Use secret from environment
+  uri:
+    url: https://api.example.com/deploy
+    headers:
+      Authorization: "Bearer {{ lookup('env', 'API_TOKEN') }}"
+    method: POST
+
+- name: Get current user
+  debug:
+    msg: "Running as {{ lookup('env', 'USER') }}"
+```
+
+**`pipe` - 执行 Shell 命令**:
+
+```yaml
+- name: Get Git commit hash
+  set_fact:
+    git_commit: "{{ lookup('pipe', 'git rev-parse --short HEAD') }}"
+
+- name: Generate unique deployment ID
+  set_fact:
+    deploy_id: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}_{{ lookup('pipe', 'uuidgen | cut -d- -f1') }}"
+
+- name: Tag deployed artifact
+  copy:
+    src: app.jar
+    dest: "/opt/releases/app_{{ git_commit }}.jar"
+```
+
+#### 2.4.4 KV 存储与密码管理
+
+**`password` - 生成和存储随机密码**:
+
+```yaml
+# 首次运行生成密码, 后续运行读取相同密码
+- name: Ensure database password exists
+  set_fact:
+    db_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+
+# 持久化到文件
+- name: Generate and persist MySQL root password
+  set_fact:
+    mysql_root_password: "{{ lookup('password', 'credentials/mysql_root_pass length=20') }}"
+```
+
+**`ini` - 解析 INI 文件**:
+
+```yaml
+- name: Read from app.ini
+  debug:
+    msg: "DB Host: {{ lookup('ini', 'host section=database file=app.ini') }}"
+```
+
+**`csvfile` - 查询 CSV 数据**:
+
+```yaml
+# servers.csv:
+# hostname,ip,role
+# web01,192.168.1.10,frontend
+# db01,192.168.1.20,database
+
+- name: Get IP for web01
+  debug:
+    msg: "{{ lookup('csvfile', 'web01 file=servers.csv delimiter=, col=1') }}"
+  # 输出: 192.168.1.10
+```
+
+#### 2.4.5 高级 Lookup - URL 与 API
+
+**`url` - HTTP/HTTPS 请求**:
+
+```yaml
+- name: Fetch external configuration
+  set_fact:
+    external_config: "{{ lookup('url', 'https://config-server/api/app/prod') }}"
+
+- name: Get public IP from service
+  debug:
+    msg: "Public IP: {{ lookup('url', 'https://ifconfig.me/ip') }}"
+```
+
+**`dig` - DNS 查询**:
+
+```yaml
+- name: Resolve load balancer IP
+  set_fact:
+    lb_ip: "{{ lookup('dig', 'lb.example.com') }}"
+
+- name: Get all A records
+  debug:
+    var: lookup('dig', 'example.com', 'qtype=A', wantlist=True)
+```
+
+#### 2.4.6 性能优化与错误处理
+
+**默认值处理**:
+
+```yaml
+# 如果环境变量不存在, 使用默认值
+- set_fact:
+    api_key: "{{ lookup('env', 'API_KEY') | default('default-key-for-dev', true) }}"
+```
+
+**错误忽略**:
+
+```yaml
+# 如果文件不存在, 返回空字符串而非失败
+- set_fact:
+    optional_config: "{{ lookup('file', '/etc/optional.conf', errors='ignore') | default('') }}"
+```
+
+**缓存控制**:
+
+```yaml
+# 强制重新查询 (跳过缓存)
+- debug:
+    msg: "{{ lookup('pipe', 'date', cache=False) }}"
+```
+
+### 2.5 综合实战案例
+
+#### 场景: 多环境微服务部署系统
+
+```yaml
+- name: Deploy microservice with dynamic configuration
+  hosts: app_servers
+  vars:
+    # Lookup: 从 Git 获取版本信息
+    git_branch: "{{ lookup('pipe', 'git rev-parse --abbrev-ref HEAD') }}"
+    git_commit_short: "{{ lookup('pipe', 'git rev-parse --short HEAD') }}"
+    
+    # Lookup: 从环境变量获取敏感信息
+    docker_registry_token: "{{ lookup('env', 'DOCKER_REGISTRY_TOKEN') }}"
+    deployment_env: "{{ lookup('env', 'DEPLOY_ENV') | default('staging', true) }}"
+    
+    # Lookup: 从外部 API 获取配置
+    service_discovery: "{{ lookup('url', 'https://consul.internal/v1/catalog/services') }}"
+    
+  tasks:
+    - name: Load environment-specific variables
+      include_vars:
+        file: "vars/{{ deployment_env }}.yml"
+    
+    - name: Check current application version
+      shell: cat /opt/app/version.txt 2>/dev/null || echo 'none'
+      register: current_version
+      changed_when: false
+    
+    - name: Determine if deployment needed
       set_fact:
-        # 2.4 Lookup: 执行本地命令捕获日期
-        deploy_date: "{{ lookup('pipe', 'date +%Y-%m-%d') }}"
-        # 2.3 Magic: 获取当前 Inventory 组信息
-        cluster_nodes: "{{ groups['web_servers'] }}"
+        should_deploy: "{{ current_version.stdout != git_commit_short }}"
+        deployment_timestamp: "{{ lookup('pipe', 'date +%s') }}"
+    
+    - name: Build service mesh configuration
+      set_fact:
+        service_endpoints: |
+          {% set endpoints = {} %}
+          {% for svc_type in ['api', 'worker', 'cache'] %}
+          {%   set hosts = [] %}
+          {%   for host in groups[svc_type + '_servers'] | default([]) %}
+          {%     if hostvars[host]['ansible_facts'] is defined %}
+          {%       set host_info = {
+                     'hostname': host,
+                     'ip': hostvars[host]['ansible_facts']['default_ipv4']['address'],
+                     'cpu_cores': hostvars[host]['ansible_facts']['processor_cores'],
+                     'healthy': hostvars[host].get('health_check_passed', true)
+                   } %}
+          {%       if host_info.healthy %}
+          {%         set _ = hosts.append(host_info) %}
+          {%       endif %}
+          {%     endif %}
+          {%   endfor %}
+          {%   set _ = endpoints.update({svc_type: hosts}) %}
+          {% endfor %}
+          {{ endpoints }}
+    
+    - name: Deploy application configuration
+      template:
+        src: app-config.json.j2
+        dest: /opt/app/config.json
+      when: should_deploy | bool
+    
+    - name: Tag deployment metadata
+      copy:
+        content: |
+          {
+            "version": "{{ git_commit_short }}",
+            "branch": "{{ git_branch }}",
+            "environment": "{{ deployment_env }}",
+            "deployed_at": "{{ deployment_timestamp }}",
+            "deployed_by": "{{ lookup('env', 'USER') }}",
+            "inventory_group": {{ group_names | to_json }}
+          }
+        dest: /opt/app/version.txt
+      when: should_deploy | bool
+```
 
-    - name: Record remote service status
-      command: systemctl is-active sshd
-      register: ssh_status  # 2.1 Register: 捕获动态输出
+**配置模板** (`app-config.json.j2`):
 
-    - name: Generate report using hostvars
-      debug:
-        msg: |
-          Deploy date: {{ deploy_date }}
-          Local user's SSH Key: {{ authorized_key }}
-          This host: {{ inventory_hostname }}
-          Is SSH active? {{ ssh_status.stdout }}
-          # 2.3 Magic + Facts: 获取 db_host 的私有 IP
-          Database IP: {{ hostvars['db_host']['ansible_facts']['default_ipv4']['address'] }}
+```jinja
+{
+  "app": {
+    "name": "{{ app_name }}",
+    "version": "{{ git_commit_short }}",
+    "environment": "{{ deployment_env }}"
+  },
+  "database": {
+    "primary": {
+      "host": "{{ hostvars[groups['database_primary'][0]]['ansible_facts']['default_ipv4']['address'] }}",
+      "port": {{ db_port | default(5432) }},
+      "name": "{{ db_name }}"
+    },
+    "replicas": [
+      {% for host in groups['database_replicas'] | default([]) -%}
+      {
+        "host": "{{ hostvars[host]['ansible_facts']['default_ipv4']['address'] }}",
+        "port": {{ db_port | default(5432) }}
+      }{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    ]
+  },
+  "service_mesh": {{ service_endpoints | to_nice_json }},
+  "feature_flags": {
+    "enable_cache": {{ 'redis_servers' in groups }},
+    "enable_async_workers": {{ (groups['worker_servers'] | default([]) | length) > 0 }}
+  }
+}
 ```
 
 ---
@@ -203,6 +935,29 @@ backend dynamic_web
     {% endfor %}
 ```
 
+### 3.7 JMESPath: 专业级数据查询 (json_query)
+
+当处理复杂的嵌套 JSON (如 AWS/K8s 模块返回的数据) 时, 传统的 `.` 访问会变得极其繁琐. `json_query` 是基于 **JMESPath** 规范的高级查询器.
+
+#### 3.7.1 为什么需要它?
+
+传统方式提取所有实例的公共 IP:
+`{{ ec2_instances | map(attribute='public_ip') | list }}`
+
+JMESPath 方式:
+`{{ ec2_instances | json_query('[*].public_ip') }}`
+
+#### 3.7.2 核心语法示例
+
+**场景**: 假设变量 `cluster_info` 包含多层嵌套.
+
+1.  **多级提取**: `json_query('nodes[*].interfaces[0].ip')`
+2.  **带过滤条件的提取**: `json_query('nodes[?status==`ready`].hostname')`
+3.  **多字段转换 (投影)**: `json_query('nodes[*].{Name: hostname, State: status}')`
+4.  **排序与限制**: `json_query('sort_by(nodes, &cpu_usage)[-1].hostname')` (获取 CPU 使用率最高的主机名)
+
+**底层提示**: `json_query` 需要在控制节点安装 `jmespath` Python 库. 它是构建自愈系统 (Self-healing systems) 提取关键指标的首选工具.
+
 ---
 
 ## 4. 安全性: Ansible Vault
@@ -297,10 +1052,11 @@ db_password: !vault |
 3.  **Facts 联动**: 从 `hostvars` 中动态提取每个 web 节点的私有 IP, 并通过 `default` 过滤器处理缺失 IP 的异常情况.
 4.  **空白控制**: 使用 `{%-` 和 `-%}` 符号确保生成的配置文件没有多余空行.
 
-### 5.3 安全加固: 混合加密实战
-1.  使用 `ansible-vault encrypt_string` 加密数据库 Root 密码, 并将其嵌入到明文的 `vars/db_config.yml` 中 (变量级加密).
-2.  将 SSL 私钥文件存储在 `vars/certificates.yml` 中并对其执行全文件加密 (文件级加密).
 3.  配置 `ansible.cfg` 使用 `.vault_pass` 文件, 实现 Playbook 在不加参数的情况下能同时解密上述两种不同粒度的信息.
+
+### 5.4 进阶挑战: 复杂数据清洗与合并
+1.  **JMESPath**: 使用 `json_query` 从一个包含 10 个节点的复杂 JSON 字典中, 提取出所有 CPU 核心数 > 4 且操作系统为 Ubuntu 的节点清单.
+2.  **合并策略**: 模拟 `hash_behaviour=replace` 的场景, 验证如何在不修改全局配置的情况下, 利用 Jinja2 的 `combine` 过滤器手动合并两个不同层级的字典变量.
 
 ---
 

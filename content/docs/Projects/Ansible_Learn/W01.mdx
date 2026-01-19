@@ -135,7 +135,170 @@ pipelining = True
 
 ---
 
-## 6. 第一周进阶练习
+## 6. 动态 Inventory: 云原生主机发现
+
+在云环境中, 服务器实例是动态创建和销毁的. 静态 INI 文件无法适应这种弹性需求. 动态 Inventory 插件允许 Ansible 从外部数据源 (云 API, CMDB, 服务发现系统) 实时获取主机列表.
+
+### 6.1 动态 Inventory 工作原理
+
+```mermaid
+sequenceDiagram
+    participant Ansible
+    participant Plugin as Inventory Plugin
+    participant API as External API
+    
+    Ansible->>Plugin: 加载 inventory.yml
+    Plugin->>API: 查询实例列表
+    API-->>Plugin: 返回 JSON 数据
+    Plugin->>Plugin: 解析并构建主机组
+    Plugin-->>Ansible: 返回 inventory 数据结构
+    Ansible->>Ansible: 按组执行任务
+```
+
+### 6.2 云平台插件示例
+
+**AWS EC2 动态 Inventory**:
+
+```yaml
+# inventory/aws_ec2.yml
+---
+plugin: amazon.aws.aws_ec2
+
+regions:
+  - us-east-1
+  - us-west-2
+
+# 过滤条件 (仅获取运行中的实例)
+filters:
+  instance-state-name: running
+  "tag:Environment": production
+
+# 基于标签构建主机组
+keyed_groups:
+  - key: tags.Role
+    prefix: role
+    separator: "_"
+  - key: placement.availability_zone
+    prefix: az
+  - key: instance_type
+    prefix: type
+
+# 组合变量
+compose:
+  ansible_host: public_ip_address | default(private_ip_address)
+  ansible_user: "'ec2-user'"
+  instance_name: tags.Name | default(instance_id)
+
+# 主机变量设置
+hostnames:
+  - tag:Name
+  - private-dns-name
+  - instance-id
+```
+
+**验证动态 Inventory**:
+
+```bash
+# 列出所有主机
+ansible-inventory -i inventory/aws_ec2.yml --list
+
+# 以图形化方式展示
+ansible-inventory -i inventory/aws_ec2.yml --graph
+
+# 测试连通性
+ansible -i inventory/aws_ec2.yml all -m ping
+```
+
+### 6.3 自定义 Inventory 插件开发
+
+当现有插件无法满足需求时 (如对接内部 CMDB), 可以开发自定义插件:
+
+```python
+# inventory_plugins/my_cmdb.py
+from ansible.plugins.inventory import BaseInventoryPlugin, Constructable
+from ansible.errors import AnsibleError
+import requests
+
+DOCUMENTATION = r'''
+name: my_cmdb
+plugin_type: inventory
+short_description: Inventory from internal CMDB
+'''
+
+class InventoryModule(BaseInventoryPlugin, Constructable):
+    NAME = 'my_cmdb'
+    
+    def verify_file(self, path):
+        """验证配置文件"""
+        valid = False
+        if super().verify_file(path):
+            if path.endswith(('cmdb.yml', 'cmdb.yaml')):
+                valid = True
+        return valid
+    
+    def parse(self, inventory, loader, path, cache=True):
+        """解析并填充 inventory"""
+        super().parse(inventory, loader, path, cache)
+        self._read_config_data(path)
+        
+        # 从 CMDB API 获取数据
+        api_url = self.get_option('api_url')
+        api_token = self.get_option('api_token')
+        
+        try:
+            response = requests.get(
+                f"{api_url}/api/v1/servers",
+                headers={'Authorization': f'Bearer {api_token}'},
+                timeout=30
+            )
+            response.raise_for_status()
+            servers = response.json()
+        except Exception as e:
+            raise AnsibleError(f"Failed to fetch from CMDB: {e}")
+        
+        # 构建 inventory
+        for server in servers:
+            hostname = server['hostname']
+            self.inventory.add_host(hostname)
+            
+            # 设置主机变量
+            self.inventory.set_variable(hostname, 'ansible_host', server['ip'])
+            self.inventory.set_variable(hostname, 'server_role', server.get('role'))
+            
+            # 添加到组
+            group = server.get('environment', 'ungrouped')
+            self.inventory.add_group(group)
+            self.inventory.add_child(group, hostname)
+```
+
+### 6.4 大规模 Inventory 分片策略
+
+当管理 1000+ 主机时, 单一 Inventory 文件会变得难以维护. 采用分片策略:
+
+```
+inventory/
+├── production/
+│   ├── aws_ec2.yml      # AWS 动态获取
+│   ├── azure_rm.yml     # Azure 动态获取
+│   ├── static.yml       # 静态主机 (物理机, 特殊设备)
+│   └── group_vars/
+│       └── all.yml
+├── staging/
+│   ├── aws_ec2.yml
+│   └── group_vars/
+│       └── all.yml
+└── development/
+    └── static.yml
+```
+
+```bash
+# 使用整个目录作为 Inventory
+ansible-playbook -i inventory/production/ site.yml
+```
+
+---
+
+## 7. 第一周进阶练习
 
 ### 练习 1: 优先级实验
 1.  在 `/etc/ansible/ansible.cfg` 设置 `forks = 5`.
