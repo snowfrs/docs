@@ -56,43 +56,445 @@ stat -fc %T /sys/fs/cgroup/
 
 ---
 
-## 2. 容器底座: CRI 与 OCI 标准剖析
+## 2. Linux Namespace 内核机制深度剖析
+
+容器隔离的核心是 Linux Namespace, 它为进程提供了一个独立的系统资源视图. 理解这一机制是深入排障容器问题的基础.
+
+### 2.1 Namespace 类型与 clone() 系统调用
+
+Linux 通过 `clone(2)` 系统调用创建新进程并将其放入新 Namespace:
+
+| Namespace | clone Flag | 隔离内容 | 引入版本 |
+| :--- | :--- | :--- | :--- |
+| **Mount** | `CLONE_NEWNS` | 文件系统挂载点 | 2.4.19 |
+| **UTS** | `CLONE_NEWUTS` | 主机名, 域名 | 2.6.19 |
+| **IPC** | `CLONE_NEWIPC` | 信号量, 消息队列, 共享内存 | 2.6.19 |
+| **PID** | `CLONE_NEWPID` | 进程 ID 编号空间 | 2.6.24 |
+| **Network** | `CLONE_NEWNET` | 网络设备, 协议栈, 端口 | 2.6.29 |
+| **User** | `CLONE_NEWUSER` | UID/GID 映射 | 3.8 |
+| **Cgroup** | `CLONE_NEWCGROUP` | Cgroup 根目录视图 | 4.6 |
+
+### 2.2 Namespace 持久化与引用
+
+Namespace 的生命周期由引用计数管理:
+
+*   **进程引用**: 只要有进程存在于 Namespace 中, 它就不会被销毁.
+*   **文件引用**: 通过 bind mount `/proc/<pid>/ns/<type>` 可以持久化 Namespace.
+*   **文件描述符引用**: `setns(2)` 可以将进程加入已存在的 Namespace.
+
+```bash
+# 查看进程所属的 Namespace
+ls -la /proc/$$/ns/
+# lrwxrwxrwx 1 root root 0 Jan 21 10:00 cgroup -> 'cgroup:[4026531835]'
+# lrwxrwxrwx 1 root root 0 Jan 21 10:00 ipc -> 'ipc:[4026531839]'
+# lrwxrwxrwx 1 root root 0 Jan 21 10:00 mnt -> 'mnt:[4026531840]'
+# lrwxrwxrwx 1 root root 0 Jan 21 10:00 net -> 'net:[4026531992]'
+# lrwxrwxrwx 1 root root 0 Jan 21 10:00 pid -> 'pid:[4026531836]'
+# lrwxrwxrwx 1 root root 0 Jan 21 10:00 user -> 'user:[4026531837]'
+# lrwxrwxrwx 1 root root 0 Jan 21 10:00 uts -> 'uts:[4026531838]'
+```
+
+### 2.3 User Namespace 与 UID 映射
+
+User Namespace 是实现 Rootless Container 的核心. 它允许容器内的 root (UID 0) 映射到宿主机的非特权用户:
+
+```bash
+# 查看 UID 映射
+cat /proc/<container_pid>/uid_map
+#         0       1000          1   # 容器内 UID 0 → 宿主机 UID 1000
+
+# 映射格式: <ns_inside_start> <host_start> <length>
+```
+
+*   **安全意义**: 即使容器内进程以 root 运行, 逃逸后仅获得宿主机普通用户权限.
+*   **文件系统影响**: 挂载卷时会出现 "permission denied", 因为文件 UID 不在映射范围内.
+
+### 2.4 Network Namespace 与 Veth Pair
+
+容器网络隔离依赖 Network Namespace 与虚拟以太网对 (veth pair):
+
+```mermaid
+graph LR
+    subgraph "Host Network Namespace"
+        A[eth0] --> B[Bridge: cni0]
+        C[veth-host-end]
+    end
+    subgraph "Container Network Namespace"
+        D[eth0]
+    end
+    B --> C
+    C -.veth pair.- D
+```
+
+*   **创建流程**: 
+    1. 创建 Network Namespace: `ip netns add <name>`
+    2. 创建 veth pair: `ip link add veth0 type veth peer name veth1`
+    3. 将一端移入容器: `ip link set veth1 netns <name>`
+    4. 配置 IP 地址与路由
+
+*   **诊断命令**:
+    ```bash
+    # 进入容器的 Network Namespace
+    nsenter -t <container_pid> -n ip addr
+    
+    # 查看 veth 对端
+    ip link show | grep -A1 veth
+    ethtool -S veth12345 | grep peer_ifindex
+    ```
+
+---
+
+## 3. Cgroups V2 统一层级深度剖析
+
+### 3.1 从 V1 到 V2 的架构演进
+
+Cgroups V1 采用多层级结构, 每个控制器 (cpu, memory, blkio) 可以有独立的层级树, 导致管理复杂且存在不一致问题. V2 引入了**统一层级 (Unified Hierarchy)**, 所有控制器共享同一棵树.
+
+| 特性 | Cgroups V1 | Cgroups V2 |
+| :--- | :--- | :--- |
+| **层级结构** | 多层级 (每控制器一棵树) | 统一层级 (单棵树) |
+| **控制器激活** | 挂载时指定 | 通过 `cgroup.subtree_control` |
+| **进程归属** | 可属于不同控制器的不同 cgroup | 进程只能属于一个 cgroup |
+| **线程支持** | 有限 | Threaded cgroup 原生支持 |
+| **PSI 支持** | 无 | 原生 Pressure Stall Information |
+
+### 3.2 控制器激活与委托
+
+V2 使用 `cgroup.subtree_control` 文件控制子 cgroup 可用的控制器:
+
+```bash
+# 查看可用控制器
+cat /sys/fs/cgroup/cgroup.controllers
+# cpu cpuset io memory hugetlb pids rdma misc
+
+# 为子 cgroup 启用控制器
+echo "+cpu +memory +io" > /sys/fs/cgroup/kubepods/cgroup.subtree_control
+
+# 查看生效的控制器
+cat /sys/fs/cgroup/kubepods/cgroup.subtree_control
+# cpu memory io
+```
+
+### 3.3 Memory Controller 关键文件
+
+| 文件 | 描述 | Kubernetes 映射 |
+| :--- | :--- | :--- |
+| `memory.current` | 当前内存使用量 | 容器 RSS + Page Cache |
+| `memory.min` | 硬保护下限 (不可回收) | - |
+| `memory.low` | 软保护下限 (优先保留) | - |
+| `memory.high` | 限流阈值 (触发回收) | - |
+| `memory.max` | 硬上限 (触发 OOM) | `limits.memory` |
+| `memory.swap.max` | Swap 上限 | - |
+
+*   **OOM 触发条件**: 当 `memory.current` 达到 `memory.max` 且内核无法回收更多内存时.
+*   **Kubernetes 默认行为**: 仅设置 `memory.max`, 不设置 `memory.high` (无渐进式限流).
+
+### 3.4 PSI (Pressure Stall Information)
+
+PSI 提供资源压力的量化指标, 是容量规划的关键数据源:
+
+```bash
+cat /sys/fs/cgroup/kubepods/cpu.pressure
+# some avg10=0.00 avg60=0.00 avg300=0.00 total=0
+# full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+
+cat /sys/fs/cgroup/kubepods/memory.pressure
+# some avg10=0.50 avg60=0.33 avg300=0.21 total=123456789
+# full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+```
+
+*   **some**: 至少有一个任务在等待资源的时间百分比.
+*   **full**: 所有任务都在等待资源的时间百分比.
+*   **Prometheus 集成**: 可通过 `cAdvisor` 暴露 PSI 指标用于告警.
+
+---
+
+## 4. 容器底座: CRI 与 OCI 标准剖析
 
 Kubernetes 不直接管理容器, 而是通过 **CRI (Container Runtime Interface)** 与底层的容器运行时进行交互. 理解这一层抽象是 SRE 深入排障的基础.
 
-### 2.1 架构层级: 从 Kubelet 到 runc
-1.  **Kubelet**: 发起 gRPC 请求到 CRI Shim.
-2.  **CRI Runtime (Containerd/CRI-O)**: 管理镜像映射和容器元数据.
-3.  **OCI Runtime (runc)**: 调用 Linux 内核 API (clone, setns, unshare) 执行最终的容器进程创建.
+### 4.1 架构层级: 从 Kubelet 到 runc
 
-### 2.2 关键机制: Cgroups V2 适配
+```mermaid
+sequenceDiagram
+    participant Kubelet
+    participant CRI as CRI Runtime (containerd)
+    participant Shim as containerd-shim-runc-v2
+    participant runc
+    participant Kernel as Linux Kernel
+    
+    Kubelet->>CRI: gRPC: CreateContainer()
+    CRI->>Shim: Start shim process
+    Shim->>runc: runc create --bundle /path
+    runc->>Kernel: clone() with CLONE_NEW*
+    runc-->>Shim: Container PID
+    Shim-->>CRI: Container ID
+    CRI-->>Kubelet: ContainerID
+```
+
+*   **Kubelet**: 发起 gRPC 请求到 CRI Runtime.
+*   **CRI Runtime (Containerd/CRI-O)**: 管理镜像, Sandbox, 容器元数据.
+*   **containerd-shim-runc-v2**: 解耦容器进程与 containerd 守护进程, 支持 containerd 热重启.
+*   **OCI Runtime (runc)**: 解析 OCI spec, 调用 Linux 内核 API 创建容器.
+
+### 4.2 CRI gRPC 协议详解
+
+CRI 定义了两个核心服务:
+
+| 服务 | 核心 RPC | 描述 |
+| :--- | :--- | :--- |
+| **RuntimeService** | `RunPodSandbox`, `CreateContainer`, `StartContainer`, `StopContainer`, `RemoveContainer` | Pod/容器生命周期管理 |
+| **ImageService** | `PullImage`, `ListImages`, `RemoveImage`, `ImageStatus` | 镜像拉取与管理 |
+
+*   **Sandbox 概念**: CRI 中的 Sandbox 对应 Kubernetes Pod, 包含网络命名空间和 pause 容器.
+*   **通信端点**: 默认 Unix Socket `/run/containerd/containerd.sock`.
+
+### 4.3 OCI Runtime Specification
+
+runc 接收的配置文件 (`config.json`) 结构:
+
+```json
+{
+  "ociVersion": "1.0.2",
+  "process": {
+    "terminal": false,
+    "user": { "uid": 0, "gid": 0 },
+    "args": ["/bin/sh"],
+    "env": ["PATH=/usr/bin"],
+    "cwd": "/"
+  },
+  "root": { "path": "rootfs", "readonly": true },
+  "linux": {
+    "namespaces": [
+      { "type": "pid" },
+      { "type": "network" },
+      { "type": "mount" }
+    ],
+    "resources": {
+      "memory": { "limit": 536870912 },
+      "cpu": { "shares": 1024, "quota": 100000, "period": 100000 }
+    }
+  }
+}
+```
+
+*   **rootfs**: 容器的根文件系统 (由镜像层叠加生成).
+*   **linux.namespaces**: 要创建的 Namespace 列表.
+*   **linux.resources**: 直接映射到 cgroup 配置.
+
+### 4.4 containerd-shim 架构
+
+```mermaid
+graph TD
+    subgraph "containerd (可重启)"
+        A[containerd daemon]
+    end
+    subgraph "Per-Container (持久)"
+        B[containerd-shim-runc-v2]
+        C[Container Process]
+    end
+    A -- "gRPC over ttrpc" --> B
+    B -- "Manages" --> C
+```
+
+*   **设计目标**: shim 进程与容器生命周期绑定, containerd 重启不影响正在运行的容器.
+*   **ttrpc**: Lightweight gRPC 替代协议, 减少内存占用.
+*   **诊断**: `ps aux | grep shim` 可看到每个容器对应一个 shim 进程.
+
+### 4.5 Cgroup Driver 统一策略
 *   **为何统一 Cgroup Driver?** 
     Kubelet 和容器运行时必须同时使用 `systemd` 或 `cgroupfs` 作为驱动. 混合使用会导致资源统计不准且系统不稳定.
-*   **生产建议**: 在现代 Linux 发行版中, 统一采用 `systemd` 以减少竞争.
+*   **生产环境**: 在现代 Linux 发行版 (systemd-based) 中, 统一采用 `systemd` 以减少竞争.
 
 ---
 
-## 3. 集群指挥部: 控制平面的核心逻辑
+## 5. Kubelet 核心机制深度剖析
 
-### 3.1 API Server: 数据的唯一入口
-API Server 是唯一直接访问 Etcd 的组件. 它承担了认证、授权、准入控制及所有资源的缓存与过滤工作.
+### 5.1 PLEG (Pod Lifecycle Event Generator)
 
-### 3.2 Controller Manager 与 Scheduler
-*   **声明式控制环 (Control Loop)**: 理解 "Expectation vs Reality". 
-*   **调度策略**: 熟练掌握 Predicates (预选) 与 Priorities (优选) 的基本判别逻辑.
+PLEG 是 Kubelet 监控容器状态变化的核心组件:
+
+```mermaid
+sequenceDiagram
+    participant PLEG
+    participant CRI as CRI Runtime
+    participant SyncLoop
+    
+    loop Every 1s (relist interval)
+        PLEG->>CRI: ListPodSandbox() + ListContainers()
+        CRI-->>PLEG: Current State
+        PLEG->>PLEG: Compare with cached state
+        PLEG->>SyncLoop: PodLifecycleEvent (if changed)
+    end
+```
+
+*   **Relist Interval**: 默认 1 秒, 控制状态同步延迟.
+*   **故障症状**: `PLEG is not healthy` 通常意味着 CRI 响应缓慢或 relist 超时 (默认 3 分钟).
+*   **诊断**:
+    ```bash
+    # 检查 PLEG 健康状态
+    curl -s http://localhost:10248/healthz?verbose | grep -i pleg
+    
+    # 查看 Kubelet 日志中的 PLEG 事件
+    journalctl -u kubelet | grep -i pleg
+    ```
+
+### 5.2 Node Lease 心跳机制
+
+Kubelet 通过 `kube-node-lease` 命名空间中的 Lease 对象向 API Server 报告存活状态:
+
+| 参数 | 默认值 | 描述 |
+| :--- | :--- | :--- |
+| `nodeLeaseDurationSeconds` | 40s | Lease 有效期 |
+| `nodeStatusUpdateFrequency` | 10s | 节点状态更新间隔 |
+| `nodeMonitorGracePeriod` | 40s | Node Controller 等待心跳的宽限期 |
+
+*   **Lease vs NodeStatus**: Lease 更新更轻量 (仅 renewTime), 减少 Etcd 写入压力.
+*   **节点 NotReady**: 当 Lease 过期且 NodeStatus 更新失败时触发.
+
+### 5.3 SyncLoop 工作流
+
+Kubelet 的主循环 (SyncLoop) 整合多个事件源:
+
+*   **configCh**: 来自 API Server 的 Pod 配置变更.
+*   **plegCh**: PLEG 产生的容器状态事件.
+*   **syncCh**: 定期同步 (默认 1 秒).
+*   **housekeepingCh**: 清理任务 (如删除已终止的容器).
 
 ---
 
-## 4. 实战指导: 基于 kubeadm 的高可用引导
+## 6. 控制平面核心逻辑
 
-### 4.1 证书管理体系 (PKI)
-Kubernetes 依赖复杂的数字证书体系. 必须理清以下关键路径:
-*   **Front-Proxy**: 用于 API Aggregator 的双向 TLS 认证.
-*   **CA 轮转**: 掌握如何手动更新即将过期的 `/etc/kubernetes/pki` 下的证书.
+### 6.1 API Server: 数据的唯一入口
 
-### 4.2 外部 Etcd vs 堆叠 Etcd
-*   **堆叠模式 (Stacked)**: 简单, 易于扩容, 但控制平面节点故障会直接影响数据层.
-*   **外部模式 (External)**: 数据层独立, 安全性与性能更高, 但管理成本翻倍.
+API Server 是唯一直接访问 Etcd 的组件. 它承担了认证, 授权, 准入控制及所有资源的缓存与过滤工作.
+
+*   **Watch 机制**: 客户端通过 HTTP Chunked 响应持续接收资源变更事件.
+*   **Informer Cache**: 客户端本地缓存, 减少对 API Server 的直接请求.
+
+### 6.2 Controller Manager
+
+Controller Manager 运行多个控制器, 每个控制器实现一个控制环 (Control Loop):
+
+```mermaid
+graph LR
+    A[Watch Events] --> B{Actual State}
+    C[Desired State] --> D{Reconcile}
+    B --> D
+    D --> E[Take Action]
+    E --> A
+```
+
+*   **核心控制器**: Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, CronJob, Node, Endpoint, ServiceAccount, Namespace.
+*   **Work Queue**: 事件去重与批处理, 减少无效协调.
+
+### 6.3 Scheduler
+
+*   **调度策略**: Filtering (预选) 确定候选节点, Scoring (优选) 选择最佳节点.
+*   **Scheduling Framework**: 可插拔架构, 支持自定义调度插件.
+
+---
+
+## 7. PKI 证书体系深度剖析
+
+Kubernetes 集群依赖复杂的 PKI (Public Key Infrastructure) 体系实现组件间的双向 TLS 认证.
+
+### 7.1 证书层级结构
+
+```mermaid
+graph TD
+    subgraph "Root CA"
+        A["/etc/kubernetes/pki/ca.crt"]
+    end
+    subgraph "Cluster CA 签发"
+        B["apiserver.crt"]
+        C["apiserver-kubelet-client.crt"]
+        D["controller-manager.conf (embedded)"]
+        E["scheduler.conf (embedded)"]
+    end
+    subgraph "Etcd CA"
+        F["/etc/kubernetes/pki/etcd/ca.crt"]
+        G["etcd/server.crt"]
+        H["etcd/peer.crt"]
+        I["apiserver-etcd-client.crt"]
+    end
+    subgraph "Front Proxy CA"
+        J["/etc/kubernetes/pki/front-proxy-ca.crt"]
+        K["front-proxy-client.crt"]
+    end
+    
+    A --> B
+    A --> C
+    A --> D
+    A --> E
+    F --> G
+    F --> H
+    F --> I
+    J --> K
+```
+
+### 7.2 证书用途详解
+
+| 证书 | 签发 CA | 用途 |
+| :--- | :--- | :--- |
+| `ca.crt/key` | 自签 | 集群根 CA, 签发所有 K8s 组件证书 |
+| `apiserver.crt` | ca | API Server 服务端证书, SAN 包含所有访问地址 |
+| `apiserver-kubelet-client.crt` | ca | API Server 访问 Kubelet API 的客户端证书 |
+| `apiserver-etcd-client.crt` | etcd/ca | API Server 访问 Etcd 的客户端证书 |
+| `front-proxy-client.crt` | front-proxy-ca | API Aggregation 层 (如 metrics-server) 的代理认证 |
+| `etcd/server.crt` | etcd/ca | Etcd 服务端证书, 用于客户端连接 |
+| `etcd/peer.crt` | etcd/ca | Etcd 节点间通信证书 |
+
+### 7.3 证书生命周期管理
+
+```bash
+# 查看所有证书过期时间
+kubeadm certs check-expiration
+
+# 输出示例:
+# CERTIFICATE                EXPIRES                  RESIDUAL TIME
+# admin.conf                 Jan 21, 2027 08:00 UTC   364d
+# apiserver                  Jan 21, 2027 08:00 UTC   364d
+# apiserver-etcd-client      Jan 21, 2027 08:00 UTC   364d
+# ...
+
+# 手动续期所有证书
+kubeadm certs renew all
+
+# 续期单个证书
+kubeadm certs renew apiserver
+```
+
+*   **默认有效期**: kubeadm 签发的证书默认 1 年有效.
+*   **CA 有效期**: 根 CA 默认 10 年.
+*   **自动轮转**: Kubelet 客户端证书支持自动轮转 (`rotateCertificates: true`).
+
+### 7.4 证书调试技巧
+
+```bash
+# 查看证书详情
+openssl x509 -in /etc/kubernetes/pki/apiserver.crt -text -noout
+
+# 关键字段:
+# Issuer: CN=kubernetes  (签发者)
+# Subject: CN=kube-apiserver (主体)
+# X509v3 Subject Alternative Name:
+#     DNS:kubernetes, DNS:kubernetes.default, IP:10.96.0.1, IP:192.168.20.101
+
+# 验证证书链
+openssl verify -CAfile /etc/kubernetes/pki/ca.crt /etc/kubernetes/pki/apiserver.crt
+```
+
+### 7.5 外部 Etcd vs 堆叠 Etcd
+
+| 模式 | 优势 | 劣势 | 适用场景 |
+| :--- | :--- | :--- | :--- |
+| **Stacked (堆叠)** | 部署简单, 节点数少 | 控制面故障影响数据层 | 开发/测试, 小规模生产 |
+| **External (外部)** | 数据层独立, 可单独扩展 | 管理复杂, 成本翻倍 | 大规模生产, 高可用要求 |
+
+---
+
+## 8. 实战指南: Rocky Linux 9 部署 Kubernetes 高可用集群
 
 ---
 

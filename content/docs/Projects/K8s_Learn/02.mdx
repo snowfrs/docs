@@ -14,7 +14,180 @@ description: "基于 Cilium KPR, Traefik Gateway API 与 Istio Ambient Mesh 构�
 
 ---
 
-## 2. 第一阶段: 部署 Traefik 边缘网关 (南北向枢纽)
+## 2. eBPF 数据路径深度剖析
+
+eBPF (extended Berkeley Packet Filter) 是 Cilium 实现高性能网络的核心技术. 理解其工作原理对于网络故障排查至关重要.
+
+### 2.1 eBPF Hook 点与执行时机
+
+```mermaid
+graph LR
+    subgraph "网卡入站"
+        A[NIC] --> B[XDP]
+        B --> C[TC Ingress]
+    end
+    subgraph "内核网络栈"
+        C --> D[Netfilter/Conntrack]
+        D --> E[Socket]
+    end
+    subgraph "网卡出站"
+        E --> F[TC Egress]
+        F --> G[NIC]
+    end
+```
+
+| Hook Point | 位置 | 特点 | Cilium 用途 |
+| :--- | :--- | :--- | :--- |
+| **XDP** | 驱动层 (最早) | 性能最高, 可 offload 到网卡硬件 | DDoS 防护, 早期丢包 |
+| **TC Ingress** | 网络栈入口 | 可访问完整 skb 结构 | Service LB, NetworkPolicy |
+| **TC Egress** | 网络栈出口 | 处理出站流量 | NAT, 出口策略 |
+| **Socket** | 传输层 | 与 socket 生命周期绑定 | Socket-level LB (TPROXY) |
+
+### 2.2 Cilium BPF Map 类型
+
+Cilium 使用多种 BPF Map 存储网络状态:
+
+| Map 类型 | 用途 | 示例 |
+| :--- | :--- | :--- |
+| `BPF_MAP_TYPE_HASH` | K-V 查找 | Service 后端列表 |
+| `BPF_MAP_TYPE_LRU_HASH` | 带 LRU 淘汰的 K-V | Connection Tracking |
+| `BPF_MAP_TYPE_LPM_TRIE` | 最长前缀匹配 | CIDR-based NetworkPolicy |
+| `BPF_MAP_TYPE_ARRAY` | 索引数组 | 配置参数, 统计计数器 |
+
+*   **查看 BPF Map**:
+    ```bash
+    # 列出所有 Cilium BPF Map
+    bpftool map list | grep cilium
+    
+    # 查看 Service Map 内容
+    cilium bpf lb list
+    
+    # 查看 Connection Tracking
+    cilium bpf ct list global
+    ```
+
+### 2.3 KPR (Kube-Proxy Replacement) 工作原理
+
+传统 kube-proxy 使用 iptables/ipvs 规则实现 Service 负载均衡, 规则数量与 Service 数量呈线性增长. Cilium KPR 将负载均衡逻辑下沉到 eBPF:
+
+```mermaid
+sequenceDiagram
+    participant Client as Pod A
+    participant eBPF as Cilium eBPF
+    participant Service as Service VIP
+    participant Backend as Pod B
+    
+    Client->>eBPF: SYN to 10.96.0.100:80
+    eBPF->>eBPF: BPF Map lookup (Service -> Backends)
+    eBPF->>eBPF: Select backend (round-robin/random)
+    eBPF->>Backend: DNAT to 10.97.1.5:8080
+    Backend-->>eBPF: Response
+    eBPF-->>Client: SNAT back to Service VIP
+```
+
+*   **性能对比**: O(n) iptables 规则遍历 vs O(1) BPF Map 查找.
+*   **连接亲和性**: 通过 BPF Map 存储会话状态, 实现 Session Affinity.
+
+### 2.4 eBPF 程序调试
+
+```bash
+# 查看加载的 eBPF 程序
+bpftool prog list
+
+# 查看程序附加点
+bpftool net show
+
+# 追踪 eBPF 程序执行
+cilium monitor --type trace
+
+# 抓包 (在 eBPF 层)
+cilium monitor --type drop  # 查看被丢弃的包
+```
+
+---
+
+## 3. CNI 插件链执行机制
+
+### 3.1 CNI 规范核心操作
+
+CNI (Container Network Interface) 定义了容器网络配置的标准接口:
+
+| 操作 | 描述 | 触发时机 |
+| :--- | :--- | :--- |
+| `ADD` | 配置容器网络 | Pod 创建, Sandbox 就绪后 |
+| `DEL` | 清理容器网络 | Pod 删除 |
+| `CHECK` | 验证网络配置 | 健康检查 (可选) |
+| `VERSION` | 返回支持的 CNI 版本 | 初始化 |
+
+### 3.2 插件链执行流程
+
+CNI 支持多个插件串联执行 (Plugin Chaining):
+
+```bash
+# /etc/cni/net.d/05-cilium.conflist
+{
+  "cniVersion": "1.0.0",
+  "name": "cilium",
+  "plugins": [
+    {
+      "type": "cilium-cni"  # 主插件: IP 分配, 路由配置
+    },
+    {
+      "type": "portmap",     # 端口映射 (hostPort 支持)
+      "capabilities": {"portMappings": true}
+    },
+    {
+      "type": "bandwidth",   # 带宽限制
+      "ingressRate": 1000000,
+      "egressRate": 1000000
+    }
+  ]
+}
+```
+
+*   **执行顺序**: 按 plugins 数组顺序依次执行.
+*   **结果传递**: 前一个插件的输出作为后一个插件的 `prevResult`.
+
+### 3.3 CNI ADD 结果结构
+
+```json
+{
+  "cniVersion": "1.0.0",
+  "interfaces": [
+    {"name": "eth0", "sandbox": "/var/run/netns/cni-xxx"}
+  ],
+  "ips": [
+    {"address": "10.97.0.15/24", "gateway": "10.97.0.1", "interface": 0}
+  ],
+  "routes": [
+    {"dst": "0.0.0.0/0", "gw": "10.97.0.1"}
+  ],
+  "dns": {
+    "nameservers": ["10.96.0.10"],
+    "search": ["default.svc.cluster.local"]
+  }
+}
+```
+
+### 3.4 CNI 故障调试
+
+```bash
+# 查看 CNI 配置
+ls -la /etc/cni/net.d/
+cat /etc/cni/net.d/05-cilium.conflist | jq
+
+# 手动执行 CNI (测试)
+CNI_COMMAND=ADD CNI_CONTAINERID=test CNI_NETNS=/var/run/netns/test \
+  CNI_IFNAME=eth0 CNI_PATH=/opt/cni/bin \
+  /opt/cni/bin/cilium-cni < /etc/cni/net.d/05-cilium.conflist
+
+# 查看 Kubelet CNI 日志
+journalctl -u kubelet | grep -i cni
+```
+
+---
+
+## 4. 第一阶段: 部署 Traefik 边缘网关 (南北向枢纽)
 
 Traefik 作为南北流量的 "守门员", 负责将外部请求引入集群.
 
@@ -132,35 +305,56 @@ spec:
 
 ---
 
-## 3. 第二阶段: 开启 Istio Ambient 网格 (东西向治理)
+## 5. Istio Ambient Mesh 内部机制
 
 Istio Ambient 模式通过宿主机层的 `ztunnel` 劫持流量, 为服务间通信提供透明的 mTLS 加密.
 
-### 3.1 安装 istioctl (多平台支持)
+### 5.1 Ambient 架构对比 Sidecar
 
-#### 方案 A: macOS (Homebrew)
-```bash
-brew install istioctl
+| 维度 | Sidecar 模式 | Ambient 模式 |
+| :--- | :--- | :--- |
+| **代理位置** | 每个 Pod 一个 Envoy Sidecar | 每个 Node 一个 ztunnel |
+| **资源开销** | 高 (N 个 Pod = N 个 Sidecar) | 低 (节点级共享) |
+| **L7 策略** | Sidecar 处理 | Waypoint Proxy (按需) |
+| **注入方式** | Namespace Label 触发重启 Pod | Namespace Label 无需重启 |
+| **mTLS** | Sidecar 间加密 | ztunnel 间加密 |
+
+### 5.2 ztunnel 工作原理
+
+```mermaid
+graph LR
+    subgraph "Node A"
+        A[Pod A] --> B[ztunnel A]
+    end
+    subgraph "Node B"
+        C[ztunnel B] --> D[Pod B]
+    end
+    B -- "HBONE (HTTP CONNECT)" --> C
 ```
 
-#### 方案 B: Linux (官方脚本)
+*   **流量劫持**: ztunnel 通过 eBPF 或 iptables TPROXY 拦截 Pod 出入流量.
+*   **HBONE 协议**: HTTP-Based Overlay Network Encapsulation, 使用 HTTP/2 CONNECT 方法封装 TCP 流量.
+*   **mTLS**: ztunnel 间使用 SPIFFE 身份 (X.509 SVID) 实现双向 TLS.
+
+### 5.3 Waypoint Proxy (L7 策略)
+
+当需要 L7 功能 (HTTP 路由, 重试, 熔断) 时, 部署 Waypoint Proxy:
+
 ```bash
-curl -L https://istio.io/downloadIstio | sh -
-cd istio-1.*
-sudo cp bin/istioctl /usr/local/bin/
+# 为 Namespace 创建 Waypoint
+istioctl waypoint apply --namespace default --name default-waypoint
+
+# 查看 Waypoint Pod
+kubectl get pods -n default -l istio.io/gateway-name=default-waypoint
 ```
 
-### 3.2 部署 Ambient Profile 与兼容性修正
-执行安装时, 必须注意 Cilium 的 **CNI Chaining** 冲突.
+*   **工作流程**: ztunnel 检测到 L7 策略时, 将流量转发到 Waypoint Proxy.
+*   **按需部署**: 只有定义了 L7 策略的 Namespace/Service 才需要 Waypoint.
+
+### 5.4 Cilium + Istio Ambient 集成要点
 
 ```bash
-istioctl install --set profile=ambient -y
-```
-
-> ❗ **关键提醒**: 如果检测到 `cni-exclusive=true`, 必须将其设置为 `false`. 否则 Cilium 会锁定 CNI 目录, 导致 Istio CNI 无法挂载, 进一步导致 ztunnel 进入 503 循环.
-
-**修正方法**:
-```bash
+# 关键: 禁用 Cilium CNI 独占模式
 helm upgrade cilium cilium/cilium \
   --namespace kube-system \
   --reuse-values \
@@ -170,8 +364,31 @@ helm upgrade cilium cilium/cilium \
 kubectl rollout restart ds cilium -n kube-system
 ```
 
-### 3.3 纳管业务命名空间
-将监控命名空间标记为 Ambient 模式:
+*   **CNI Chaining**: Cilium 和 Istio CNI 可以共存, 但需禁用 `cni.exclusive`.
+*   **eBPF 与 ztunnel**: Cilium 处理 L3/L4, ztunnel 处理 mTLS 和 L7 安全.
+
+### 5.5 安装与纳管
+
+#### 安装 istioctl
+
+```bash
+# macOS
+brew install istioctl
+
+# Linux
+curl -L https://istio.io/downloadIstio | sh -
+cd istio-1.*
+sudo cp bin/istioctl /usr/local/bin/
+```
+
+#### 部署 Ambient Profile
+
+```bash
+istioctl install --set profile=ambient -y
+```
+
+#### 纳管命名空间
+
 ```bash
 kubectl create namespace monitoring-dev
 kubectl label namespace monitoring-dev istio.io/dataplane-mode=ambient
@@ -180,7 +397,7 @@ kubectl describe namespace monitoring-dev
 
 ---
 
-## 4. 第三阶段: 搭建高可用监控系统 (持久化解耦)
+## 6. 第三阶段: 搭建高可用监控系统 (持久化解耦)
 
 ### 4.1 数据库高可用 (CloudNativePG)
 使用外置 PostgreSQL 取代本地 SQLite, 确保 Grafana 副本间的数据一致性.
