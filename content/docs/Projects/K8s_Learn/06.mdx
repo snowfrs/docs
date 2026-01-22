@@ -167,7 +167,7 @@ spec:
 
 Kubernetes 1.25+ 移除了 PodSecurityPolicy (PSP), 以 **Pod Security Standards (PSS)** 取代.
 
-### 2.1 三级安全基线
+### 5.1 三级安全基线
 
 | 级别 | 描述 | 适用场景 |
 | :--- | :--- | :--- |
@@ -175,7 +175,7 @@ Kubernetes 1.25+ 移除了 PodSecurityPolicy (PSP), 以 **Pod Security Standards
 | **Baseline** | 阻止已知特权提升, 允许常见配置 | 普通应用 |
 | **Restricted** | 严格限制, 遵循 Pod 安全最佳实践 | 高安全要求应用 |
 
-### 2.2 PSS 实施方式
+### 5.2 PSS 实施方式
 
 通过 Namespace Label 启用 Pod Security Admission:
 
@@ -196,7 +196,7 @@ metadata:
     pod-security.kubernetes.io/audit-version: latest
 ```
 
-### 2.3 Restricted 级别核心限制
+### 5.3 Restricted 级别核心限制
 
 | 限制项 | 要求 |
 | :--- | :--- |
@@ -209,7 +209,7 @@ metadata:
 | `capabilities` | 只允许 `NET_BIND_SERVICE` |
 | `seccompProfile.type` | 必须为 `RuntimeDefault` 或 `Localhost` |
 
-### 2.4 符合 Restricted 级别的 Pod 示例
+### 5.4 符合 Restricted 级别的 Pod 示例
 
 ```yaml
 apiVersion: v1
@@ -244,11 +244,11 @@ spec:
 
 ---
 
-## 3. 内核级容器加固
+## 6. 内核级容器加固
 
 容器与宿主机共享内核, 因此内核层面的安全边界至关重要.
 
-### 3.1 Seccomp (Secure Computing Mode)
+### 6.1 Seccomp (Secure Computing Mode)
 
 Seccomp 限制容器可以发起的系统调用 (syscall), 是容器逃逸防御的第一道防线.
 
@@ -298,7 +298,7 @@ Seccomp 限制容器可以发起的系统调用 (syscall), 是容器逃逸防御
         localhostProfile: my-profile.json
     ```
 
-### 3.2 AppArmor
+### 6.2 AppArmor
 
 AppArmor 是 Linux 内核模块, 基于路径的强制访问控制 (MAC).
 
@@ -336,7 +336,7 @@ AppArmor 是 Linux 内核模块, 基于路径的强制访问控制 (MAC).
         container.apparmor.security.beta.kubernetes.io/app: localhost/my-container-profile
     ```
 
-### 3.3 SELinux
+### 6.3 SELinux
 
 SELinux 提供基于类型 (Type Enforcement) 的强制访问控制, 在 RHEL/Rocky Linux 上广泛使用.
 
@@ -359,11 +359,11 @@ SELinux 提供基于类型 (Type Enforcement) 的强制访问控制, 在 RHEL/Ro
 
 ---
 
-## 4. 准入控制 (Admission Control)
+## 7. 准入控制 (Admission Control)
 
 Admission Controller 是 API Server 的守门员, 在对象持久化到 Etcd 之前进行拦截和处理.
 
-### 4.1 准入控制流程
+### 7.1 准入控制流程
 
 ```mermaid
 sequenceDiagram
@@ -386,7 +386,7 @@ sequenceDiagram
     end
 ```
 
-### 4.2 内置准入控制器
+### 7.2 内置准入控制器
 
 | 控制器 | 类型 | 功能 |
 | :--- | :--- | :--- |
@@ -398,7 +398,7 @@ sequenceDiagram
 | `MutatingAdmissionWebhook` | Mutating | 调用外部 Webhook |
 | `ValidatingAdmissionWebhook` | Validating | 调用外部 Webhook |
 
-### 4.3 自定义 Webhook 配置
+### 7.3 自定义 Webhook 配置
 
 ```yaml
 apiVersion: admissionregistration.k8s.io/v1
@@ -426,11 +426,11 @@ webhooks:
 
 ---
 
-## 5. 策略即代码: Kyverno
+## 8. 策略即代码: Kyverno
 
 Kyverno 是 Kubernetes 原生的策略引擎, 使用 YAML 定义策略, 无需学习额外语言.
 
-### 5.1 Kyverno 架构
+### 8.1 Kyverno 架构
 
 ```mermaid
 graph TD
@@ -440,7 +440,7 @@ graph TD
     D --> E["Pod / Deployment / ..."]
 ```
 
-### 5.2 安装 Kyverno
+### 8.2 安装 Kyverno
 
 ```bash
 helm repo add kyverno https://kyverno.github.io/kyverno/
@@ -448,7 +448,7 @@ helm repo update
 helm install kyverno kyverno/kyverno --namespace kyverno --create-namespace
 ```
 
-### 5.3 策略类型
+### 8.3 策略类型
 
 | 类型 | 描述 |
 | :--- | :--- |
@@ -457,7 +457,7 @@ helm install kyverno kyverno/kyverno --namespace kyverno --create-namespace
 | **Generate** | 自动创建关联资源 (如 NetworkPolicy) |
 | **VerifyImages** | 验证镜像签名 |
 
-### 5.4 策略示例
+### 8.4 策略示例
 
 #### 1. 强制要求资源限制
 
@@ -532,7 +532,7 @@ spec:
             team: "{{request.namespace}}"
 ```
 
-### 5.5 Kyverno vs Gatekeeper (OPA)
+### 8.5 Kyverno vs Gatekeeper (OPA)
 
 | 维度 | Kyverno | Gatekeeper |
 | :--- | :--- | :--- |
@@ -544,9 +544,9 @@ spec:
 
 ---
 
-## 6. 供应链安全
+## 9. 供应链安全
 
-### 6.1 镜像漏洞扫描
+### 9.1 镜像漏洞扫描
 
 在 CI/CD 阶段集成 Trivy 进行扫描:
 
@@ -561,7 +561,7 @@ trivy image --severity HIGH,CRITICAL myregistry/myapp:v1.0
 trivy image -f json -o report.json myregistry/myapp:v1.0
 ```
 
-### 6.2 镜像签名与验证 (Cosign)
+### 9.2 镜像签名与验证 (Cosign)
 
 ```bash
 # 生成密钥对
@@ -574,7 +574,7 @@ cosign sign --key cosign.key myregistry/myapp:v1.0
 cosign verify --key cosign.pub myregistry/myapp:v1.0
 ```
 
-### 6.3 Kyverno 镜像验证策略
+### 9.3 Kyverno 镜像验证策略
 
 ```yaml
 apiVersion: kyverno.io/v1
@@ -604,9 +604,9 @@ spec:
 
 ---
 
-## 7. 实战演练
+## 10. 实战演练
 
-### 7.1 Lab 1: 配置 Pod Security Standards
+### 10.1 Lab 1: 配置 Pod Security Standards
 
 **目标**: 在测试 Namespace 启用 Restricted 级别.
 
@@ -621,7 +621,7 @@ kubectl label namespace secure-ns \
 kubectl run priv-pod --image=nginx --privileged -n secure-ns
 ```
 
-### 7.2 Lab 2: 编写 Kyverno 策略
+### 10.2 Lab 2: 编写 Kyverno 策略
 
 **目标**: 强制所有 Deployment 必须定义 CPU/Memory Limits.
 
@@ -629,7 +629,7 @@ kubectl run priv-pod --image=nginx --privileged -n secure-ns
 2.  应用上述 `require-limits` 策略.
 3.  尝试创建无 Limits 的 Deployment, 观察被拒绝.
 
-### 7.3 Lab 3: 编写 AppArmor Profile
+### 10.3 Lab 3: 编写 AppArmor Profile
 
 **目标**: 限制容器写入 /etc 目录.
 
@@ -640,7 +640,7 @@ kubectl run priv-pod --image=nginx --privileged -n secure-ns
 
 ---
 
-## 8. 本周核心要点回顾
+## 11. 本周核心要点回顾
 
 | 领域 | 核心概念 | 关键配置 |
 | :--- | :--- | :--- |

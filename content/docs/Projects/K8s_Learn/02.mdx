@@ -191,7 +191,7 @@ journalctl -u kubelet | grep -i cni
 
 Traefik 作为南北流量的 "守门员", 负责将外部请求引入集群.
 
-### 2.1 安装 Traefik
+### 4.1 安装 Traefik
 通过 Helm 在独立命名空间部署并开启 Gateway API 支持:
 ```bash
 helm repo add traefik https://traefik.github.io/charts
@@ -204,7 +204,7 @@ helm install traefik traefik/traefik \
   --set gatewayExtensions.enabled=true
 ```
 
-### 2.2 底层支撑: Cilium LB IPAM 与 L2 Announcement
+### 4.2 底层支撑: Cilium LB IPAM 与 L2 Announcement
 
 在私有化 (Bare-metal) 环境中, `Service Type: LoadBalancer` 无法自动获得 External IP. 我们需要利用 Cilium 的 **LB IPAM** (管理 IP 池) 和 **L2 Announcement** (通过 ARP 宣告 IP 归属) 来实现 192.168.20.104 的线上可见性.
 
@@ -239,7 +239,7 @@ spec:
 
 ---
 
-### 2.3 定义 GatewayClass 与 Gateway
+### 4.3 定义 GatewayClass 与 Gateway
 
 在 Gateway API 规范中, 我们需要定义 **GatewayClass** 来声明底层的控制器实现, 并创建 **Gateway** 实例来分配物理资源.
 
@@ -399,7 +399,7 @@ kubectl describe namespace monitoring-dev
 
 ## 6. 第三阶段: 搭建高可用监控系统 (持久化解耦)
 
-### 4.1 数据库高可用 (CloudNativePG)
+### 6.1 数据库高可用 (CloudNativePG)
 使用外置 PostgreSQL 取代本地 SQLite, 确保 Grafana 副本间的数据一致性.
 
 ```yaml
@@ -436,7 +436,7 @@ kubectl create secret generic pg-grafana-creds \
   -n monitoring-dev
 ```
 
-### 4.2 应用层 HA 与 路由关联
+### 6.2 应用层 HA 与 路由关联
 
 配置 Grafana 接入外部 PostgreSQL 集群以实现状态剥离. 建议初次调试时将副本数设为 1, 待连通性确认后再扩容.
 
@@ -505,9 +505,9 @@ spec:
 
 ---
 
-## 5. 验证、观测与审计
+## 7. 验证、观测与审计
 
-### 5.1 全链路观测 (Hubble)
+### 7.1 全链路观测 (Hubble)
 观察流量如何跨越 N-S 与 E-W 边界:
 1. **南北流**: 外部 -> VIP (eBPF 拦截) -> Traefik (路由).
 2. **东西流**: Traefik -> ztunnel (加密) -> Grafana -> ztunnel -> PG (加密).
@@ -522,33 +522,33 @@ hubble observe --namespace monitoring-dev -f --dest-port 5432
 kubectl exec -n kube-system ds/cilium -- hubble observe --namespace monitoring-dev -f
 ```
 
-### 5.2 故障恢复演练
+### 7.2 故障恢复演练
 模拟数据库主节点故障, 观察 CNPG 的自动 Failover 过程. 得益于 Istio Ambient 的无感知特性, 数据库切换期间的连接重试将由网格层自动处理, 业务层基本无感.
 
 ---
 
-## 6. 全链路流量数据流向图 (Data Flow Path)
+## 8. 全链路流量数据流向图 (Data Flow Path)
 
 当外部用户通过浏览器访问 `http://grafana.example.com` 时, 流量经历了一场严密的协议栈之旅：
 
-### 6.1 物理接入层 (L2 - Data Link)
+### 8.1 物理接入层 (L2 - Data Link)
 1.  **ARP 响应**: 外部客户端 (或上层交换机) 查询 192.168.20.104 的 MAC 地址.
 2.  **Cilium 宣告**: 运行 **L2 Announcement Policy** 的集群节点响应 ARP, 声明该 VIP 绑定在自己的物理网卡 (如 eth0) 上.
 
-### 6.2 内核转发层 (L3/L4 - Network/Transport)
+### 8.2 内核转发层 (L3/L4 - Network/Transport)
 1.  **eBPF 拦截**: 报文进入网卡那一刻, Cilium 的 **tc (Traffic Control)** 钩子点程序立即接管请求.
 2.  **KPR 路由**: eBPF 直接在内核 BPF Map 中查询 LoadBalancer 对应的后端. 它发现流量应由于 **Traefik Pod** 处理, 于是执行地址转换并通过 **O(1)** 路径直接重定向到 Traefik 网卡.
 
-### 6.3 边缘网关层 (L7 - Application [南北向])
+### 8.3 边缘网关层 (L7 - Application [南北向])
 1.  **Traefik 业务逻辑**: Traefik 监听 8000 端口. 它解析 HTTP Host 头部为 grafana.example.com.
 2.  **Gateway API 路由**: 根据 HTTPRoute 规则, 它识别出目标服务是 monitoring-dev/grafana.
 
-### 6.4 安全网格层 (Mesh - Security [东西向])
+### 8.4 安全网格层 (Mesh - Security [东西向])
 1.  **Istio Ambient 劫持**: 流量从 Traefik 发出后, 立即触达宿主机的 **ztunnel**.
 2.  **mTLS 加密**: ztunnel 识别出目标属于 istio.io/dataplane-mode=ambient 纳管的命名空间. 它为报文包裹一层 **HBONE (HTTP-Based Overlay Network)**, 实现指令级加密.
 3.  **零信任访问**: 流量加密传输至目标节点, 由另一端的 ztunnel 解密并校验身份.
 
-### 6.5 应用与持久化层 (Application & Data)
+### 8.5 应用与持久化层 (Application & Data)
 1.  **Grafana 处理**: 最终报文抵达 Grafana Pod. Grafana 处理 UI 请求, 并需要查询配置.
 2.  **数据库访问**: Grafana 向 pg-grafana-rw 发起连接. 该请求同样受到 Istio 东西向加密保护.
 3.  **CNPG 自治**: **CloudNativePG** 的 Primary 节点接收并处理 SQL. 由于我们做了状态剥离, 即使 Grafana 容器漂移, 全部的看板与权限数据依然在 PG 的持久卷中安全流转.

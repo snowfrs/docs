@@ -204,7 +204,7 @@ spec:
 
 ## 6. GitOps: 云原生交付的终极形态
 
-### 2.1 GitOps 核心原则
+### 6.1 GitOps 核心原则
 
 GitOps 是 Infrastructure as Code (IaC) 在 Kubernetes 领域的演进:
 
@@ -215,7 +215,7 @@ GitOps 是 Infrastructure as Code (IaC) 在 Kubernetes 领域的演进:
 | **自动拉取** | Agent 自动拉取 Git 变更并应用到集群 |
 | **持续调谐** | 自动检测并修复实际状态与期望状态的偏差 |
 
-### 2.2 Push vs Pull 模型
+### 6.2 Push vs Pull 模型
 
 ```mermaid
 graph TD
@@ -238,7 +238,7 @@ graph TD
 | **Push** | 简单直接 | 需要集群凭证外泄, 无漂移检测 |
 | **Pull** | 安全 (无需外部凭证), 漂移检测 | 架构复杂度略高 |
 
-### 2.3 常用工具对比
+### 6.3 常用工具对比
 
 | 特性 | ArgoCD | FluxCD |
 | :--- | :--- | :--- |
@@ -250,9 +250,9 @@ graph TD
 
 ---
 
-## 3. ArgoCD 深度实践
+## 7. ArgoCD 深度实践
 
-### 3.1 ArgoCD 架构
+### 7.1 ArgoCD 架构
 
 ```mermaid
 graph TD
@@ -281,7 +281,7 @@ graph TD
 *   **Application Controller**: 监控 Application CRD, 执行同步.
 *   **Redis**: 缓存 Git 仓库状态.
 
-### 3.2 安装 ArgoCD
+### 7.2 安装 ArgoCD
 
 ```bash
 kubectl create namespace argocd
@@ -294,7 +294,7 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.pas
 kubectl port-forward svc/argocd-server -n argocd 8080:443
 ```
 
-### 3.3 Application CRD
+### 7.3 Application CRD
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -319,7 +319,7 @@ spec:
     - CreateNamespace=true
 ```
 
-### 3.4 Sync Waves 与 Hooks
+### 7.4 Sync Waves 与 Hooks
 
 控制资源部署顺序:
 
@@ -367,7 +367,7 @@ spec:
       restartPolicy: Never
 ```
 
-### 3.5 ApplicationSet (多集群/多环境)
+### 7.5 ApplicationSet (多集群/多环境)
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -399,11 +399,11 @@ spec:
 
 ---
 
-## 4. Etcd 备份与恢复
+## 8. Etcd 备份与恢复
 
 Etcd 是 Kubernetes 的 "大脑", 存储所有集群状态. 备份 Etcd 是灾难恢复的核心.
 
-### 4.1 Etcd Raft 一致性
+### 8.1 Etcd Raft 一致性
 
 ```mermaid
 sequenceDiagram
@@ -427,7 +427,7 @@ sequenceDiagram
 *   **WAL (Write-Ahead Log)**: 所有写操作先写 WAL, 再应用到状态机.
 *   **Snapshot**: 定期将状态机压缩为快照, 减少 WAL 大小.
 
-### 4.2 备份命令
+### 8.2 备份命令
 
 ```bash
 # 使用 etcdctl 创建快照
@@ -441,7 +441,7 @@ ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
 ETCDCTL_API=3 etcdctl snapshot status /backup/etcd-snapshot.db --write-out=table
 ```
 
-### 4.3 恢复流程
+### 8.3 恢复流程
 
 ```bash
 # 1. 停止所有 etcd 和 kube-apiserver
@@ -464,7 +464,7 @@ chown -R etcd:etcd /var/lib/etcd
 systemctl start etcd
 ```
 
-### 4.4 自动化备份 (CronJob)
+### 8.4 自动化备份 (CronJob)
 
 ```yaml
 apiVersion: batch/v1
@@ -507,11 +507,11 @@ spec:
 
 ---
 
-## 5. Velero: Kubernetes 资源与数据备份
+## 9. Velero: Kubernetes 资源与数据备份
 
 Velero 提供 Kubernetes 资源和 PersistentVolume 的备份与恢复.
 
-### 5.1 Velero 架构
+### 9.1 Velero 架构
 
 ```mermaid
 graph TD
@@ -535,7 +535,7 @@ graph TD
     D --> F
 ```
 
-### 5.2 安装 Velero
+### 9.2 安装 Velero
 
 ```bash
 velero install \
@@ -548,7 +548,7 @@ velero install \
   --use-volume-snapshots=true
 ```
 
-### 5.3 备份操作
+### 9.3 备份操作
 
 ```bash
 # 备份整个集群
@@ -564,7 +564,7 @@ velero backup create app-backup --selector app=myapp
 velero schedule create daily-backup --schedule="0 2 * * *" --include-namespaces=production
 ```
 
-### 5.4 恢复操作
+### 9.4 恢复操作
 
 ```bash
 # 列出备份
@@ -577,7 +577,7 @@ velero restore create --from-backup prod-backup
 velero restore create --from-backup prod-backup --namespace-mappings production:production-restored
 ```
 
-### 5.5 备份策略建议
+### 9.5 备份策略建议
 
 | 备份类型 | 频率 | 保留期 | 范围 |
 | :--- | :--- | :--- | :--- |
@@ -587,11 +587,11 @@ velero restore create --from-backup prod-backup --namespace-mappings production:
 
 ---
 
-## 6. 混沌工程: Chaos Mesh
+## 10. 混沌工程: Chaos Mesh
 
 Chaos Mesh 是 CNCF 孵化项目, 用于在 Kubernetes 中注入故障, 验证系统韧性.
 
-### 6.1 故障类型
+### 10.1 故障类型
 
 | 类型 | 描述 |
 | :--- | :--- |
@@ -602,14 +602,14 @@ Chaos Mesh 是 CNCF 孵化项目, 用于在 Kubernetes 中注入故障, 验证�
 | **TimeChaos** | 时钟偏移 |
 | **DNSChaos** | DNS 故障 |
 
-### 6.2 安装 Chaos Mesh
+### 10.2 安装 Chaos Mesh
 
 ```bash
 helm repo add chaos-mesh https://charts.chaos-mesh.org
 helm install chaos-mesh chaos-mesh/chaos-mesh --namespace=chaos-testing --create-namespace
 ```
 
-### 6.3 示例: Pod 故障注入
+### 10.3 示例: Pod 故障注入
 
 ```yaml
 apiVersion: chaos-mesh.org/v1alpha1
@@ -629,7 +629,7 @@ spec:
     cron: "@every 10m"  # 每 10 分钟执行一次
 ```
 
-### 6.4 示例: 网络延迟注入
+### 10.4 示例: 网络延迟注入
 
 ```yaml
 apiVersion: chaos-mesh.org/v1alpha1
@@ -652,7 +652,7 @@ spec:
   duration: "5m"
 ```
 
-### 6.5 混沌工程最佳实践
+### 10.5 混沌工程最佳实践
 
 1.  **从小开始**: 先在测试环境验证.
 2.  **定义稳态假设**: 明确 "正常" 行为的指标.
@@ -662,9 +662,9 @@ spec:
 
 ---
 
-## 7. 实战演练
+## 11. 实战演练
 
-### 7.1 Lab 1: ArgoCD 托管应用
+### 11.1 Lab 1: ArgoCD 托管应用
 
 **目标**: 将应用通过 GitOps 管理, 观察自愈能力.
 
@@ -672,7 +672,7 @@ spec:
 2.  创建 Application CRD 指向 Git 仓库.
 3.  手动 `kubectl delete` 一个资源, 观察 ArgoCD 自动恢复.
 
-### 7.2 Lab 2: Etcd 灾难恢复演练
+### 11.2 Lab 2: Etcd 灾难恢复演练
 
 **目标**: 模拟 Etcd 数据丢失并从快照恢复.
 
@@ -681,7 +681,7 @@ spec:
 3.  恢复 Etcd 快照.
 4.  验证 Namespace 恢复.
 
-### 7.3 Lab 3: 混沌工程验收
+### 11.3 Lab 3: 混沌工程验收
 
 **目标**: 验证应用在 Pod 故障时的可用性.
 
@@ -692,7 +692,7 @@ spec:
 
 ---
 
-## 8. 本周核心要点回顾
+## 12. 本周核心要点回顾
 
 | 领域 | 核心概念 | 关键配置 |
 | :--- | :--- | :--- |
@@ -705,7 +705,7 @@ spec:
 
 ---
 
-## 9. 学习计划总结
+## 13. 学习计划总结
 
 恭喜完成 8 周的 Kubernetes 进阶学习! 以下是全计划知识图谱:
 

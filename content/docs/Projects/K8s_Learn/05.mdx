@@ -180,7 +180,7 @@ rules:
 
 API Server 是集群的唯一入口. 任何请求都必须首先通过身份验证, 确定 "你是谁".
 
-### 2.1 认证链路架构
+### 5.1 认证链路架构
 
 ```mermaid
 sequenceDiagram
@@ -209,7 +209,7 @@ sequenceDiagram
     end
 ```
 
-### 2.2 核心认证插件
+### 5.2 核心认证插件
 
 API Server 支持多种认证方式, 可同时启用:
 
@@ -222,7 +222,7 @@ API Server 支持多种认证方式, 可同时启用:
 | **OIDC** | 外部身份供应商集成 | `--oidc-*` 系列参数 |
 | **Webhook Token** | 自定义认证逻辑 | `--authentication-token-webhook-config-file` |
 
-### 2.3 X.509 客户端证书
+### 5.3 X.509 客户端证书
 
 Kubernetes 内部组件 (Kubelet, Controller Manager, Scheduler) 使用客户端证书与 API Server 双向 TLS 通信.
 
@@ -251,7 +251,7 @@ Kubernetes 内部组件 (Kubelet, Controller Manager, Scheduler) 使用客户端
     kubectl config set-context dev-context --cluster=kubernetes --user=developer
     ```
 
-### 2.4 ServiceAccount Token
+### 5.4 ServiceAccount Token
 
 每个 Namespace 自动创建 `default` ServiceAccount. Pod 默认使用该 SA 并自动挂载 Token.
 
@@ -291,7 +291,7 @@ Kubernetes 内部组件 (Kubelet, Controller Manager, Scheduler) 使用客户端
               audience: api # 受众
     ```
 
-### 2.5 OIDC (OpenID Connect) 集成
+### 5.5 OIDC (OpenID Connect) 集成
 
 生产环境中, 推荐使用 OIDC 与企业身份系统 (LDAP, AD, Okta, Dex) 集成.
 
@@ -330,11 +330,11 @@ sequenceDiagram
 
 ---
 
-## 3. 授权决策框架 (Authorization)
+## 6. 授权决策框架 (Authorization)
 
 身份验证通过后, API Server 需要决定 "你能做什么". Kubernetes 支持多种授权模式, **RBAC** 是生产环境标准.
 
-### 3.1 授权模式
+### 6.1 授权模式
 
 | 模式 | 描述 | 配置 |
 | :--- | :--- | :--- |
@@ -345,7 +345,7 @@ sequenceDiagram
 
 *   **默认配置**: `--authorization-mode=Node,RBAC`
 
-### 3.2 RBAC 核心概念
+### 6.2 RBAC 核心概念
 
 ```mermaid
 graph TD
@@ -382,7 +382,7 @@ graph TD
     | **RoleBinding** | Namespace | 将 Role/ClusterRole 绑定到主体 |
     | **ClusterRoleBinding** | Cluster | 将 ClusterRole 绑定到主体 (全局生效) |
 
-### 3.3 Role 与 ClusterRole 定义
+### 6.3 Role 与 ClusterRole 定义
 
 ```yaml
 # Role: 仅限 default namespace
@@ -422,7 +422,7 @@ rules:
     | `delete` | DELETE | 删除单个资源 |
     | `deletecollection` | DELETE (collection) | 批量删除 |
 
-### 3.4 RoleBinding 与 ClusterRoleBinding
+### 6.4 RoleBinding 与 ClusterRoleBinding
 
 ```yaml
 # RoleBinding: 绑定到 Namespace
@@ -458,7 +458,7 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ```
 
-### 3.5 ClusterRole 聚合
+### 6.5 ClusterRole 聚合
 
 通过 `aggregationRule`, 可以自动将多个 ClusterRole 合并:
 
@@ -487,11 +487,11 @@ rules: [] # 自动填充
 
 ---
 
-## 4. 审计日志 (Audit Logging)
+## 7. 审计日志 (Audit Logging)
 
 审计日志记录所有 API 请求, 是安全合规和事故调查的关键数据源.
 
-### 4.1 审计策略级别
+### 7.1 审计策略级别
 
 | 级别 | 描述 |
 | :--- | :--- |
@@ -500,7 +500,7 @@ rules: [] # 自动填充
 | `Request` | 记录请求体 (不含响应) |
 | `RequestResponse` | 记录请求和响应体 |
 
-### 4.2 审计策略配置
+### 7.2 审计策略配置
 
 ```yaml
 # /etc/kubernetes/audit-policy.yaml
@@ -528,7 +528,7 @@ rules:
     resources: ["*"]
 ```
 
-### 4.3 API Server 配置
+### 7.3 API Server 配置
 
 ```bash
 kube-apiserver \
@@ -539,7 +539,7 @@ kube-apiserver \
   --audit-log-maxsize=100
 ```
 
-### 4.4 审计日志分析
+### 7.4 审计日志分析
 
 ```bash
 # 查找所有 Secret 读取操作
@@ -551,9 +551,9 @@ jq 'select(.user.username == "developer")' /var/log/kubernetes/audit.log
 
 ---
 
-## 5. 多租户隔离模式
+## 8. 多租户隔离模式
 
-### 5.1 Namespace 级隔离
+### 8.1 Namespace 级隔离
 
 Namespace 是 Kubernetes 的逻辑隔离单元, 结合 RBAC 可实现多租户.
 
@@ -565,7 +565,7 @@ Namespace 是 Kubernetes 的逻辑隔离单元, 结合 RBAC 可实现多租户.
     | **默认限制** | LimitRange |
     | **网络隔离** | NetworkPolicy |
 
-### 5.2 ResourceQuota
+### 8.2 ResourceQuota
 
 限制 Namespace 内的资源总量:
 
@@ -586,7 +586,7 @@ spec:
     services.loadbalancers: "2"
 ```
 
-### 5.3 LimitRange
+### 8.3 LimitRange
 
 为 Namespace 内的容器设置默认值和上下限:
 
@@ -615,9 +615,9 @@ spec:
 
 ---
 
-## 6. 实战演练
+## 9. 实战演练
 
-### 6.1 Lab 1: 凭证解析
+### 9.1 Lab 1: 凭证解析
 
 **目标**: 理解 ServiceAccount Token 的结构与权限.
 
@@ -633,7 +633,7 @@ cat /var/run/secrets/kubernetes.io/serviceaccount/token
 # 在 https://jwt.io 解析 Token, 查看 claims
 ```
 
-### 6.2 Lab 2: OIDC 集成 (Dex)
+### 9.2 Lab 2: OIDC 集成 (Dex)
 
 **目标**: 使用个人身份登录 kubectl.
 
@@ -647,7 +647,7 @@ cat /var/run/secrets/kubernetes.io/serviceaccount/token
 
 3.  使用 `kubelogin` 插件进行 OIDC 登录.
 
-### 6.3 Lab 3: 权限审计
+### 9.3 Lab 3: 权限审计
 
 **目标**: 扫描集群高危权限.
 
@@ -664,7 +664,7 @@ kubectl who-can get secrets -n kube-system
 
 ---
 
-## 7. 本周核心要点回顾
+## 10. 本周核心要点回顾
 
 | 领域 | 核心概念 | 关键配置 |
 | :--- | :--- | :--- |

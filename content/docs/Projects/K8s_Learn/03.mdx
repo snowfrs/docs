@@ -162,7 +162,7 @@ cat /proc/<pid>/oom_score_adj   # 调整值 (-1000 到 1000)
 
 Kubernetes 对计算资源的管控建立在 Linux 内核 **Cgroups (Control Groups)** 之上. 抽象层面, 它表现为 **QoS (Quality of Service)** 等级.
 
-### 2.1 QoS 分类逻辑与内核映射
+### 5.1 QoS 分类逻辑与内核映射
 
 Kubelet 根据 Pod Spec 中的 `requests` 和 `limits` 自动计算 QoS 等级:
 
@@ -175,7 +175,7 @@ Kubelet 根据 Pod Spec 中的 `requests` 和 `limits` 自动计算 QoS 等级:
 *   **OOM Score Adjust**: Linux 内核的 OOM Killer 根据进程的 `oom_score_adj` 值决定杀死顺序. 值越高, 越容易被杀死. Kubelet 通过调整此值实现 QoS 优先级.
 *   **路径**: `/proc/<pid>/oom_score_adj`
 
-### 2.2 CPU 限制: CFS Bandwidth Controller
+### 5.2 CPU 限制: CFS Bandwidth Controller
 
 Linux **CFS (Completely Fair Scheduler)** 通过一个周期性的 "令牌桶" 机制实现 CPU 限流.
 
@@ -201,7 +201,7 @@ Linux **CFS (Completely Fair Scheduler)** 通过一个周期性的 "令牌桶" �
     2.  **仅设置 `requests` (不设 `limits`)**: 允许容器无上限突发. 适用于批处理任务, 但在密集调度场景可能引发 Noisy Neighbor 问题.
     3.  **调整 `cfs_period`**: 缩短周期 (如 5ms) 可减少单次 Throttle 的时长, 但会增加调度开销. 需在 Kubelet 层面配置.
 
-### 2.3 Memory 限制: OOM Killer 与 Memory Pressure
+### 5.3 Memory 限制: OOM Killer 与 Memory Pressure
 
 *   **硬限制 (`memory.max` in Cgroup V2)**: 当容器内存使用触及此值, 内核直接触发 OOM Killer 杀死容器内进程.
 *   **软限制 (`memory.high`)**: 触及此值时, 内核会尝试回收内存 (Page Cache), 并可能触发 Memory Pressure 事件.
@@ -211,11 +211,11 @@ Linux **CFS (Completely Fair Scheduler)** 通过一个周期性的 "令牌桶" �
 
 ---
 
-## 3. 调度引擎深度解析: kube-scheduler
+## 6. 调度引擎深度解析: kube-scheduler
 
 kube-scheduler 是一个独立的控制面组件, 负责将 `Pending` 状态的 Pod 绑定到合适的 Node.
 
-### 3.1 调度核心流程
+### 6.1 调度核心流程
 
 ```mermaid
 graph TD
@@ -247,7 +247,7 @@ graph TD
     *   **Filtering (预选)**: 过滤不满足条件的节点 (硬约束). 例如: 节点资源不足, Taint 不匹配.
     *   **Scoring (优选)**: 对剩余节点打分, 选择最优 (软偏好). 例如: 镜像已存在, 节点负载较低.
 
-### 3.2 调度框架 (Scheduling Framework) 扩展点
+### 6.2 调度框架 (Scheduling Framework) 扩展点
 
 Kubernetes 1.15+ 引入了 **Scheduling Framework**, 将调度逻辑拆分为多个可插拔的扩展点:
 
@@ -265,7 +265,7 @@ Kubernetes 1.15+ 引入了 **Scheduling Framework**, 将调度逻辑拆分为多
 | **Bind** | Binding | 执行绑定 |
 | **PostBind** | Binding 后 | 清理或通知 |
 
-### 3.3 核心调度插件
+### 6.3 核心调度插件
 
 | 插件名称 | 扩展点 | 功能 |
 | :--- | :--- | :--- |
@@ -276,7 +276,7 @@ Kubernetes 1.15+ 引入了 **Scheduling Framework**, 将调度逻辑拆分为多
 | **ImageLocality** | Score | 优先选择已下载 Pod 所需镜像的节点 |
 | **InterPodAffinity** | Filter, Score | 处理 Pod 亲和性/反亲和性 |
 
-### 3.4 生产级调度策略
+### 6.4 生产级调度策略
 
 #### 1. 节点亲和性 (Node Affinity)
 处理 Pod 与节点硬件拓扑 (GPU, SSD) 的物理绑定:
@@ -323,9 +323,9 @@ topologySpreadConstraints:
 
 ---
 
-## 4. 弹性伸缩: 从 HPA 到 Cluster Autoscaler
+## 7. 弹性伸缩: 从 HPA 到 Cluster Autoscaler
 
-### 4.1 HPA (Horizontal Pod Autoscaler) 算法内核
+### 7.1 HPA (Horizontal Pod Autoscaler) 算法内核
 
 HPA 周期性 (默认 15s) 从 Metrics API 获取指标, 并按以下公式计算期望副本数:
 
@@ -367,7 +367,7 @@ desiredReplicas = ceil( currentReplicas × (currentMetricValue / desiredMetricVa
       metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'
     ```
 
-### 4.2 VPA (Vertical Pod Autoscaler) 组件架构
+### 7.2 VPA (Vertical Pod Autoscaler) 组件架构
 
 VPA 不改变副本数, 而是调整单个 Pod 的 `requests` 和 `limits`.
 
@@ -390,7 +390,7 @@ graph TD
     *   `Recreate`: 驱逐现有 Pod 以应用新推荐值.
     *   `Auto`: 由 VPA 决定最佳策略.
 
-### 4.3 Cluster Autoscaler (CA) 节点扩缩逻辑
+### 7.3 Cluster Autoscaler (CA) 节点扩缩逻辑
 
 当 Pod 因资源不足而无法调度 (Pending) 时, CA 触发节点扩容.
 
@@ -407,7 +407,7 @@ graph TD
 *   **与 Pod Priority 的交互**:
     高优先级 Pod (如 `PriorityClassName: system-cluster-critical`) 的 Pending 会立刻触发扩容, 而低优先级 Pod 可能被抢占而非触发扩容.
 
-### 4.4 KEDA: 事件驱动伸缩
+### 7.4 KEDA: 事件驱动伸缩
 
 **KEDA (Kubernetes Event-Driven Autoscaling)** 扩展了 HPA, 支持基于外部事件源 (Kafka Lag, SQS 队列深度, Cron 定时) 进行伸缩.
 
@@ -438,9 +438,9 @@ graph TD
 
 ---
 
-## 5. 实战演练
+## 8. 实战演练
 
-### 5.1 Lab 1: 配置 Pod Disruption Budget (PDB)
+### 8.1 Lab 1: 配置 Pod Disruption Budget (PDB)
 
 **目标**: 确保在节点维护 (drain) 期间, 至少保持一定数量的 Pod 可用.
 
@@ -465,7 +465,7 @@ kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
 # 当 Pod 数量低于 minAvailable 时, drain 会阻塞
 ```
 
-### 5.2 Lab 2: 基于 Prometheus 自定义指标的 HPA
+### 8.2 Lab 2: 基于 Prometheus 自定义指标的 HPA
 
 **目标**: 根据 `http_requests_per_second` 指标自动伸缩.
 
@@ -499,7 +499,7 @@ kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
     # 使用压测工具 (如 hey, k6) 增加请求, 观察 Replicas 变化
     ```
 
-### 5.3 Lab 3: 模拟节点压力与 Descheduler 重调度
+### 8.3 Lab 3: 模拟节点压力与 Descheduler 重调度
 
 **目标**: 观察 Descheduler 如何平衡节点负载.
 
@@ -520,7 +520,7 @@ kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
 
 ---
 
-## 6. 本周核心要点回顾
+## 9. 本周核心要点回顾
 
 | 领域 | 核心概念 | 生产建议 |
 | :--- | :--- | :--- |

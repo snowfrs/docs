@@ -167,7 +167,7 @@ graph TD
     B -- "Physical Mapping" --> D
 ```
 
-### 2.1 PersistentVolume (PV)
+### 5.1 PersistentVolume (PV)
 
 PV 是集群级别的存储资源抽象, 由管理员预先创建 (静态供应) 或由 StorageClass 动态创建.
 
@@ -185,7 +185,7 @@ PV 是集群级别的存储资源抽象, 由管理员预先创建 (静态供应)
     *   `ReadOnlyMany (ROX)`: 多节点只读. 适用于共享配置或静态资源.
     *   `ReadWriteMany (RWX)`: 多节点读写. 需要网络文件系统支持 (NFS, CephFS, GlusterFS).
 
-### 2.2 PersistentVolumeClaim (PVC)
+### 5.2 PersistentVolumeClaim (PVC)
 
 PVC 是用户对存储资源的 "申请书", Kubernetes 会自动寻找满足条件的 PV 进行绑定.
 
@@ -202,7 +202,7 @@ PVC 是用户对存储资源的 "申请书", Kubernetes 会自动寻找满足条
     | `Bound` | 已绑定到 PV |
     | `Lost` | PV 被删除, 但 PVC 仍存在 |
 
-### 2.3 StorageClass
+### 5.3 StorageClass
 
 StorageClass 定义了动态供应的 "模板", 包括使用的 Provisioner 和参数.
 
@@ -228,11 +228,11 @@ volumeBindingMode: WaitForFirstConsumer # 延迟绑定, 直到 Pod 调度
 
 ---
 
-## 3. 核心架构: CSI (Container Storage Interface)
+## 6. 核心架构: CSI (Container Storage Interface)
 
 CSI 是 CNCF 制定的容器存储接口标准, 允许第三方厂商开发插件而无需修改 Kubernetes 核心代码.
 
-### 3.1 CSI 插件架构
+### 6.1 CSI 插件架构
 
 ```mermaid
 graph TD
@@ -277,7 +277,7 @@ graph TD
     | **Controller** | `CreateVolume`, `DeleteVolume`, `ControllerPublishVolume`, `ControllerUnpublishVolume`, `CreateSnapshot`, `DeleteSnapshot`, `ControllerExpandVolume` | 控制面卷管理 |
     | **Node** | `NodeStageVolume`, `NodeUnstageVolume`, `NodePublishVolume`, `NodeUnpublishVolume`, `NodeExpandVolume`, `NodeGetVolumeStats` | 节点级挂载 |
 
-### 3.2 存储卷挂载三阶段
+### 6.2 存储卷挂载三阶段
 
 当 Pod 请求使用 PVC 时, 存储卷会经历三个关键阶段:
 
@@ -330,7 +330,7 @@ sequenceDiagram
     *   Kubelet 调用 `NodeStageVolume` 进行全局挂载 (如格式化、挂载到 `/var/lib/kubelet/plugins/...`).
     *   Kubelet 调用 `NodePublishVolume` 进行绑定挂载 (bind mount 到 Pod 的 `/var/lib/kubelet/pods/.../volumes/...`).
 
-### 3.3 存储模式: Block vs Filesystem
+### 6.3 存储模式: Block vs Filesystem
 
 *   **Filesystem 模式 (默认)**:
     *   CSI 驱动负责格式化块设备为文件系统 (ext4, xfs).
@@ -372,9 +372,9 @@ spec:
 
 ---
 
-## 4. 高级功能: 快照与克隆
+## 7. 高级功能: 快照与克隆
 
-### 4.1 VolumeSnapshot
+### 7.1 VolumeSnapshot
 
 VolumeSnapshot 提供了时间点副本的能力, 用于备份和快速恢复.
 
@@ -426,7 +426,7 @@ graph TD
           storage: 100Gi
     ```
 
-### 4.2 Volume Cloning
+### 7.2 Volume Cloning
 
 卷克隆允许从现有 PVC 直接创建副本, 无需经过快照步骤:
 
@@ -449,11 +449,11 @@ spec:
 
 ---
 
-## 5. 分布式存储实践: Rook/Ceph
+## 8. 分布式存储实践: Rook/Ceph
 
 Rook 是 CNCF 毕业项目, 提供 Kubernetes 原生的存储编排, 支持 Ceph, NFS, EdgeFS 等后端.
 
-### 5.1 Rook 架构
+### 8.1 Rook 架构
 
 ```mermaid
 graph TD
@@ -486,7 +486,7 @@ graph TD
     | **MGR (Manager)** | 提供监控、Dashboard |
     | **MDS (Metadata Server)** | CephFS 元数据管理 |
 
-### 5.2 部署示例
+### 8.2 部署示例
 
 ```bash
 # 1. 部署 Rook Operator
@@ -502,7 +502,7 @@ kubectl -n rook-ceph get cephcluster
 kubectl -n rook-ceph get pods
 ```
 
-### 5.3 StorageClass 集成
+### 8.3 StorageClass 集成
 
 ```yaml
 apiVersion: storage.k8s.io/v1
@@ -527,11 +527,11 @@ allowVolumeExpansion: true
 
 ---
 
-## 6. 本地存储: Local Persistent Volume
+## 9. 本地存储: Local Persistent Volume
 
 对于需要极致 I/O 性能的场景 (如 Kafka, Elasticsearch), 使用本地 NVMe/SSD 是常见选择.
 
-### 6.1 Local PV 特性与限制
+### 9.1 Local PV 特性与限制
 
 *   **优势**: 无网络开销, I/O 延迟极低.
 *   **限制**:
@@ -539,7 +539,7 @@ allowVolumeExpansion: true
     *   **无高可用**: 节点故障导致数据不可访问.
     *   **无动态供应**: 需要手动或使用 sig-storage-local-static-provisioner.
 
-### 6.2 手动创建 Local PV
+### 9.2 手动创建 Local PV
 
 ```yaml
 apiVersion: v1
@@ -566,7 +566,7 @@ spec:
           - node1
 ```
 
-### 6.3 使用 local-static-provisioner 自动化
+### 9.3 使用 local-static-provisioner 自动化
 
 ```bash
 # 部署 provisioner
@@ -580,9 +580,9 @@ helm install local-static-provisioner sig-storage-local-static-provisioner/local
 
 ---
 
-## 7. 故障排查: 存储 I/O 问题诊断
+## 10. 故障排查: 存储 I/O 问题诊断
 
-### 7.1 常见问题与诊断路径
+### 10.1 常见问题与诊断路径
 
 | 现象 | 可能原因 | 诊断命令 |
 | :--- | :--- | :--- |
@@ -591,7 +591,7 @@ helm install local-static-provisioner sig-storage-local-static-provisioner/local
 | I/O 挂起 (D 状态进程) | 存储后端故障 / 网络分区 | `dmesg`, `iostat -x 1`, `cat /proc/<pid>/wchan` |
 | 读写性能下降 | 磁盘饱和 / 网络拥塞 | `iostat -x`, `sar -n DEV 1` |
 
-### 7.2 深度诊断工具
+### 10.2 深度诊断工具
 
 *   **blktrace**: 块设备层 I/O 追踪
     ```bash
@@ -614,7 +614,7 @@ helm install local-static-provisioner sig-storage-local-static-provisioner/local
     kubectl logs -n rook-ceph ds/csi-rbdplugin -c csi-rbdplugin
     ```
 
-### 7.3 强制解除挂载 (紧急场景)
+### 10.3 强制解除挂载 (紧急场景)
 
 当 Node 意外宕机, 导致 Pod 无法在新节点创建 (VolumeAttachment 残留) 时:
 
@@ -631,9 +631,9 @@ kubectl patch volumeattachment <name> -p '{"metadata":{"finalizers":null}}' --ty
 
 ---
 
-## 8. 实战演练
+## 11. 实战演练
 
-### 8.1 Lab 1: 模拟节点故障与卷迁移
+### 11.1 Lab 1: 模拟节点故障与卷迁移
 
 **目标**: 观察存储卷从故障节点解挂并重新调度的完整过程.
 
@@ -642,7 +642,7 @@ kubectl patch volumeattachment <name> -p '{"metadata":{"finalizers":null}}' --ty
 3.  观察 Pod 在新节点启动, 记录卷 Detach/Attach 的耗时.
 4.  检查数据完整性.
 
-### 8.2 Lab 2: VolumeSnapshot 备份与恢复
+### 11.2 Lab 2: VolumeSnapshot 备份与恢复
 
 **目标**: 完成一次有状态应用的数据备份与恢复.
 
@@ -651,7 +651,7 @@ kubectl patch volumeattachment <name> -p '{"metadata":{"finalizers":null}}' --ty
 3.  从快照恢复到新 PVC.
 4.  启动新 PostgreSQL 实例, 验证数据一致性.
 
-### 8.3 Lab 3: 存储加密 (Encryption at Rest)
+### 11.3 Lab 3: 存储加密 (Encryption at Rest)
 
 **目标**: 在 PVC 层实现数据加密.
 
@@ -661,7 +661,7 @@ kubectl patch volumeattachment <name> -p '{"metadata":{"finalizers":null}}' --ty
 
 ---
 
-## 9. 本周核心要点回顾
+## 12. 本周核心要点回顾
 
 | 领域 | 核心概念 | 关键配置 |
 | :--- | :--- | :--- |

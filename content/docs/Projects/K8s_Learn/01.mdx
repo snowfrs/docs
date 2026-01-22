@@ -2,7 +2,6 @@
 title: "Week 01: 容器运行时深度剖析与高可用初始化"
 description: "深入理解 CRI 标准, 容器生命周期管理以及集群引导过程中的关键技术环节."
 ---
----
 
 ## 1. 本周任务清单
 
@@ -496,11 +495,7 @@ openssl verify -CAfile /etc/kubernetes/pki/ca.crt /etc/kubernetes/pki/apiserver.
 
 ## 8. 实战指南: Rocky Linux 9 部署 Kubernetes 高可用集群
 
----
-
-## 5. 实战指南: Rocky Linux 9 部署 Kubernetes 高可用集群
-
-### 5.1 集群架构与环境规约
+### 8.1 集群架构与环境规约
 
 在开始部署前, 请参考下表确认您的实验/生产环境配置. 本次实战采用 **Master-Worker 混部**模式, 旨在最大化利用三节点物理资源构建高可用集群.
 
@@ -522,7 +517,7 @@ openssl verify -CAfile /etc/kubernetes/pki/ca.crt /etc/kubernetes/pki/apiserver.
 
 ---
 
-### 5.2 环境基准配置 (所有节点)
+### 8.2 环境基准配置 (所有节点)
 
 #### 主机名与解析
 设置静态主机名并配置 `/etc/hosts`:
@@ -550,7 +545,7 @@ sudo sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
 sudo systemctl stop firewalld && sudo systemctl disable firewalld
 ```
 
-### 5.3 内核参数与传输层配置 (所有节点)
+### 8.3 内核参数与传输层配置 (所有节点)
 
 加载驱动模块并开启 IPv4 转发:
 ```bash
@@ -584,7 +579,7 @@ sudo sysctl --system
 sudo dnf install -y ipset ipvsadm
 ```
 
-### 4.4 容器运行时: Containerd (所有节点)
+### 8.4 容器运行时: Containerd (所有节点)
 
  Rocky Linux 9 使用 DNF 管理软件包:
 ```bash
@@ -604,7 +599,7 @@ sudo sed -i 's|sandbox_image = ".*"|sandbox_image = "registry.aliyuncs.com/googl
 sudo systemctl restart containerd && sudo systemctl enable containerd
 ```
 
-### 5.5 安装 Kubernetes 组件与依赖
+### 8.5 安装 Kubernetes 组件与依赖
 
 根据节点在集群中承担的角色, 确定需要安装的软件包. 在本实战中, 所有节点均为混合角色, 因此均需执行全量安装.
 
@@ -632,7 +627,7 @@ sudo dnf install -y kubelet kubeadm kubectl ipset ipvsadm --disableexcludes=kube
 sudo systemctl enable --now kubelet
 ```
 
-### 5.6 HA 负载均衡配置 (Keepalived & HAProxy)
+### 8.6 HA 负载均衡配置 (Keepalived & HAProxy)
 
 在控制平面实现高可用, 必须有一个能够漂移的 **VIP**. 既然您配置了 `192.168.20.104` 作为 `controlPlaneEndpoint`, 那么在初始化前必须确保该 IP 在当前节点是可达的.
 
@@ -696,7 +691,7 @@ sudo systemctl enable --now haproxy keepalived
    sudo sysctl -p
    ```
 
-### 5.7 集群初始化与 HA 配置
+### 8.7 集群初始化与 HA 配置
 
 > **重要修正**: 由于我们引入了 HAProxy 监听 `16443`, `kubeadm-config.yaml` 中的 `controlPlaneEndpoint` 应指向 VIP 的 **16443** 端口 (或者如果您直接让 VIP 绑定在 6443, 请确保 LB 配置正确). 
 
@@ -738,7 +733,7 @@ sudo kubeadm init --config kubeadm-config.yaml --upload-certs
 kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 ```
 
-### 5.8 验证集群状态
+### 8.8 验证集群状态
 ```bash
 kubeadm init --config kubeadm-config.yaml --upload-certs
 [init] Using Kubernetes version: v1.35.0
@@ -845,9 +840,9 @@ kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
 
 ---
 
-## 6. 深度解析: kubeadm init 初始化流程与镜像优化
+## 9. 深度解析: kubeadm init 初始化流程与镜像优化
 
-### 6.1 初始化全过程背后的核心步骤
+### 9.1 初始化全过程背后的核心步骤
 执行 `kubeadm init` 时, 内核与组件经历了一系列严密的原子操作:
 1.  **Pre-flight Checks**: 环境预检. 检查内核模块 (overlay/br_netfilter)、Swap 关闭状态、端口占用以及容器运行时的连通性.
 2.  **Generate Certificates (PKI)**: 在 `/etc/kubernetes/pki` 下生成全套 CA 及组件证书.
@@ -859,7 +854,7 @@ kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
 8.  **Add-ons**: 部署 CoreDNS 和 kube-proxy 进行服务发现与流量转发.
 9.  **--upload-certs**: 将生成的证书加密后存入集群, 允许后续 Master 节点通过 Token 自动同步证书, 避免了手动拷贝证书的繁琐与风险.
 
-### 6.2 大陆环境镜像优化 (Offline/Proxy-free)
+### 9.2 大陆环境镜像优化 (Offline/Proxy-free)
 默认情况下, `kubeadm` 会访问 `registry.k8s.io`, 这在大陆环境通常无法连接.
 
 *   **配置优化**: 如 5.7 节所示, 在 `ClusterConfiguration` 中设置 `imageRepository: registry.aliyuncs.com/google_containers`.
@@ -875,7 +870,7 @@ kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
 
 ---
 
-## 7. 云原生进阶生态集成: 为何选择这一套栈?
+## 10. 云原生进阶生态集成: 为何选择这一套栈?
 
 在 v1.35 时代, 传统的选型正在向 **eBPF-native** 和 **Cloud-native First** 转型.
 
@@ -896,11 +891,11 @@ kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
 
 ---
 
-## 8. 部署时序建议: 从内核到应用层
+## 11. 部署时序建议: 从内核到应用层
 
 针对您选择的 **Cilium + Traefik + Istio** 技术栈, 部署顺序遵循 "由内而外, 由底层到抽象" 的原则:
 
-### 1. 核心网络层 (CNI): Cilium (KPR 模式)
+### 11.1 核心网络层 (CNI): Cilium (KPR 模式)
 为了发挥 Cilium 的最大性能, 建议在安装时完全取代 `kube-proxy`.
 
 *   **安装时机**: **`kubeadm init` 成功后立即执行**. 只有 CNI 就绪, Node 才会变为 `Ready`.
@@ -912,11 +907,11 @@ kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
     ```
     *详见第 10.2 节的完整 Helm 配置.*
 
-### 2. 入口管控层: Traefik (CRD 模式)
+### 11.2 入口管控层: Traefik (CRD 模式)
 *   **安装时机**: **节点状态变为 `Ready` 且已经有可用的持久化存储 (可选) 后**. 
 *   **架构价值**: Traefik 作为网关层, 负责将外部流量 (南北流量) 引入集群. 建议开启 `IngressRoute` 以获得比标准 Ingress 更强大的流量编排能力.
 
-### 3. 服务治理层: Istio (Ambient Mesh)
+### 11.3 服务治理层: Istio (Ambient Mesh)
 *   **安装时机**: **基础集群与网关层 (Traefik) 运行稳定后**. 
 *   **Ambient 优势**: 无需为业务 Pod 注入 Sidecar, 通过宿主机层的 `ztunnel` 实现零信任加密和流量观测. 这是目前与 Cilium eBPF 栈配合最完美的治理方案.
 
@@ -929,11 +924,11 @@ kubeadm join 192.168.20.104:16443 --token 7asjr6.3pocg3akvka3sscf \
 
 ---
 
-## 9. 常见问题排查 (Troubleshooting)
+## 12. 常见问题排查 (Troubleshooting)
 
 如果您在执行 `kubeadm init` 时遇到 `failed while waiting for the control plane to start` (Connection Refused), 请按以下优先级进行排查:
 
-### 9.1 检查 Static Pod 日志 (最终杀手锏)
+### 12.1 检查 Static Pod 日志 (最终杀手锏)
 当 `kube-apiserver` 没起来时, `kubectl` 是无法使用的. 此时必须直接查看磁盘上的日志或使用容器工具:
 ```bash
 # 查看 Kubelet 运行状态
@@ -945,12 +940,12 @@ crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock ps -a
 crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock logs <ID>
 ```
 
-### 9.2 核心原因分析: Sandbox Image (Pause 镜像)
+### 12.2 核心原因分析: Sandbox Image (Pause 镜像)
 **现象**: `crictl ps` 中没有运行中的容器, 只有不断重启的 `pause` 容器.
 **原因**: Containerd 默认从 `registry.k8s.io` 拉取 `pause` 镜像, 即便 `kubeadm` 设置了阿里云镜像, Containerd 内部的 CRI 插件仍会坚持原始路径.
 **修复**: 检查 `/etc/containerd/config.toml` 中的 `sandbox_image` 是否已指向 `registry.aliyuncs.com/google_containers/pause:3.10`.
 
-### 9.3 核心原因分析: VIP 连通性 (Context Deadline Exceeded)
+### 12.3 核心原因分析: VIP 连通性 (Context Deadline Exceeded)
 **现象**: `kube-apiserver` 健康检查通过, 后续报错 `unable to create ClusterRoleBinding: context deadline exceeded` 访问 VIP.
 **原因**: `kubeadm` 使用生成的 `admin.conf` 访问 VIP 时, HAProxy 可能认为后端 (node2, node3) 异常而拒绝服务, 或本地路由无法回环访问 VIP.
 
@@ -963,13 +958,13 @@ crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock logs <ID>
    curl -k https://192.168.20.104:16443/livez
    ```
 
-### 9.4 网络通信: 监听端口冲突
+### 12.4 网络通信: 监听端口冲突
 **检查**: 确保核心端口没有被占用.
 *   API Server: `6443`
 *   Etcd: `2379`, `2380`
 *   Kubelet: `10248`, `10250`
 
-### 9.5 集群重置 (清理现场)
+### 12.5 集群重置 (清理现场)
 如果排障后需要重新初始化, 请务必执行彻底清理:
 ```bash
 sudo kubeadm reset -f
@@ -983,11 +978,11 @@ sudo ip link delete flannel.1
 
 
 
-## 10. 进阶组件实战部署 (Step-by-Step)
+## 13. 进阶组件实战部署 (Step-by-Step)
 
 在集群控制平面稳定后, 按照以下步骤依次安装核心生态组件:
 
-### 10.1 前置准备: 包管理器 Helm
+### 13.1 前置准备: 包管理器 Helm
 在 **k8s-node1** 上安装官方 Helm 3:
 ```bash
 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -995,7 +990,7 @@ curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 helm version
 ```
 
-### 10.2 阶段一: Cilium (CNI) 取代 Kube-proxy
+### 13.2 阶段一: Cilium (CNI) 取代 Kube-proxy
 这是实现 eBPF 高性能转发的关键一步.
 
 1. **安装 Cilium**:
@@ -1145,7 +1140,7 @@ Image versions         cilium             quay.io/cilium/cilium:v1.18.5@sha256:2
 
    > **架构深度**: 此时您的集群已彻底摆脱了传统的 Netfilter/Iptables 链条. 所有的 Service 负载均衡都在网卡 XDP 或内核 TC 层由 eBPF 程序高效执行, 实现了真正的 "无 Proxy" 架构.
 
-### 10.3 阶段二: Traefik v3 入口网关
+### 13.3 阶段二: Traefik v3 入口网关
 1. **安装 Traefik**:
    ```bash
    helm repo add traefik https://traefik.github.io/charts
@@ -1164,7 +1159,7 @@ Image versions         cilium             quay.io/cilium/cilium:v1.18.5@sha256:2
 
    > **(南北流量控制)**: 建议在生产环境中将 Traefik 部署为 `DaemonSet`, 并利用 `nodeSelector` 将其固定在特定的 "边缘节点" 上, 配合物理负载均衡器实现极致稳定的流量入口。
 
-### 10.4 阶段三: Istio Ambient (无代理) 服务网格
+### 13.4 阶段三: Istio Ambient (无代理) 服务网格
 1. **安装 istioctl**:
    ```bash
    curl -L https://istio.io/downloadIstio | sh -
@@ -1193,7 +1188,7 @@ Image versions         cilium             quay.io/cilium/cilium:v1.18.5@sha256:2
 
 ---
 
-## 11. 动态 NFS 存储配置
+## 14. 动态 NFS 存储配置
 
 虽然云原生存储 (如 Ceph/Rook, Longhorn) 非常流行, 但 NFS 依然是中小型环境、开发测试环境或特定生产场景 (如多 Pod 共享数据备份) 中最简单、最稳定且成本最低的共享存储方案.
 
@@ -1206,13 +1201,13 @@ Image versions         cilium             quay.io/cilium/cilium:v1.18.5@sha256:2
 *   **PV (PersistentVolume)**: 物理存储资源.
 *   **PVC (PersistentVolumeClaim)**: 用户对存储资源的申请.
 
-### 11.1 集群节点准备
+### 14.1 集群节点准备
 所有节点 (Master/Worker) 均需安装 NFS 客户端工具:
 ```bash
 dnf install -y nfs-utils
 ```
 
-### 11.2 部署并配置参数
+### 14.2 部署并配置参数
 使用 Helm 部署 Provisioner:
 ```bash
 helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
@@ -1232,7 +1227,7 @@ helm install nfs-provisioner nfs-subdir-external-provisioner/nfs-subdir-external
 *   `storageClass.reclaimPolicy=Delete`: 关键参数, 删除 PVC 即删除物理数据.
 *   `storageClass.archiveOnDelete=false`: 如果不设为 false, 删除 PVC 时它会把目录改名为 archived-xxx 而不是真正删除.
 
-### 11.3 持久化存储连通性测试
+### 14.3 持久化存储连通性测试
 为了确认这套 "自动回收" 机制是否生效, 请按以下步骤验证:
 
 #### A. 创建 PVC 测试文件 (test-pvc.yaml)

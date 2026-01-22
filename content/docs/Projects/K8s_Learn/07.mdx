@@ -201,9 +201,9 @@ graph TD
 
 ---
 
-## 3. 指标体系: Prometheus 深度剖析
+## 6. 指标体系: Prometheus 深度剖析
 
-### 3.1 Prometheus 架构
+### 6.1 Prometheus 架构
 
 ```mermaid
 graph TD
@@ -242,7 +242,7 @@ graph TD
     | **Pushgateway** | 短生命周期任务的指标推送 |
     | **Exporters** | 暴露应用/系统指标 (如 node_exporter) |
 
-### 3.2 数据模型
+### 6.2 数据模型
 
 Prometheus 使用 **多维度时序数据模型**:
 
@@ -263,7 +263,7 @@ Prometheus 使用 **多维度时序数据模型**:
     | **Histogram** | 分布统计 (桶) | `request_duration_seconds` |
     | **Summary** | 分布统计 (分位数) | `request_duration_seconds` |
 
-### 3.3 TSDB 存储原理
+### 6.3 TSDB 存储原理
 
 *   **写入路径**:
     1.  数据首先写入内存中的 **Head Block**.
@@ -287,7 +287,7 @@ Prometheus 使用 **多维度时序数据模型**:
     └── queries.active
     ```
 
-### 3.4 PromQL 核心查询
+### 6.4 PromQL 核心查询
 
 *   **即时向量 (Instant Vector)**:
     ```text
@@ -315,7 +315,7 @@ Prometheus 使用 **多维度时序数据模型**:
     )
     ```
 
-### 3.5 Cardinality 问题
+### 6.5 Cardinality 问题
 
 *   **定义**: 唯一时间序列的数量. 由 `metric_name × label_combinations` 决定.
 *   **问题**: 高 Cardinality 导致内存爆炸.
@@ -328,9 +328,9 @@ Prometheus 使用 **多维度时序数据模型**:
 
 ---
 
-## 4. 告警系统
+## 7. 告警系统
 
-### 4.1 Recording Rules
+### 7.1 Recording Rules
 
 预先计算并存储查询结果, 减少实时查询开销:
 
@@ -343,7 +343,7 @@ groups:
     expr: sum(rate(http_requests_total[5m])) by (job)
 ```
 
-### 4.2 Alerting Rules
+### 7.2 Alerting Rules
 
 ```yaml
 # /etc/prometheus/rules/alerting.yml
@@ -364,7 +364,7 @@ groups:
       description: "Error rate is {{ $value | humanizePercentage }}"
 ```
 
-### 4.3 Alertmanager 路由
+### 7.3 Alertmanager 路由
 
 ```yaml
 # /etc/alertmanager/alertmanager.yml
@@ -395,7 +395,7 @@ receivers:
     api_url: https://hooks.slack.com/...
 ```
 
-### 4.4 静默 (Silences)
+### 7.4 静默 (Silences)
 
 在计划维护期间静默告警:
 
@@ -405,9 +405,9 @@ amtool silence add alertname="HighErrorRate" --duration=2h --comment="Planned ma
 
 ---
 
-## 5. 日志系统: Loki
+## 8. 日志系统: Loki
 
-### 5.1 Loki 架构
+### 8.1 Loki 架构
 
 ```mermaid
 graph TD
@@ -439,14 +439,14 @@ graph TD
 *   **优势**: 存储成本极低, 适合高吞吐场景.
 *   **劣势**: 全文搜索性能低于 Elasticsearch.
 
-### 5.2 日志收集模式
+### 8.2 日志收集模式
 
 | 模式 | 架构 | 优势 | 劣势 |
 | :--- | :--- | :--- | :--- |
 | **DaemonSet** | 每个节点一个 Agent | 资源共享, 配置统一 | 无法定制化处理 |
 | **Sidecar** | 每个 Pod 一个 Agent | 隔离性强, 可定制 | 资源消耗大 |
 
-### 5.3 Promtail 配置
+### 8.3 Promtail 配置
 
 ```yaml
 # promtail-config.yaml
@@ -477,7 +477,7 @@ scrape_configs:
           level:
 ```
 
-### 5.4 LogQL 查询
+### 8.4 LogQL 查询
 
 *   **日志流选择**:
     ```text
@@ -496,9 +496,9 @@ scrape_configs:
 
 ---
 
-## 6. 链路追踪: OpenTelemetry
+## 9. 链路追踪: OpenTelemetry
 
-### 6.1 分布式追踪原理
+### 9.1 分布式追踪原理
 
 ```mermaid
 sequenceDiagram
@@ -528,7 +528,7 @@ sequenceDiagram
     | **Span ID** | 单个 Span 的标识 |
     | **Parent Span ID** | 父 Span 的引用 |
 
-### 6.2 OpenTelemetry 架构
+### 9.2 OpenTelemetry 架构
 
 ```mermaid
 graph TD
@@ -554,7 +554,7 @@ graph TD
     D --> G
 ```
 
-### 6.3 自动注入 (Kubernetes Operator)
+### 9.3 自动注入 (Kubernetes Operator)
 
 ```bash
 helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
@@ -590,7 +590,7 @@ metadata:
 
 ---
 
-## 7. SRE 黄金信号
+## 10. SRE 黄金信号
 
 Google SRE 提出的四大黄金信号是监控的核心:
 
@@ -601,7 +601,7 @@ Google SRE 提出的四大黄金信号是监控的核心:
 | **Errors** | 错误率 | `sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))` |
 | **Saturation** | 资源饱和度 | `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))` |
 
-### 7.1 RED Method (请求驱动服务)
+### 10.1 RED Method (请求驱动服务)
 
 适用于 Request-Driven Services:
 
@@ -609,7 +609,7 @@ Google SRE 提出的四大黄金信号是监控的核心:
 *   **E**rrors: 错误率
 *   **D**uration: 响应延迟
 
-### 7.2 USE Method (资源)
+### 10.2 USE Method (资源)
 
 适用于资源监控:
 
@@ -619,9 +619,9 @@ Google SRE 提出的四大黄金信号是监控的核心:
 
 ---
 
-## 8. 实战演练
+## 11. 实战演练
 
-### 8.1 Lab 1: 配置黄金信号 Dashboard
+### 11.1 Lab 1: 配置黄金信号 Dashboard
 
 **目标**: 在 Grafana 中创建包含四大黄金信号的 Dashboard.
 
@@ -632,7 +632,7 @@ Google SRE 提出的四大黄金信号是监控的核心:
     *   错误率
     *   CPU/Memory 饱和度
 
-### 8.2 Lab 2: 日志告警集成
+### 11.2 Lab 2: 日志告警集成
 
 **目标**: 当错误日志超过阈值时触发告警.
 
@@ -650,7 +650,7 @@ groups:
       summary: "High error log rate"
 ```
 
-### 8.3 Lab 3: 链路追踪分析
+### 11.3 Lab 3: 链路追踪分析
 
 **目标**: 定位分布式请求的延迟瓶颈.
 
@@ -661,7 +661,7 @@ groups:
 
 ---
 
-## 9. 本周核心要点回顾
+## 12. 本周核心要点回顾
 
 | 领域 | 核心概念 | 关键配置 |
 | :--- | :--- | :--- |
