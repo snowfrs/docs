@@ -1,0 +1,650 @@
+---
+title: "Week 07: 测试、基准与性能分析"
+description: "掌握 Go 测试框架, 学习表驱动测试、Benchmark、pprof 性能分析与逃逸分析."
+---
+
+## 1. 测试基础
+
+### 1.1 测试文件命名
+
+*   测试文件以 `_test.go` 结尾.
+*   与被测试文件放在同一目录.
+*   测试函数以 `Test` 开头, 参数为 `*testing.T`.
+
+```
+mypackage/
+├── math.go       # 实现代码
+└── math_test.go  # 测试代码
+```
+
+### 1.2 第一个测试
+
+```go
+// math.go
+package math
+
+func Add(a, b int) int {
+    return a + b
+}
+```
+
+```go
+// math_test.go
+package math
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+    result := Add(1, 2)
+    if result != 3 {
+        t.Errorf("Add(1, 2) = %d; want 3", result)
+    }
+}
+```
+
+### 1.3 运行测试
+
+```bash
+go test                  # 运行当前包的测试
+go test ./...            # 运行所有包的测试
+go test -v               # 详细输出
+go test -run TestAdd     # 只运行匹配的测试
+go test -count=1         # 禁用测试缓存
+```
+
+---
+
+## 2. 表驱动测试 (Table-Driven Tests)
+
+Go 推荐使用表驱动测试, 将测试用例组织为数据:
+
+```go
+func TestAdd(t *testing.T) {
+    tests := []struct {
+        name     string
+        a, b     int
+        expected int
+    }{
+        {"正数相加", 1, 2, 3},
+        {"负数相加", -1, -1, -2},
+        {"零", 0, 0, 0},
+        {"混合", -1, 1, 0},
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            result := Add(tt.a, tt.b)
+            if result != tt.expected {
+                t.Errorf("Add(%d, %d) = %d; want %d", 
+                    tt.a, tt.b, result, tt.expected)
+            }
+        })
+    }
+}
+```
+
+**优点**:
+*   易于添加新用例.
+*   每个用例有独立的名称.
+*   `t.Run` 创建子测试, 可单独运行 (`-run TestAdd/正数相加`).
+
+---
+
+## 3. 测试辅助函数
+
+### 3.1 t.Helper()
+
+标记函数为辅助函数, 错误报告会显示调用者位置:
+
+```go
+func assertEqual(t *testing.T, got, want int) {
+    t.Helper()  // 关键
+    if got != want {
+        t.Errorf("got %d; want %d", got, want)
+    }
+}
+```
+
+### 3.2 t.Cleanup()
+
+注册清理函数, 在测试结束时执行 (类似 defer):
+
+```go
+func TestWithTempFile(t *testing.T) {
+    f, _ := os.CreateTemp("", "test")
+    t.Cleanup(func() {
+        os.Remove(f.Name())
+    })
+    // 使用 f...
+}
+```
+
+### 3.3 t.Parallel()
+
+标记测试可并行执行:
+
+```go
+func TestA(t *testing.T) {
+    t.Parallel()
+    // ...
+}
+
+func TestB(t *testing.T) {
+    t.Parallel()
+    // ...
+}
+```
+
+---
+
+## 4. 测试覆盖率
+
+```bash
+go test -cover                    # 显示覆盖率
+go test -coverprofile=cover.out   # 生成覆盖率文件
+go tool cover -html=cover.out     # 可视化覆盖率
+```
+
+**覆盖率不是目标**: 100% 覆盖率并不意味着没有 bug. 重点是测试关键路径和边界条件.
+
+---
+
+## 5. Mock 测试与依赖注入
+
+### 5.1 接口抽象
+
+Mock 测试的前提是使用接口抽象依赖:
+
+```go
+// repository/user.go
+type UserRepository interface {
+    GetByID(ctx context.Context, id int64) (*User, error)
+    Create(ctx context.Context, user *User) error
+}
+
+// service/user.go
+type UserService struct {
+    repo UserRepository  // 依赖接口, 而非具体实现
+}
+
+func NewUserService(repo UserRepository) *UserService {
+    return &UserService{repo: repo}
+}
+
+func (s *UserService) GetUser(ctx context.Context, id int64) (*User, error) {
+    return s.repo.GetByID(ctx, id)
+}
+```
+
+### 5.2 手写 Mock
+
+```go
+// service/user_test.go
+type mockUserRepository struct {
+    users map[int64]*User
+    err   error
+}
+
+func (m *mockUserRepository) GetByID(ctx context.Context, id int64) (*User, error) {
+    if m.err != nil {
+        return nil, m.err
+    }
+    return m.users[id], nil
+}
+
+func (m *mockUserRepository) Create(ctx context.Context, user *User) error {
+    if m.err != nil {
+        return m.err
+    }
+    m.users[user.ID] = user
+    return nil
+}
+
+func TestUserService_GetUser(t *testing.T) {
+    mockRepo := &mockUserRepository{
+        users: map[int64]*User{
+            1: {ID: 1, Name: "Alice"},
+        },
+    }
+    
+    svc := NewUserService(mockRepo)
+    
+    user, err := svc.GetUser(context.Background(), 1)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if user.Name != "Alice" {
+        t.Errorf("got %q, want %q", user.Name, "Alice")
+    }
+}
+
+// 测试错误场景
+func TestUserService_GetUser_NotFound(t *testing.T) {
+    mockRepo := &mockUserRepository{
+        err: ErrUserNotFound,
+    }
+    
+    svc := NewUserService(mockRepo)
+    
+    _, err := svc.GetUser(context.Background(), 999)
+    if !errors.Is(err, ErrUserNotFound) {
+        t.Errorf("expected ErrUserNotFound, got %v", err)
+    }
+}
+```
+
+### 5.3 gomock (代码生成)
+
+```bash
+go install go.uber.org/mock/mockgen@latest
+
+# 生成 Mock
+mockgen -source=repository/user.go -destination=repository/mock/user_mock.go
+```
+
+```go
+import "github.com/golang/mock/gomock"
+
+func TestUserService_GetUser_GoMock(t *testing.T) {
+    ctrl := gomock.NewController(t)
+    defer ctrl.Finish()
+    
+    mockRepo := mock.NewMockUserRepository(ctrl)
+    mockRepo.EXPECT().
+        GetByID(gomock.Any(), int64(1)).
+        Return(&User{ID: 1, Name: "Alice"}, nil)
+    
+    svc := NewUserService(mockRepo)
+    user, err := svc.GetUser(context.Background(), 1)
+    
+    if err != nil || user.Name != "Alice" {
+        t.Fail()
+    }
+}
+```
+
+---
+
+## 6. testify 断言库
+
+### 6.1 基本断言
+
+```go
+import (
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+)
+
+func TestWithAssert(t *testing.T) {
+    // assert: 失败后继续执行
+    assert.Equal(t, 3, Add(1, 2))
+    assert.NotNil(t, obj)
+    assert.Contains(t, "hello world", "world")
+    assert.Error(t, err)
+    assert.ErrorIs(t, err, ErrNotFound)
+    
+    // require: 失败后立即停止
+    require.NoError(t, err)  // 如果失败, 后续代码不执行
+    require.NotNil(t, user)
+    assert.Equal(t, "Alice", user.Name)
+}
+```
+
+### 6.2 表驱动测试 + testify
+
+```go
+func TestAdd_Testify(t *testing.T) {
+    tests := []struct {
+        name     string
+        a, b     int
+        expected int
+    }{
+        {"positive", 1, 2, 3},
+        {"negative", -1, -1, -2},
+        {"zero", 0, 0, 0},
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            assert.Equal(t, tt.expected, Add(tt.a, tt.b))
+        })
+    }
+}
+```
+
+### 6.3 testify/suite
+
+组织测试用例, 共享 setup/teardown:
+
+```go
+import "github.com/stretchr/testify/suite"
+
+type UserServiceTestSuite struct {
+    suite.Suite
+    db      *sql.DB
+    service *UserService
+}
+
+func (s *UserServiceTestSuite) SetupSuite() {
+    s.db, _ = sql.Open("postgres", "test_db")
+    s.service = NewUserService(NewUserRepository(s.db))
+}
+
+func (s *UserServiceTestSuite) TearDownSuite() {
+    s.db.Close()
+}
+
+func (s *UserServiceTestSuite) SetupTest() {
+    s.db.Exec("TRUNCATE users")
+}
+
+func (s *UserServiceTestSuite) TestCreateUser() {
+    user, err := s.service.Create(context.Background(), &User{Name: "Alice"})
+    s.Require().NoError(err)
+    s.Assert().Equal("Alice", user.Name)
+}
+
+func TestUserService(t *testing.T) {
+    suite.Run(t, new(UserServiceTestSuite))
+}
+
+---
+
+## 5. Fuzzing (Go 1.18+)
+
+Fuzzing 是一种自动化测试技术, 用随机输入发现边界情况和崩溃.
+
+### 5.1 编写 Fuzz 测试
+
+```go
+func FuzzParseJSON(f *testing.F) {
+    // 种子语料
+    f.Add([]byte(`{"name":"test"}`))
+    f.Add([]byte(`{"id":123}`))
+    f.Add([]byte(`[]`))
+    
+    f.Fuzz(func(t *testing.T, data []byte) {
+        var result map[string]interface{}
+        // 函数不应 panic
+        _ = json.Unmarshal(data, &result)
+    })
+}
+```
+
+### 5.2 运行 Fuzzing
+
+```bash
+go test -fuzz=FuzzParseJSON -fuzztime=30s
+go test -fuzz=FuzzParseJSON -fuzztime=1000x  # 运行 1000 次
+```
+
+发现的问题会保存在 `testdata/fuzz/` 目录下.
+
+---
+
+## 6. 测试辅助函数补充
+
+### 6.1 t.Setenv (Go 1.17+)
+
+```go
+func TestWithEnv(t *testing.T) {
+    t.Setenv("API_KEY", "test-key")
+    // 测试结束后自动恢复原值
+    
+    // 测试代码...
+}
+```
+
+### 6.2 t.TempDir (Go 1.15+)
+
+```go
+func TestWithTempFile(t *testing.T) {
+    dir := t.TempDir()  // 测试结束后自动删除
+    
+    path := filepath.Join(dir, "test.txt")
+    os.WriteFile(path, []byte("hello"), 0644)
+    // ...
+}
+```
+
+---
+
+## 7. Benchmark (基准测试)
+
+### 7.1 编写 Benchmark
+
+函数以 `Benchmark` 开头, 参数为 `*testing.B`:
+
+```go
+func BenchmarkAdd(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        Add(1, 2)
+    }
+}
+```
+
+`b.N` 由 testing 框架自动调整, 确保测试运行足够长时间以获得稳定结果.
+
+### 7.2 运行 Benchmark
+
+```bash
+go test -bench=.                      # 运行所有 benchmark
+go test -bench=Add                    # 只运行匹配的
+go test -bench=. -benchmem            # 包含内存分配信息
+go test -bench=. -benchtime=5s        # 运行 5 秒
+go test -bench=. -count=5             # 运行 5 次取平均
+```
+
+**输出解读**:
+```
+BenchmarkAdd-8   1000000000   0.2916 ns/op   0 B/op   0 allocs/op
+```
+*   `8`: GOMAXPROCS
+*   `1000000000`: 运行次数
+*   `0.2916 ns/op`: 每次操作耗时
+*   `0 B/op`: 每次操作分配内存
+*   `0 allocs/op`: 每次操作分配次数
+
+### 7.3 避免编译器优化
+
+编译器可能优化掉无副作用的代码:
+
+```go
+var result int  // 全局变量, 防止优化
+
+func BenchmarkAdd(b *testing.B) {
+    var r int
+    for i := 0; i < b.N; i++ {
+        r = Add(1, 2)
+    }
+    result = r
+}
+```
+
+### 7.4 重置计时器
+
+如果 benchmark 有昂贵的初始化, 使用 `b.ResetTimer()`:
+
+```go
+func BenchmarkProcess(b *testing.B) {
+    data := prepareData()  // 不计入计时
+    b.ResetTimer()
+    
+    for i := 0; i < b.N; i++ {
+        process(data)
+    }
+}
+```
+
+---
+
+## 8. 性能分析 (pprof)
+
+### 8.1 启用 pprof
+
+```go
+import _ "net/http/pprof"
+
+func main() {
+    go func() {
+        http.ListenAndServe("localhost:6060", nil)
+    }()
+    // 应用逻辑...
+}
+```
+
+### 8.2 采集数据
+
+```bash
+# CPU Profile
+go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30
+
+# 堆内存
+go tool pprof http://localhost:6060/debug/pprof/heap
+
+# Goroutine
+go tool pprof http://localhost:6060/debug/pprof/goroutine
+
+# 阻塞
+go tool pprof http://localhost:6060/debug/pprof/block
+```
+
+### 8.3 pprof 交互命令
+
+```bash
+(pprof) top          # 显示最耗时的函数
+(pprof) top10        # 前 10
+(pprof) list Add     # 显示 Add 函数的逐行分析
+(pprof) web          # 在浏览器中显示调用图
+```
+
+### 8.4 火焰图
+
+```bash
+go install github.com/google/pprof@latest
+pprof -http=:8080 cpu.prof
+```
+
+---
+
+## 9. 逃逸分析 (Escape Analysis)
+
+### 9.1 什么是逃逸
+
+编译器决定变量分配在栈还是堆:
+*   **栈分配**: 函数返回自动回收, 零成本.
+*   **堆分配**: 需要 GC 回收, 有性能开销.
+
+当编译器无法确定变量的生命周期不超过函数调用时, 变量会"逃逸"到堆.
+
+### 9.2 查看逃逸分析
+
+```bash
+go build -gcflags="-m" main.go
+go build -gcflags="-m -m" main.go  # 更详细
+```
+
+**输出示例**:
+```
+./main.go:10:6: moved to heap: x
+./main.go:15:13: &User{...} escapes to heap
+```
+
+### 9.3 常见逃逸场景
+
+```go
+// 1. 返回局部变量的指针
+func createUser() *User {
+    u := User{Name: "Alice"}  // 逃逸
+    return &u
+}
+
+// 2. 赋值给接口类型
+func print(i interface{}) { ... }
+x := 42
+print(x)  // x 被装箱, 逃逸
+
+// 3. 切片扩容
+s := make([]int, 0)
+s = append(s, 1)  // 可能逃逸
+
+// 4. 闭包引用
+func counter() func() int {
+    count := 0  // 逃逸
+    return func() int {
+        count++
+        return count
+    }
+}
+```
+
+### 9.4 减少逃逸的技巧
+
+1.  **避免返回指针** (如果可以).
+2.  **使用值类型而非接口** (在性能关键路径).
+3.  **预分配切片容量** (`make([]int, 0, 100)`).
+4.  **sync.Pool 复用对象**.
+
+---
+
+## 10. 内存分配分析
+
+### 10.1 runtime.MemStats
+
+```go
+var m runtime.MemStats
+runtime.ReadMemStats(&m)
+fmt.Printf("Alloc: %d MB\n", m.Alloc/1024/1024)
+fmt.Printf("TotalAlloc: %d MB\n", m.TotalAlloc/1024/1024)
+fmt.Printf("NumGC: %d\n", m.NumGC)
+```
+
+### 10.2 GODEBUG=gctrace=1
+
+```bash
+GODEBUG=gctrace=1 ./myapp
+```
+
+输出每次 GC 的详细信息.
+
+---
+
+## 11. 练习
+
+### 11.1 表驱动测试
+
+为一个字符串反转函数编写表驱动测试, 包含边界情况 (空串、单字符、Unicode).
+
+### 11.2 Benchmark 对比
+
+对比字符串拼接的几种方式 (`+`, `strings.Builder`, `bytes.Buffer`) 的性能.
+
+### 11.3 逃逸分析实验
+
+编写代码, 故意制造逃逸, 使用 `-gcflags="-m"` 验证.
+
+---
+
+## 12. 思考题
+
+1.  为什么 Go 的 benchmark 需要循环 `b.N` 次?
+2.  表驱动测试比传统测试有什么优势?
+3.  如何判断一个函数需要优化?
+4.  栈分配为什么比堆分配快?
+5.  pprof 的采样机制是什么?
+
+---
+
+## 13. 本周小结
+
+*   **测试**: `_test.go` 文件, `Test` 函数, `t.Errorf`.
+*   **表驱动测试**: 数据驱动, `t.Run` 子测试.
+*   **覆盖率**: `-cover`, `-coverprofile`.
+*   **Benchmark**: `Benchmark` 函数, `b.N`, `-benchmem`.
+*   **pprof**: CPU/内存/Goroutine 分析, 火焰图.
+*   **逃逸分析**: `-gcflags="-m"`, 栈 vs 堆分配.
+
+---
+
+> 测试是代码质量的保障, 性能分析是优化的起点. 不要盲目优化, 先测量.

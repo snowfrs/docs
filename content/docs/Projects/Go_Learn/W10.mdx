@@ -1,0 +1,718 @@
+---
+title: "Week 10: HTTP API 开发与数据库"
+description: "掌握 REST API 设计, 数据库操作 (GORM/sqlx), 优雅关闭, 以及生产级 HTTP 服务开发."
+---
+
+## 1. REST API 设计原则
+
+### 1.1 RESTful 规范
+
+| HTTP 方法 | 作用 | 示例 |
+|-----------|------|------|
+| GET | 获取资源 | `GET /users/123` |
+| POST | 创建资源 | `POST /users` |
+| PUT | 完整更新 | `PUT /users/123` |
+| PATCH | 部分更新 | `PATCH /users/123` |
+| DELETE | 删除资源 | `DELETE /users/123` |
+
+### 1.2 URL 设计
+
+```
+GET    /users              # 列表
+GET    /users/123          # 详情
+POST   /users              # 创建
+PUT    /users/123          # 更新
+DELETE /users/123          # 删除
+GET    /users/123/posts    # 子资源
+```
+
+### 1.3 响应格式
+
+```json
+{
+    "data": {
+        "id": 123,
+        "name": "Alice"
+    },
+    "meta": {
+        "total": 100,
+        "page": 1
+    }
+}
+
+// 错误响应
+{
+    "error": {
+        "code": "USER_NOT_FOUND",
+        "message": "User with ID 123 not found"
+    }
+}
+```
+
+---
+
+## 2. HTTP 服务器架构
+
+### 2.1 项目结构
+
+```
+project/
+├── cmd/
+│   └── server/
+│       └── main.go
+├── internal/
+│   ├── handler/      # HTTP 处理器
+│   ├── service/      # 业务逻辑
+│   ├── repository/   # 数据访问
+│   └── model/        # 数据模型
+├── pkg/              # 公共包
+├── go.mod
+└── go.sum
+```
+
+### 2.2 Handler 示例
+
+```go
+// internal/handler/user.go
+type UserHandler struct {
+    service *service.UserService
+}
+
+func NewUserHandler(s *service.UserService) *UserHandler {
+    return &UserHandler{service: s}
+}
+
+func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
+    id := r.PathValue("id")
+    
+    user, err := h.service.GetByID(r.Context(), id)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusNotFound)
+        return
+    }
+    
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(user)
+}
+
+func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
+    var input CreateUserInput
+    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+    
+    user, err := h.service.Create(r.Context(), input)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    w.WriteHeader(http.StatusCreated)
+    json.NewEncoder(w).Encode(user)
+}
+```
+
+### 2.3 路由注册
+
+```go
+func setupRoutes(mux *http.ServeMux, userHandler *UserHandler) {
+    mux.HandleFunc("GET /users/{id}", userHandler.GetUser)
+    mux.HandleFunc("POST /users", userHandler.CreateUser)
+    mux.HandleFunc("PUT /users/{id}", userHandler.UpdateUser)
+    mux.HandleFunc("DELETE /users/{id}", userHandler.DeleteUser)
+}
+```
+
+---
+
+## 3. 中间件链
+
+### 3.1 通用中间件
+
+```go
+// 请求日志
+func LoggingMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        start := time.Now()
+        
+        next.ServeHTTP(w, r)
+        
+        log.Printf("%s %s %v", r.Method, r.URL.Path, time.Since(start))
+    })
+}
+
+// 请求 ID
+func RequestIDMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        requestID := uuid.New().String()
+        ctx := context.WithValue(r.Context(), "requestID", requestID)
+        w.Header().Set("X-Request-ID", requestID)
+        
+        next.ServeHTTP(w, r.WithContext(ctx))
+    })
+}
+
+// Panic 恢复
+func RecoveryMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        defer func() {
+            if err := recover(); err != nil {
+                log.Printf("Panic: %v\n%s", err, debug.Stack())
+                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+            }
+        }()
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+### 3.2 中间件链组合
+
+```go
+func Chain(h http.Handler, middlewares ...func(http.Handler) http.Handler) http.Handler {
+    for i := len(middlewares) - 1; i >= 0; i-- {
+        h = middlewares[i](h)
+    }
+    return h
+}
+
+// 使用
+handler := Chain(mux,
+    RecoveryMiddleware,
+    LoggingMiddleware,
+    RequestIDMiddleware,
+)
+```
+
+---
+
+## 4. 数据库操作
+
+### 4.1 database/sql 基础
+
+```go
+import (
+    "database/sql"
+    _ "github.com/lib/pq"  // PostgreSQL 驱动
+)
+
+db, err := sql.Open("postgres", "postgres://user:pass@localhost/dbname?sslmode=disable")
+if err != nil {
+    log.Fatal(err)
+}
+defer db.Close()
+
+// 配置连接池
+db.SetMaxOpenConns(25)
+db.SetMaxIdleConns(5)
+db.SetConnMaxLifetime(5 * time.Minute)
+```
+
+### 4.2 sqlx (增强库)
+
+```go
+import "github.com/jmoiron/sqlx"
+
+db, err := sqlx.Connect("postgres", connStr)
+
+// 查询单条
+var user User
+err := db.Get(&user, "SELECT * FROM users WHERE id = $1", id)
+
+// 查询多条
+var users []User
+err := db.Select(&users, "SELECT * FROM users WHERE active = $1", true)
+
+// 命名参数
+result, err := db.NamedExec(`INSERT INTO users (name, email) VALUES (:name, :email)`,
+    map[string]interface{}{
+        "name":  "Alice",
+        "email": "alice@example.com",
+    })
+```
+
+### 4.3 GORM (ORM)
+
+```go
+import "gorm.io/gorm"
+import "gorm.io/driver/postgres"
+
+db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+
+// 自动迁移
+db.AutoMigrate(&User{})
+
+// 创建
+db.Create(&User{Name: "Alice", Email: "alice@example.com"})
+
+// 查询
+var user User
+db.First(&user, 1)                       // 按主键
+db.First(&user, "email = ?", "alice@example.com")
+
+// 更新
+db.Model(&user).Update("name", "Bob")
+db.Model(&user).Updates(User{Name: "Bob", Age: 30})
+
+// 删除
+db.Delete(&user, 1)
+```
+
+### 4.4 事务处理
+
+```go
+// database/sql
+tx, err := db.BeginTx(ctx, nil)
+if err != nil {
+    return err
+}
+defer tx.Rollback()
+
+_, err = tx.ExecContext(ctx, "UPDATE accounts SET balance = balance - $1 WHERE id = $2", amount, fromID)
+if err != nil {
+    return err
+}
+
+_, err = tx.ExecContext(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, toID)
+if err != nil {
+    return err
+}
+
+return tx.Commit()
+
+// GORM
+db.Transaction(func(tx *gorm.DB) error {
+    if err := tx.Create(&order).Error; err != nil {
+        return err
+    }
+    if err := tx.Create(&orderItems).Error; err != nil {
+        return err
+    }
+    return nil
+})
+```
+
+---
+
+## 5. gRPC 基础
+
+gRPC 是高性能 RPC 框架, 在微服务和云原生场景广泛使用.
+
+### 5.1 Protocol Buffers 定义
+
+```protobuf
+// user.proto
+syntax = "proto3";
+
+package user;
+
+option go_package = "github.com/example/user";
+
+service UserService {
+    rpc GetUser(GetUserRequest) returns (User);
+    rpc ListUsers(ListUsersRequest) returns (stream User);  // 服务端流
+}
+
+message GetUserRequest {
+    int64 id = 1;
+}
+
+message User {
+    int64 id = 1;
+    string name = 2;
+    string email = 3;
+}
+```
+
+### 5.2 生成 Go 代码
+
+```bash
+protoc --go_out=. --go-grpc_out=. user.proto
+```
+
+### 5.3 实现服务端
+
+```go
+type server struct {
+    pb.UnimplementedUserServiceServer
+}
+
+func (s *server) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.User, error) {
+    return &pb.User{Id: req.Id, Name: "Alice", Email: "alice@example.com"}, nil
+}
+
+func main() {
+    lis, _ := net.Listen("tcp", ":50051")
+    s := grpc.NewServer()
+    pb.RegisterUserServiceServer(s, &server{})
+    log.Fatal(s.Serve(lis))
+}
+```
+
+### 5.4 实现客户端
+
+```go
+conn, _ := grpc.Dial("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+defer conn.Close()
+
+client := pb.NewUserServiceClient(conn)
+user, err := client.GetUser(context.Background(), &pb.GetUserRequest{Id: 1})
+fmt.Println(user.Name)
+```
+
+---
+
+## 6. 优雅关闭 (Graceful Shutdown)
+
+```go
+func main() {
+    srv := &http.Server{
+        Addr:    ":8080",
+        Handler: mux,
+    }
+    
+    // 启动服务器
+    go func() {
+        if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+            log.Fatalf("ListenAndServe: %v", err)
+        }
+    }()
+    
+    // 等待中断信号
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+    <-quit
+    
+    log.Println("正在关闭服务器...")
+    
+    // 设置关闭超时
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+    
+    if err := srv.Shutdown(ctx); err != nil {
+        log.Fatalf("Server Shutdown: %v", err)
+    }
+    
+    // 关闭数据库连接等
+    db.Close()
+    
+    log.Println("服务器已关闭")
+}
+```
+
+---
+
+## 6. 配置管理
+
+### 6.1 环境变量
+
+```go
+type Config struct {
+    Port     string
+    DBHost   string
+    DBPort   string
+    LogLevel string
+}
+
+func LoadConfig() *Config {
+    return &Config{
+        Port:     getEnv("PORT", "8080"),
+        DBHost:   getEnv("DB_HOST", "localhost"),
+        DBPort:   getEnv("DB_PORT", "5432"),
+        LogLevel: getEnv("LOG_LEVEL", "info"),
+    }
+}
+
+func getEnv(key, defaultValue string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return defaultValue
+}
+```
+
+### 6.2 Viper (配置库)
+
+```go
+import "github.com/spf13/viper"
+
+viper.SetConfigName("config")
+viper.SetConfigType("yaml")
+viper.AddConfigPath(".")
+viper.AutomaticEnv()
+
+if err := viper.ReadInConfig(); err != nil {
+    log.Fatal(err)
+}
+
+port := viper.GetString("server.port")
+dbHost := viper.GetString("database.host")
+```
+
+---
+
+## 7. 结构化日志 (Structured Logging)
+
+### 7.1 为什么需要结构化日志
+
+传统日志:
+```
+2024-01-16 10:30:15 INFO User created: alice
+```
+
+结构化日志 (JSON):
+```json
+{"time":"2024-01-16T10:30:15Z","level":"info","msg":"user created","user_id":123,"username":"alice","request_id":"abc-123"}
+```
+
+**优势**: 可搜索、可聚合、可机器解析
+
+### 7.2 slog (Go 1.21+)
+
+```go
+import "log/slog"
+
+// 创建 JSON Handler
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
+}))
+slog.SetDefault(logger)
+
+// 记录日志
+slog.Info("user created",
+    "user_id", 123,
+    "username", "alice",
+)
+
+// 带 Context 的日志
+slog.InfoContext(ctx, "request completed",
+    "status", 200,
+    "duration", time.Since(start),
+)
+
+// 子 Logger
+userLogger := slog.With("component", "user-service")
+userLogger.Info("processing request")
+```
+
+### 7.3 zerolog (高性能)
+
+```go
+import (
+    "github.com/rs/zerolog"
+    "github.com/rs/zerolog/log"
+)
+
+// 配置
+zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
+// 记录日志
+log.Info().
+    Str("username", "alice").
+    Int("user_id", 123).
+    Msg("user created")
+
+// 错误日志
+log.Error().
+    Err(err).
+    Str("operation", "create_user").
+    Msg("failed to create user")
+
+// 子 Logger
+logger := log.With().Str("service", "user-api").Logger()
+```
+
+### 7.4 日志最佳实践
+
+```go
+// 1. 使用字段而非格式化字符串
+// ❌ 不好
+log.Printf("user %s created with id %d", username, userID)
+
+// ✅ 好
+slog.Info("user created", "username", username, "user_id", userID)
+
+// 2. 包含请求上下文
+func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
+    requestID := r.Header.Get("X-Request-ID")
+    logger := slog.With("request_id", requestID)
+    
+    logger.Info("creating user", "username", input.Username)
+    // ...
+}
+
+// 3. 错误日志包含堆栈
+if err != nil {
+    slog.Error("operation failed",
+        "error", err,
+        "stack", string(debug.Stack()),
+    )
+}
+```
+
+---
+
+## 8. 可观测性 (Observability)
+
+### 8.1 三大支柱
+
+| 支柱 | 工具 | 用途 |
+|------|------|------|
+| **Logs** | slog, zerolog | 事件记录 |
+| **Metrics** | Prometheus | 聚合指标 |
+| **Traces** | OpenTelemetry | 分布式追踪 |
+
+### 8.2 Prometheus Metrics
+
+```go
+import (
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+var (
+    httpRequestsTotal = prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "http_requests_total",
+            Help: "Total number of HTTP requests",
+        },
+        []string{"method", "path", "status"},
+    )
+    
+    httpRequestDuration = prometheus.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name:    "http_request_duration_seconds",
+            Help:    "HTTP request duration in seconds",
+            Buckets: prometheus.DefBuckets,
+        },
+        []string{"method", "path"},
+    )
+)
+
+func init() {
+    prometheus.MustRegister(httpRequestsTotal)
+    prometheus.MustRegister(httpRequestDuration)
+}
+
+// Metrics 中间件
+func MetricsMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        start := time.Now()
+        
+        // 包装 ResponseWriter 获取状态码
+        sw := &statusWriter{ResponseWriter: w, status: 200}
+        next.ServeHTTP(sw, r)
+        
+        duration := time.Since(start).Seconds()
+        httpRequestsTotal.WithLabelValues(r.Method, r.URL.Path, fmt.Sprintf("%d", sw.status)).Inc()
+        httpRequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration)
+    })
+}
+
+// 暴露 /metrics 端点
+mux.Handle("/metrics", promhttp.Handler())
+```
+
+### 8.3 OpenTelemetry Tracing
+
+```go
+import (
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/trace"
+)
+
+// 初始化
+tracer := otel.Tracer("my-service")
+
+// 创建 Span
+ctx, span := tracer.Start(ctx, "create-user")
+defer span.End()
+
+// 添加属性
+span.SetAttributes(
+    attribute.String("user.id", userID),
+    attribute.String("user.email", email),
+)
+
+// 记录事件
+span.AddEvent("validation completed")
+
+// 记录错误
+if err != nil {
+    span.RecordError(err)
+    span.SetStatus(codes.Error, err.Error())
+}
+```
+
+### 8.4 健康检查端点
+
+```go
+// /health - 存活检查
+func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("OK"))
+}
+
+// /ready - 就绪检查
+func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
+    // 检查数据库连接
+    if err := h.db.PingContext(r.Context()); err != nil {
+        http.Error(w, "database not ready", http.StatusServiceUnavailable)
+        return
+    }
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("Ready"))
+}
+
+mux.HandleFunc("GET /health", h.Health)
+mux.HandleFunc("GET /ready", h.Ready)
+```
+
+---
+
+## 9. 练习
+
+### 7.1 完整 CRUD API
+
+实现一个用户管理 API, 包含:
+- 创建用户
+- 获取用户列表 (分页)
+- 获取单个用户
+- 更新用户
+- 删除用户
+
+### 7.2 数据库集成
+
+使用 GORM 连接 PostgreSQL/SQLite, 实现用户 CRUD.
+
+### 7.3 中间件
+
+实现一个简单的 JWT 认证中间件.
+
+---
+
+## 10. 思考题
+
+1.  REST API 中 POST 和 PUT 有什么区别?
+2.  为什么需要优雅关闭?
+3.  ORM 和原生 SQL 各有什么优缺点?
+4.  如何防止 SQL 注入?
+5.  连接池大小如何设置?
+
+---
+
+## 11. 本周小结
+
+*   **REST 设计**: HTTP 方法语义, URL 规范.
+*   **服务器架构**: Handler/Service/Repository 分层.
+*   **中间件**: 日志、恢复、认证等横切关注点.
+*   **数据库**: database/sql, sqlx, GORM.
+*   **优雅关闭**: 信号处理, Shutdown 超时.
+*   **配置管理**: 环境变量, Viper.
+*   **结构化日志**: slog, zerolog.
+*   **可观测性**: Prometheus Metrics, OpenTelemetry, 健康检查.
+
+---
+
+> 生产级 API 不仅要能跑, 还要可观测、可配置、能优雅关闭.

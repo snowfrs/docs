@@ -1,0 +1,472 @@
+---
+title: "Week 09: 标准库核心包"
+description: "深入 io/fs、net/http、encoding/json、reflect 等核心标准库包."
+---
+
+## 1. io 包: 流式数据处理
+
+### 1.1 核心接口
+
+```go
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+type Closer interface {
+    Close() error
+}
+
+// 组合接口
+type ReadWriter interface {
+    Reader
+    Writer
+}
+
+type ReadCloser interface {
+    Reader
+    Closer
+}
+```
+
+### 1.2 常用实现
+
+| 实现 | 说明 |
+|------|------|
+| `os.File` | 文件读写 |
+| `bytes.Buffer` | 内存缓冲区 |
+| `strings.Reader` | 字符串读取 |
+| `bufio.Reader/Writer` | 带缓冲的读写 |
+| `compress/gzip.Reader/Writer` | Gzip 压缩 |
+| `net.Conn` | 网络连接 |
+
+### 1.3 io 工具函数
+
+```go
+// 复制数据
+n, err := io.Copy(dst, src)
+
+// 读取全部
+data, err := io.ReadAll(r)
+
+// 限制读取长度
+lr := io.LimitReader(r, 1024)
+
+// 多重读取
+tr := io.TeeReader(r, w)  // 读取的同时写入 w
+
+// 组合多个 Reader
+mr := io.MultiReader(r1, r2, r3)
+```
+
+### 1.4 bufio: 带缓冲的 I/O
+
+```go
+// 带缓冲的读取
+br := bufio.NewReader(file)
+line, err := br.ReadString('\n')
+
+// Scanner: 按行/单词读取
+scanner := bufio.NewScanner(file)
+for scanner.Scan() {
+    fmt.Println(scanner.Text())
+}
+if err := scanner.Err(); err != nil {
+    log.Fatal(err)
+}
+
+// 带缓冲的写入
+bw := bufio.NewWriter(file)
+bw.WriteString("hello")
+bw.Flush()  // 刷新缓冲区
+```
+
+---
+
+## 2. os 包: 系统操作
+
+### 2.1 文件操作
+
+```go
+// 创建/打开文件
+f, err := os.Create("file.txt")         // 创建 (覆盖)
+f, err := os.Open("file.txt")           // 只读
+f, err := os.OpenFile("file.txt", os.O_RDWR|os.O_CREATE, 0644)
+
+defer f.Close()
+
+// 读写
+data, err := os.ReadFile("file.txt")    // 读取全部
+err := os.WriteFile("file.txt", data, 0644)  // 写入全部
+
+// 文件信息
+info, err := os.Stat("file.txt")
+fmt.Println(info.Name(), info.Size(), info.IsDir())
+
+// 目录操作
+err := os.Mkdir("dir", 0755)
+err := os.MkdirAll("a/b/c", 0755)
+err := os.Remove("file.txt")
+err := os.RemoveAll("dir")
+```
+
+### 2.2 环境变量
+
+```go
+os.Getenv("HOME")
+os.Setenv("KEY", "value")
+os.Unsetenv("KEY")
+os.Environ()  // 返回所有环境变量
+```
+
+### 2.3 命令行参数
+
+```go
+os.Args[0]  // 程序名
+os.Args[1]  // 第一个参数
+```
+
+---
+
+## 3. embed 包 (Go 1.16+)
+
+`embed` 包允许在编译时将文件嵌入到二进制中:
+
+```go
+import "embed"
+
+//go:embed config.yaml
+var configFile []byte
+
+//go:embed templates/*
+var templateFS embed.FS
+
+//go:embed static
+var staticFiles embed.FS
+
+func main() {
+    // 读取嵌入的配置
+    fmt.Println(string(configFile))
+    
+    // 读取嵌入的模板
+    data, _ := templateFS.ReadFile("templates/index.html")
+    fmt.Println(string(data))
+    
+    // 作为 http.FileServer
+    http.Handle("/static/", http.FileServer(http.FS(staticFiles)))
+}
+```
+
+**适用场景**:
+- 嵌入配置文件
+- 嵌入静态资源 (HTML, CSS, JS)
+- 嵌入 SQL 迁移文件
+- 嵌入模板文件
+
+---
+
+## 4. net/http: HTTP 服务器与客户端
+
+### 3.1 简单服务器
+
+```go
+func helloHandler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintf(w, "Hello, %s!", r.URL.Path[1:])
+}
+
+func main() {
+    http.HandleFunc("/", helloHandler)
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}
+```
+
+### 3.2 ServeMux 路由
+
+```go
+mux := http.NewServeMux()
+
+mux.HandleFunc("GET /users/{id}", func(w http.ResponseWriter, r *http.Request) {
+    id := r.PathValue("id")  // Go 1.22+
+    fmt.Fprintf(w, "User ID: %s", id)
+})
+
+mux.HandleFunc("POST /users", createUserHandler)
+
+http.ListenAndServe(":8080", mux)
+```
+
+### 3.3 中间件模式
+
+```go
+func loggingMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        start := time.Now()
+        next.ServeHTTP(w, r)
+        log.Printf("%s %s %v", r.Method, r.URL.Path, time.Since(start))
+    })
+}
+
+func main() {
+    mux := http.NewServeMux()
+    mux.HandleFunc("/", handler)
+    
+    wrapped := loggingMiddleware(mux)
+    http.ListenAndServe(":8080", wrapped)
+}
+```
+
+### 3.4 HTTP 客户端
+
+```go
+// 简单 GET
+resp, err := http.Get("https://api.example.com/users")
+if err != nil {
+    log.Fatal(err)
+}
+defer resp.Body.Close()
+
+body, _ := io.ReadAll(resp.Body)
+
+// 自定义请求
+client := &http.Client{
+    Timeout: 10 * time.Second,
+}
+
+req, _ := http.NewRequest("POST", "https://api.example.com/users", 
+    strings.NewReader(`{"name":"Alice"}`))
+req.Header.Set("Content-Type", "application/json")
+
+resp, err := client.Do(req)
+```
+
+### 3.5 连接池
+
+`http.Client` 内部维护连接池, 应该**复用**而非每次请求新建.
+
+```go
+// 全局客户端 (复用连接)
+var client = &http.Client{
+    Transport: &http.Transport{
+        MaxIdleConns:        100,
+        MaxIdleConnsPerHost: 10,
+        IdleConnTimeout:     90 * time.Second,
+    },
+    Timeout: 30 * time.Second,
+}
+```
+
+---
+
+## 4. encoding/json: JSON 处理
+
+### 4.1 结构体标签
+
+```go
+type User struct {
+    ID        int    `json:"id"`
+    Name      string `json:"name"`
+    Password  string `json:"-"`              // 忽略
+    Email     string `json:"email,omitempty"` // 空值忽略
+    CreatedAt time.Time `json:"created_at"`
+}
+```
+
+### 4.2 序列化与反序列化
+
+```go
+// 序列化 (Go -> JSON)
+user := User{ID: 1, Name: "Alice"}
+data, err := json.Marshal(user)
+fmt.Println(string(data))  // {"id":1,"name":"Alice"}
+
+// 格式化输出
+data, _ := json.MarshalIndent(user, "", "  ")
+
+// 反序列化 (JSON -> Go)
+var u User
+err := json.Unmarshal(data, &u)
+
+// 动态 JSON
+var result map[string]interface{}
+json.Unmarshal(data, &result)
+```
+
+### 4.3 流式处理
+
+```go
+// Decoder: 从 io.Reader 读取
+decoder := json.NewDecoder(resp.Body)
+var user User
+err := decoder.Decode(&user)
+
+// Encoder: 写入 io.Writer
+encoder := json.NewEncoder(w)
+encoder.Encode(user)
+```
+
+### 4.4 自定义序列化
+
+```go
+type MyTime time.Time
+
+func (t MyTime) MarshalJSON() ([]byte, error) {
+    return json.Marshal(time.Time(t).Format("2006-01-02"))
+}
+
+func (t *MyTime) UnmarshalJSON(data []byte) error {
+    var s string
+    if err := json.Unmarshal(data, &s); err != nil {
+        return err
+    }
+    parsed, err := time.Parse("2006-01-02", s)
+    if err != nil {
+        return err
+    }
+    *t = MyTime(parsed)
+    return nil
+}
+```
+
+---
+
+## 5. reflect: 反射
+
+### 5.1 Type 与 Value
+
+```go
+import "reflect"
+
+x := 42
+t := reflect.TypeOf(x)   // int
+v := reflect.ValueOf(x)  // 42
+
+fmt.Println(t.Kind())    // int
+fmt.Println(v.Int())     // 42
+```
+
+### 5.2 结构体反射
+
+```go
+type User struct {
+    Name string `json:"name"`
+    Age  int    `json:"age"`
+}
+
+u := User{Name: "Alice", Age: 25}
+t := reflect.TypeOf(u)
+v := reflect.ValueOf(u)
+
+for i := 0; i < t.NumField(); i++ {
+    field := t.Field(i)
+    value := v.Field(i)
+    tag := field.Tag.Get("json")
+    fmt.Printf("%s (%s) = %v\n", field.Name, tag, value)
+}
+// Name (name) = Alice
+// Age (age) = 25
+```
+
+### 5.3 修改值
+
+```go
+x := 10
+v := reflect.ValueOf(&x).Elem()  // 必须传指针
+v.SetInt(20)
+fmt.Println(x)  // 20
+```
+
+### 5.4 反射的性能
+
+反射比静态代码慢 10-100 倍. 应避免在热路径使用.
+
+---
+
+## 6. time: 时间处理
+
+### 6.1 当前时间
+
+```go
+now := time.Now()
+fmt.Println(now.Year(), now.Month(), now.Day())
+fmt.Println(now.Unix())       // 秒级时间戳
+fmt.Println(now.UnixNano())   // 纳秒级时间戳
+```
+
+### 6.2 时间格式化
+
+Go 使用**参考时间** `2006-01-02 15:04:05` (Mon Jan 2 15:04:05 MST 2006):
+
+```go
+now.Format("2006-01-02 15:04:05")
+now.Format(time.RFC3339)
+
+t, err := time.Parse("2006-01-02", "2024-01-15")
+```
+
+### 6.3 时间运算
+
+```go
+later := now.Add(2 * time.Hour)
+diff := later.Sub(now)  // time.Duration
+
+time.Sleep(time.Second)
+```
+
+### 6.4 定时器
+
+```go
+// 一次性
+timer := time.NewTimer(time.Second)
+<-timer.C
+
+// 周期性
+ticker := time.NewTicker(time.Second)
+for t := range ticker.C {
+    fmt.Println("tick at", t)
+}
+ticker.Stop()
+```
+
+---
+
+## 7. 练习
+
+### 7.1 文件复制
+
+实现一个带进度显示的文件复制函数.
+
+### 7.2 HTTP API 客户端
+
+编写一个调用 GitHub API 获取用户信息的程序.
+
+### 7.3 JSON 配置解析
+
+解析一个 JSON 配置文件到结构体.
+
+---
+
+## 8. 思考题
+
+1.  为什么 `io.Reader.Read` 返回 (n, err) 而不是只返回 err?
+2.  `http.Client` 为什么要复用?
+3.  `json.Unmarshal` 和 `json.Decoder` 有什么区别?
+4.  Go 的时间格式化为什么使用 "2006-01-02"?
+5.  反射的主要应用场景有哪些?
+
+---
+
+## 9. 本周小结
+
+*   **io**: Reader/Writer 接口, io.Copy, bufio.
+*   **os**: 文件操作, 环境变量.
+*   **net/http**: 服务器, 客户端, 中间件, 连接池.
+*   **encoding/json**: 结构体标签, Marshal/Unmarshal, 流式处理.
+*   **reflect**: 运行时类型检查, 动态操作.
+*   **time**: 格式化, 运算, 定时器.
+
+---
+
+> 标准库是 Go 的核心竞争力. 熟练掌握这些包, 可以完成大部分常见任务.

@@ -1,0 +1,431 @@
+---
+title: "Week 13: 安全编程与生产实践"
+description: "掌握 Go 安全编程最佳实践, 包括输入验证、敏感数据处理、TLS 配置、常见漏洞防护."
+---
+
+## 1. 输入验证
+
+### 1.1 SQL 注入防护
+
+**永远使用参数化查询**, 不要拼接 SQL:
+
+```go
+// ❌ 危险: SQL 注入
+query := "SELECT * FROM users WHERE name = '" + name + "'"
+db.Query(query)
+
+// ✅ 安全: 参数化查询
+db.Query("SELECT * FROM users WHERE name = $1", name)
+
+// ✅ GORM 也是安全的
+db.Where("name = ?", name).Find(&users)
+```
+
+### 1.2 命令注入防护
+
+```go
+// ❌ 危险: 命令注入
+cmd := exec.Command("sh", "-c", "echo " + userInput)
+
+// ✅ 安全: 分离命令和参数
+cmd := exec.Command("echo", userInput)
+```
+
+### 1.3 路径遍历防护
+
+```go
+// ❌ 危险: 路径遍历
+filePath := filepath.Join(baseDir, userInput)  // userInput 可能是 "../../../etc/passwd"
+
+// ✅ 安全: 验证路径
+func safeJoin(baseDir, userInput string) (string, error) {
+    absBase, _ := filepath.Abs(baseDir)
+    absPath, _ := filepath.Abs(filepath.Join(baseDir, userInput))
+    
+    if !strings.HasPrefix(absPath, absBase) {
+        return "", errors.New("path traversal detected")
+    }
+    return absPath, nil
+}
+```
+
+### 1.4 使用 validator 进行结构体验证
+
+```go
+import "github.com/go-playground/validator/v10"
+
+var validate = validator.New()
+
+type CreateUserRequest struct {
+    Username string `json:"username" validate:"required,min=3,max=50,alphanum"`
+    Email    string `json:"email" validate:"required,email"`
+    Age      int    `json:"age" validate:"gte=0,lte=150"`
+    Password string `json:"password" validate:"required,min=8"`
+    URL      string `json:"url" validate:"omitempty,url"`
+}
+
+func validateRequest(req *CreateUserRequest) error {
+    if err := validate.Struct(req); err != nil {
+        return err
+    }
+    return nil
+}
+```
+
+---
+
+## 2. 敏感数据处理
+
+### 2.1 密码哈希
+
+**永远不要存储明文密码**, 使用 bcrypt:
+
+```go
+import "golang.org/x/crypto/bcrypt"
+
+// 哈希密码
+func hashPassword(password string) (string, error) {
+    bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+    return string(bytes), err
+}
+
+// 验证密码
+func checkPassword(password, hash string) bool {
+    err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+    return err == nil
+}
+```
+
+### 2.2 安全的随机数
+
+```go
+import "crypto/rand"
+
+// 生成安全的随机 token
+func generateToken(length int) (string, error) {
+    bytes := make([]byte, length)
+    if _, err := rand.Read(bytes); err != nil {
+        return "", err
+    }
+    return base64.URLEncoding.EncodeToString(bytes), nil
+}
+
+// ❌ 不要使用 math/rand 生成安全相关的随机数
+```
+
+### 2.3 敏感数据日志脱敏
+
+```go
+type User struct {
+    ID       int64
+    Email    string
+    Password string `json:"-"` // JSON 序列化时忽略
+}
+
+// 自定义 String() 方法脱敏
+func (u User) String() string {
+    return fmt.Sprintf("User{ID: %d, Email: %s}", u.ID, maskEmail(u.Email))
+}
+
+func maskEmail(email string) string {
+    parts := strings.Split(email, "@")
+    if len(parts) != 2 {
+        return "***"
+    }
+    return parts[0][:min(3, len(parts[0]))] + "***@" + parts[1]
+}
+```
+
+### 2.4 内存中清除敏感数据
+
+```go
+func clearBytes(b []byte) {
+    for i := range b {
+        b[i] = 0
+    }
+}
+
+func processPassword(password []byte) {
+    defer clearBytes(password)
+    
+    // 使用 password...
+}
+```
+
+---
+
+## 3. TLS 配置
+
+### 3.1 HTTPS 服务器
+
+```go
+import (
+    "crypto/tls"
+    "net/http"
+)
+
+func main() {
+    tlsConfig := &tls.Config{
+        MinVersion:               tls.VersionTLS12,
+        PreferServerCipherSuites: true,
+        CipherSuites: []uint16{
+            tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+            tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+            tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+            tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+        },
+    }
+    
+    server := &http.Server{
+        Addr:      ":443",
+        TLSConfig: tlsConfig,
+    }
+    
+    log.Fatal(server.ListenAndServeTLS("cert.pem", "key.pem"))
+}
+```
+
+### 3.2 mTLS (双向 TLS)
+
+```go
+// 服务端要求客户端证书
+tlsConfig := &tls.Config{
+    ClientAuth: tls.RequireAndVerifyClientCert,
+    ClientCAs:  caCertPool,
+    MinVersion: tls.VersionTLS12,
+}
+
+// 客户端提供证书
+cert, _ := tls.LoadX509KeyPair("client.crt", "client.key")
+tlsConfig := &tls.Config{
+    Certificates: []tls.Certificate{cert},
+    RootCAs:      caCertPool,
+}
+```
+
+---
+
+## 4. HTTP 安全头
+
+### 4.1 安全响应头中间件
+
+```go
+func SecurityHeadersMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // 防止 XSS
+        w.Header().Set("X-Content-Type-Options", "nosniff")
+        w.Header().Set("X-XSS-Protection", "1; mode=block")
+        
+        // 防止点击劫持
+        w.Header().Set("X-Frame-Options", "DENY")
+        
+        // 内容安全策略
+        w.Header().Set("Content-Security-Policy", "default-src 'self'")
+        
+        // HSTS
+        w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+---
+
+## 5. Secrets 管理
+
+### 5.1 环境变量
+
+```go
+// 从环境变量读取敏感配置
+dbPassword := os.Getenv("DB_PASSWORD")
+if dbPassword == "" {
+    log.Fatal("DB_PASSWORD environment variable is required")
+}
+```
+
+### 5.2 Kubernetes Secrets
+
+```yaml
+# secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+type: Opaque
+data:
+  db-password: cGFzc3dvcmQ=  # base64 encoded
+```
+
+```go
+// 挂载为文件读取
+password, err := os.ReadFile("/var/run/secrets/db-password")
+```
+
+### 5.3 HashiCorp Vault
+
+```go
+import vault "github.com/hashicorp/vault/api"
+
+client, _ := vault.NewClient(vault.DefaultConfig())
+secret, _ := client.Logical().Read("secret/data/myapp")
+password := secret.Data["data"].(map[string]interface{})["password"]
+```
+
+---
+
+## 6. 常见漏洞防护
+
+### 6.1 SSRF (服务端请求伪造)
+
+```go
+// ❌ 危险: 用户控制的 URL
+resp, _ := http.Get(userProvidedURL)
+
+// ✅ 安全: 验证 URL
+func safeGet(urlStr string) (*http.Response, error) {
+    parsedURL, err := url.Parse(urlStr)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 只允许 HTTPS
+    if parsedURL.Scheme != "https" {
+        return nil, errors.New("only HTTPS allowed")
+    }
+    
+    // 禁止内网地址
+    host := parsedURL.Hostname()
+    ips, _ := net.LookupIP(host)
+    for _, ip := range ips {
+        if ip.IsPrivate() || ip.IsLoopback() {
+            return nil, errors.New("internal addresses not allowed")
+        }
+    }
+    
+    return http.Get(urlStr)
+}
+```
+
+### 6.2 Race Condition 数据竞争
+
+```go
+// ❌ 危险: 检查-使用竞态
+if balance >= amount {
+    // 另一个 goroutine 可能同时修改 balance
+    balance -= amount
+}
+
+// ✅ 安全: 使用互斥锁
+mu.Lock()
+defer mu.Unlock()
+if balance >= amount {
+    balance -= amount
+}
+```
+
+### 6.3 Denial of Service 防护
+
+```go
+// 限制请求体大小
+r.Body = http.MaxBytesReader(w, r.Body, 1<<20)  // 1 MB
+
+// 限制 JSON 解码深度
+decoder := json.NewDecoder(r.Body)
+decoder.DisallowUnknownFields()
+
+// 设置超时
+server := &http.Server{
+    ReadTimeout:       5 * time.Second,
+    WriteTimeout:      10 * time.Second,
+    IdleTimeout:       120 * time.Second,
+    ReadHeaderTimeout: 2 * time.Second,
+}
+```
+
+---
+
+## 7. 安全工具
+
+### 7.1 govulncheck (官方漏洞扫描)
+
+```bash
+go install golang.org/x/vuln/cmd/govulncheck@latest
+govulncheck ./...
+```
+
+### 7.2 gosec (静态安全分析)
+
+```bash
+go install github.com/securego/gosec/v2/cmd/gosec@latest
+gosec ./...
+```
+
+### 7.3 CI 集成
+
+```yaml
+# .github/workflows/security.yml
+name: Security Scan
+on: [push, pull_request]
+
+jobs:
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+```
+
+---
+
+## 8. 练习
+
+### 8.1 实现安全的用户注册
+
+实现包含以下功能的用户注册接口:
+- 输入验证 (用户名、邮箱、密码强度)
+- 密码 bcrypt 哈希
+- 日志脱敏
+
+### 8.2 配置 HTTPS 服务器
+
+配置一个生产级 HTTPS 服务器, 包含:
+- TLS 1.2+
+- 安全响应头
+- 请求超时
+
+### 8.3 漏洞排查
+
+使用 govulncheck 和 gosec 扫描一个项目, 修复发现的问题.
+
+---
+
+## 9. 思考题
+
+1. 为什么不能使用 MD5/SHA256 直接哈希密码?
+2. bcrypt 的 cost 参数如何选择?
+3. 为什么要禁止 TLS 1.0/1.1?
+4. SSRF 攻击的危害是什么?
+5. 如何防止 timing attack?
+
+---
+
+## 10. 本周小结
+
+*   **输入验证**: SQL 注入、命令注入、路径遍历防护.
+*   **敏感数据**: bcrypt 密码哈希, crypto/rand 安全随机数, 日志脱敏.
+*   **TLS**: HTTPS 配置, mTLS 双向认证.
+*   **HTTP 安全**: 安全响应头 (XSS, CSRF, 点击劫持防护).
+*   **Secrets**: 环境变量, K8s Secrets, Vault.
+*   **漏洞防护**: SSRF, Race Condition, DoS.
+*   **安全工具**: govulncheck, gosec.
+
+---
+
+> 安全是软件质量的基础. 在设计阶段就要考虑安全, 而不是事后补救.

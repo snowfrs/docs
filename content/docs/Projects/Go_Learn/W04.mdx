@@ -1,0 +1,600 @@
+---
+title: "Week 04: 方法、接口与面向对象"
+description: "掌握 Go 的方法定义, 理解接口的隐式实现与内部结构, 学习 Go 风格的面向对象设计."
+---
+
+## 1. 方法 (Methods)
+
+### 1.1 方法定义
+
+方法是绑定到特定类型的函数. Go 没有类, 但可以为任何自定义类型定义方法.
+
+```go
+type Rectangle struct {
+    Width, Height float64
+}
+
+// 方法: 接收者在 func 和函数名之间
+func (r Rectangle) Area() float64 {
+    return r.Width * r.Height
+}
+
+// 调用
+rect := Rectangle{Width: 10, Height: 5}
+fmt.Println(rect.Area())  // 50
+```
+
+### 1.2 值接收者 vs 指针接收者
+
+```go
+// 值接收者: 接收副本
+func (r Rectangle) Area() float64 {
+    return r.Width * r.Height
+}
+
+// 指针接收者: 接收引用, 可以修改原值
+func (r *Rectangle) Scale(factor float64) {
+    r.Width *= factor
+    r.Height *= factor
+}
+
+rect := Rectangle{Width: 10, Height: 5}
+rect.Scale(2)            // 调用指针方法
+fmt.Println(rect.Width)  // 20
+```
+
+**选择原则**:
+| 场景 | 推荐接收者 |
+|------|-----------|
+| 需要修改接收者 | 指针 `*T` |
+| 接收者是大型结构体 | 指针 (避免复制) |
+| 方法需要修改接收者 | 指针 |
+| 接收者是切片、映射、通道 | 值 (本身就是引用类型) |
+| 保持一致性 | 如果类型有任何指针方法, 所有方法都用指针 |
+
+### 1.3 方法值与方法表达式
+
+```go
+rect := Rectangle{Width: 10, Height: 5}
+
+// 方法值: 绑定到具体实例
+area := rect.Area
+fmt.Println(area())  // 50
+
+// 方法表达式: 需要传入接收者
+areaExpr := Rectangle.Area
+fmt.Println(areaExpr(rect))  // 50
+```
+
+### 1.4 为任意类型定义方法
+
+可以为任何自定义类型 (非指针、非接口) 定义方法:
+
+```go
+type MyInt int
+
+func (m MyInt) Double() MyInt {
+    return m * 2
+}
+
+n := MyInt(5)
+fmt.Println(n.Double())  // 10
+```
+
+---
+
+## 2. 接口 (Interfaces)
+
+### 2.1 接口定义
+
+接口是一组方法签名的集合:
+
+```go
+type Shape interface {
+    Area() float64
+    Perimeter() float64
+}
+```
+
+### 2.2 隐式实现
+
+Go 的接口是**隐式实现**的: 类型只要实现了接口的所有方法, 就自动满足该接口, 无需显式声明.
+
+```go
+type Rectangle struct {
+    Width, Height float64
+}
+
+func (r Rectangle) Area() float64 {
+    return r.Width * r.Height
+}
+
+func (r Rectangle) Perimeter() float64 {
+    return 2 * (r.Width + r.Height)
+}
+
+// Rectangle 自动实现了 Shape 接口
+var s Shape = Rectangle{10, 5}
+fmt.Println(s.Area())  // 50
+```
+
+### 2.3 接口的内存结构
+
+接口变量在运行时由两部分组成:
+
+**空接口 `interface{}` (eface)**
+
+```go
+type eface struct {
+    _type *_type          // 类型信息
+    data  unsafe.Pointer  // 数据指针
+}
+```
+
+**非空接口 (iface)**
+
+```go
+type iface struct {
+    tab  *itab            // 类型和方法表
+    data unsafe.Pointer   // 数据指针
+}
+
+type itab struct {
+    inter *interfacetype  // 接口定义
+    _type *_type          // 具体类型
+    fun   [1]uintptr      // 方法指针数组 (动态大小)
+}
+```
+
+**动态派发**: 通过接口调用方法时, 运行时需要查找 `itab.fun` 获取实际的函数地址, 这比直接调用有额外开销.
+
+### 2.4 接口使用示例
+
+```go
+func PrintShape(s Shape) {
+    fmt.Printf("面积: %.2f, 周长: %.2f\n", s.Area(), s.Perimeter())
+}
+
+rect := Rectangle{10, 5}
+circle := Circle{Radius: 3}
+
+PrintShape(rect)    // 面积: 50.00, 周长: 30.00
+PrintShape(circle)  // 可以传入任何实现了 Shape 的类型
+```
+
+### 2.5 空接口 interface{}
+
+空接口没有任何方法, 所有类型都实现了它:
+
+```go
+var x interface{}
+
+x = 42
+x = "hello"
+x = []int{1, 2, 3}
+
+// Go 1.18+ 可以使用 any (interface{} 的别名)
+var y any = 42
+```
+
+### 2.6 类型断言
+
+从接口变量中提取具体类型:
+
+```go
+var s Shape = Rectangle{10, 5}
+
+// 类型断言 (可能 panic)
+r := s.(Rectangle)
+fmt.Println(r.Width)  // 10
+
+// 安全断言 (不会 panic)
+r, ok := s.(Rectangle)
+if ok {
+    fmt.Println("是 Rectangle")
+}
+```
+
+### 2.7 类型 Switch
+
+```go
+func describe(i interface{}) {
+    switch v := i.(type) {
+    case int:
+        fmt.Printf("整数: %d\n", v)
+    case string:
+        fmt.Printf("字符串: %s\n", v)
+    case Rectangle:
+        fmt.Printf("矩形: %.2f x %.2f\n", v.Width, v.Height)
+    default:
+        fmt.Printf("未知类型: %T\n", v)
+    }
+}
+```
+
+---
+
+## 3. 接口组合
+
+### 3.1 小接口原则
+
+Go 推崇定义**小而专注**的接口:
+
+```go
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+type Closer interface {
+    Close() error
+}
+
+// 组合接口
+type ReadWriter interface {
+    Reader
+    Writer
+}
+
+type ReadWriteCloser interface {
+    Reader
+    Writer
+    Closer
+}
+```
+
+### 3.2 标准库中的接口
+
+*   `io.Reader`: 一切可读取的来源
+*   `io.Writer`: 一切可写入的目标
+*   `io.Closer`: 可关闭的资源
+*   `fmt.Stringer`: 可转换为字符串 (`String() string`)
+*   `error`: 错误接口
+---
+
+## 4. 泛型 (Go 1.18+)
+
+Go 1.18 引入泛型, 这是 Go 语言发布以来最重大的语法变更.
+
+### 4.1 泛型函数
+
+```go
+// T 是类型参数, constraints.Ordered 是类型约束
+func Min[T constraints.Ordered](a, b T) T {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+// 调用
+Min(3, 5)         // 类型推断: int
+Min[float64](3.0, 5.0)  // 显式指定
+```
+
+### 4.2 泛型类型
+
+```go
+type Stack[T any] struct {
+    items []T
+}
+
+func (s *Stack[T]) Push(item T) {
+    s.items = append(s.items, item)
+}
+
+func (s *Stack[T]) Pop() (T, bool) {
+    if len(s.items) == 0 {
+        var zero T  // 返回零值
+        return zero, false
+    }
+    item := s.items[len(s.items)-1]
+    s.items = s.items[:len(s.items)-1]
+    return item, true
+}
+
+// 使用
+intStack := &Stack[int]{}
+intStack.Push(1)
+intStack.Push(2)
+v, _ := intStack.Pop()  // 2
+```
+
+### 4.3 类型约束
+
+类型约束定义了类型参数必须满足的条件:
+
+```go
+// 使用接口作为约束
+type Number interface {
+    ~int | ~int32 | ~int64 | ~float32 | ~float64
+}
+
+func Sum[T Number](nums []T) T {
+    var sum T
+    for _, n := range nums {
+        sum += n
+    }
+    return sum
+}
+
+// ~ 表示包含底层类型
+type MyInt int
+Sum([]MyInt{1, 2, 3})  // 有效, MyInt 底层是 int
+```
+
+### 4.4 内置约束
+
+| 约束 | 说明 |
+|------|------|
+| `any` | 任意类型 (`interface{}` 的别名) |
+| `comparable` | 支持 `==` 和 `!=` 的类型 |
+| `constraints.Ordered` | 支持 `<, <=, >, >=` 的类型 |
+
+### 4.5 泛型实践建议
+
+| 场景 | 建议 |
+|------|------|
+| 容器类型 (Stack, Queue, Set) | 推荐使用泛型 |
+| 工具函数 (Map, Filter, Reduce) | 推荐使用泛型 |
+| 业务逻辑 | 慎用, 可读性优先 |
+| 复杂类型约束 | 避免过度设计 |
+
+> 泛型的目标是减少重复代码, 而非替代接口. 当接口能解决问题时, 优先使用接口.
+
+---
+
+## 5. 面向对象设计
+
+### 5.1 Go 没有继承
+
+Go 不支持传统的类继承, 而是使用**组合**和**接口**实现代码复用.
+
+### 5.2 嵌入 (Embedding)
+
+通过嵌入实现类似继承的效果:
+
+```go
+type Animal struct {
+    Name string
+}
+
+func (a Animal) Speak() string {
+    return "..."
+}
+
+type Dog struct {
+    Animal  // 嵌入 Animal
+    Breed string
+}
+
+// Dog 可以直接调用 Animal 的方法
+dog := Dog{Animal: Animal{Name: "Buddy"}, Breed: "Labrador"}
+fmt.Println(dog.Name)    // Buddy (提升的字段)
+fmt.Println(dog.Speak()) // ...
+
+// 重写方法
+func (d Dog) Speak() string {
+    return "Woof!"
+}
+fmt.Println(dog.Speak()) // Woof!
+```
+
+### 5.3 面向接口编程
+
+**依赖抽象, 而非具体实现**:
+
+```go
+// 定义接口
+type Storage interface {
+    Save(key string, value []byte) error
+    Load(key string) ([]byte, error)
+}
+
+// 业务逻辑依赖接口
+type UserService struct {
+    storage Storage  // 依赖接口
+}
+
+// 可以注入不同的实现
+func NewUserService(s Storage) *UserService {
+    return &UserService{storage: s}
+}
+
+// 实现 1: 内存存储
+type MemoryStorage struct { ... }
+func (m *MemoryStorage) Save(...) error { ... }
+func (m *MemoryStorage) Load(...) ([]byte, error) { ... }
+
+// 实现 2: 文件存储
+type FileStorage struct { ... }
+func (f *FileStorage) Save(...) error { ... }
+func (f *FileStorage) Load(...) ([]byte, error) { ... }
+```
+
+---
+
+## 6. 常用接口
+
+### 6.1 fmt.Stringer
+
+自定义类型的字符串表示:
+
+```go
+type Person struct {
+    Name string
+    Age  int
+}
+
+func (p Person) String() string {
+    return fmt.Sprintf("%s (%d 岁)", p.Name, p.Age)
+}
+
+p := Person{Name: "Alice", Age: 25}
+fmt.Println(p)  // Alice (25 岁)
+```
+
+### 6.2 sort.Interface
+
+实现自定义排序:
+
+```go
+type ByAge []Person
+
+func (a ByAge) Len() int           { return len(a) }
+func (a ByAge) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByAge) Less(i, j int) bool { return a[i].Age < a[j].Age }
+
+people := []Person{
+    {"Alice", 30},
+    {"Bob", 25},
+    {"Charlie", 35},
+}
+
+sort.Sort(ByAge(people))
+```
+
+### 6.3 io.Reader / io.Writer
+
+```go
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+```
+
+这两个接口贯穿整个 Go 标准库: 文件、网络连接、压缩流等都实现了它们.
+
+---
+
+## 7. 接口陷阱
+
+### 7.1 nil 接口 vs 含 nil 的接口
+
+```go
+var p *int = nil
+var i interface{} = p
+
+fmt.Println(i == nil)  // false!
+```
+
+**原因**: `i` 的结构是 `{type: *int, data: nil}`, 而 `nil` 接口是 `{type: nil, data: nil}`.
+
+**解决方案**: 返回错误时, 不要返回有类型的 nil:
+
+```go
+// 错误示例
+func getError() error {
+    var err *MyError = nil
+    return err  // error{type: *MyError, data: nil} != nil
+}
+
+// 正确示例
+func getError() error {
+    return nil  // error{type: nil, data: nil} == nil
+}
+```
+
+### 7.2 接收者类型与接口实现
+
+```go
+type MyInt int
+
+func (m *MyInt) Double() { *m *= 2 }
+
+// *MyInt 实现了接口, 但 MyInt 没有
+type Doubler interface { Double() }
+
+var d Doubler = &MyInt(5)  // OK
+// var d Doubler = MyInt(5)  // 编译错误!
+```
+
+---
+
+## 8. 练习
+
+### 8.1 实现 Shape 接口
+
+为 Circle 类型实现 Shape 接口:
+
+```go
+type Circle struct {
+    Radius float64
+}
+
+func (c Circle) Area() float64 {
+    return math.Pi * c.Radius * c.Radius
+}
+
+func (c Circle) Perimeter() float64 {
+    return 2 * math.Pi * c.Radius
+}
+```
+
+### 8.2 实现 Stringer
+
+为以下类型实现 `String()` 方法:
+
+```go
+type Book struct {
+    Title  string
+    Author string
+    Year   int
+}
+
+func (b Book) String() string {
+    return fmt.Sprintf("%s by %s (%d)", b.Title, b.Author, b.Year)
+}
+```
+
+### 8.3 实现 io.Reader
+
+创建一个简单的计数 Reader:
+
+```go
+type CountingReader struct {
+    reader io.Reader
+    count  int
+}
+
+func (c *CountingReader) Read(p []byte) (int, error) {
+    n, err := c.reader.Read(p)
+    c.count += n
+    return n, err
+}
+```
+
+### 8.4 依赖注入练习
+
+设计一个 Logger 接口, 并实现 ConsoleLogger 和 FileLogger.
+
+---
+
+## 9. 思考题
+
+1.  Go 为什么选择隐式接口实现?
+2.  值接收者和指针接收者对接口实现有什么影响?
+3.  为什么说 "接口越小越好"?
+4.  如何避免 nil 接口陷阱?
+5.  动态派发的性能开销在什么场景下需要关注?
+
+---
+
+## 10. 本周小结
+
+*   **方法**: 绑定到类型的函数, 有值接收者和指针接收者之分.
+*   **接口**: 方法签名集合, 隐式实现.
+*   **接口内部**: iface/eface 结构, 包含类型信息和数据指针.
+*   **组合**: Go 用组合 + 接口代替继承.
+*   **常用接口**: Stringer, Reader, Writer, error.
+*   **陷阱**: nil 接口 vs 含 nil 的接口.
+
+---
+
+> 接口是 Go 最强大的抽象机制. 理解其内部结构, 有助于写出更灵活、可测试的代码.
