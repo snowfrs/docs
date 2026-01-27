@@ -1,6 +1,6 @@
 ---
-title: "Week 13: 安全编程与生产实践"
-description: "掌握 Go 安全编程最佳实践, 包括输入验证、敏感数据处理、TLS 配置、常见漏洞防护."
+title: "Week 13: 安全编程与生产可靠性"
+description: "掌握 Go 安全编程最佳实践, 以及熔断、限流、分布式锁等高可用模式."
 ---
 
 ## 1. 输入验证
@@ -384,7 +384,75 @@ jobs:
 
 ---
 
-## 8. 练习
+## 8. 分布式高可用模式
+
+### 8.1 熔断器 (Circuit Breaker)
+
+防止故障扩散. 当错误率超过阈值, 暂时切断调用.
+
+```go
+import "github.com/sony/gobreaker"
+
+var cb = gobreaker.NewCircuitBreaker(gobreaker.Settings{
+    Name:    "HTTP-API",
+    Timeout: 5 * time.Second,  // 半开启状态的探测间隔
+    ReadyToTrip: func(counts gobreaker.Counts) bool {
+        // 错误率 > 50% 且请求数 > 3 时熔断
+        return counts.TotalRequests > 3 && float64(counts.TotalFailures)/float64(counts.TotalRequests) > 0.5
+    },
+})
+
+func CallAPI() error {
+    _, err := cb.Execute(func() (interface{}, error) {
+        return http.Get("http://api.service")
+    })
+    return err
+}
+```
+
+### 8.2 分布式锁 (Distributed Lock)
+
+使用 Redis (Redlock) 或 Etcd 实现跨进程互斥.
+
+```go
+// Etcd 示例
+import "go.etcd.io/etcd/client/v3/concurrency"
+
+// 创建 Session (带 Lease)
+sess, _ := concurrency.NewSession(etcdClient)
+defer sess.Close()
+
+// 获取锁
+mu := concurrency.NewMutex(sess, "/my-lock/")
+if err := mu.Lock(ctx); err != nil {
+    log.Fatal("无法获取锁")
+}
+
+// 业务逻辑...
+
+mu.Unlock(ctx)
+```
+
+### 8.3 令牌桶限流 (Token Bucket)
+
+```go
+import "golang.org/x/time/rate"
+
+// 每秒 100 QPS, 桶容量 200
+var limiter = rate.NewLimiter(100, 200)
+
+func handle(w http.ResponseWriter, r *http.Request) {
+    if !limiter.Allow() {
+        http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+        return
+    }
+    // ...
+}
+```
+
+---
+
+## 9. 练习
 
 ### 8.1 实现安全的用户注册
 
@@ -406,7 +474,7 @@ jobs:
 
 ---
 
-## 9. 思考题
+## 10. 思考题
 
 1. 为什么不能使用 MD5/SHA256 直接哈希密码?
 2. bcrypt 的 cost 参数如何选择?
@@ -416,7 +484,7 @@ jobs:
 
 ---
 
-## 10. 本周小结
+## 11. 本周小结
 
 *   **输入验证**: SQL 注入、命令注入、路径遍历防护.
 *   **敏感数据**: bcrypt 密码哈希, crypto/rand 安全随机数, 日志脱敏.

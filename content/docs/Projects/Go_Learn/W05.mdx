@@ -12,6 +12,37 @@ Go 的并发模型基于 **CSP (Communicating Sequential Processes)**, 核心理
 
 > "不要通过共享内存来通信, 而要通过通信来共享内存."
 
+### 1.3 Go 内存模型 (Happens-Before)
+
+Go 内存模型定义了"在一个 Goroutine 中写入变量, 在另一个 Goroutine 中读取该变量"的可见性规则. 核心是 **Happens-Before** 关系.
+
+**核心保证**:
+1.  **初始化**: `main.init` Happens-Before `main.main`.
+2.  **Goroutine 创建**: `go` 语句 Happens-Before Goroutine 的执行.
+3.  **Channel 发送/接收**:
+    *   **无缓冲**: 接收完成 Happens-Before 发送完成.
+    *   **有缓冲**: 发送完成 Happens-Before 接收完成 (对于第 K 个元素).
+    *   **关闭**: `close` Happens-Before 接收到零值.
+4.  **Lock**: `Unlock` Happens-Before 下一次 `Lock`.
+
+**错误示例**:
+```go
+var a string
+var done bool
+
+func setup() {
+    a = "hello"
+    done = true
+}
+
+func main() {
+    go setup()
+    for !done { }  // 忙等待 (Busy Wait)
+    print(a)       // 无法保证打印 "hello", 可能打印空字符串!
+}
+```
+*原因*: `done = true` 和 `print(a)` 之间没有 Happens-Before 关系. 编译器重排或 CPU 缓存可能导致 `main` 看到 `done` 变了但 `a` 没变.
+
 ---
 
 ## 2. Goroutine

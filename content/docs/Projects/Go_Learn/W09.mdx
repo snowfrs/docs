@@ -260,7 +260,7 @@ var client = &http.Client{
 
 ---
 
-## 4. encoding/json: JSON 处理
+## 5. encoding/json: JSON 处理
 
 ### 4.1 结构体标签
 
@@ -332,7 +332,7 @@ func (t *MyTime) UnmarshalJSON(data []byte) error {
 
 ---
 
-## 5. reflect: 反射
+## 6. reflect: 反射
 
 ### 5.1 Type 与 Value
 
@@ -384,7 +384,7 @@ fmt.Println(x)  // 20
 
 ---
 
-## 6. time: 时间处理
+## 7. time: 时间处理
 
 ### 6.1 当前时间
 
@@ -397,7 +397,7 @@ fmt.Println(now.UnixNano())   // 纳秒级时间戳
 
 ### 6.2 时间格式化
 
-Go 使用**参考时间** `2006-01-02 15:04:05` (Mon Jan 2 15:04:05 MST 2006):
+Go 使用**参考时间** `2006-01-02 15:04:05`:
 
 ```go
 now.Format("2006-01-02 15:04:05")
@@ -432,7 +432,55 @@ ticker.Stop()
 
 ---
 
-## 7. 练习
+## 8. 插件系统 (Plugins)
+
+构建可扩展系统的高级技巧.
+
+### 7.1 Go Plugin (`plugin` 包)
+
+原生插件机制 (Linux/macOS only):
+
+```go
+// plugin.go
+package main
+
+import "fmt"
+
+func Hello() {
+    fmt.Println("Hello from plugin!")
+}
+```
+
+```bash
+go build -buildmode=plugin -o myplugin.so plugin.go
+```
+
+```go
+// main.go
+p, _ := plugin.Open("myplugin.so")
+f, _ := p.Lookup("Hello")
+f.(func())()
+```
+
+**局限性**: 极其严格的环境要求 (Go 版本、Go Path 必须完全一致), 实际生产很少使用.
+
+### 7.2 RPC Plugin (推荐)
+
+HashiCorp (Terraform) 使用的模式: **插件作为独立进程**, 通过 gRPC 通信.
+
+**优势**:
+1.  **隔离性**: 插件崩溃不影响主进程.
+2.  **多语言**: 插件可以用 Python/Java 编写.
+3.  **无版本依赖**: 主程序和插件可以使用不同 Go 版本.
+
+```go
+// 使用 go-plugin 库
+import "github.com/hashicorp/go-plugin"
+```
+
+---
+
+## 9. 练习
 
 ### 7.1 文件复制
 
@@ -448,7 +496,7 @@ ticker.Stop()
 
 ---
 
-## 8. 思考题
+## 10. 思考题
 
 1.  为什么 `io.Reader.Read` 返回 (n, err) 而不是只返回 err?
 2.  `http.Client` 为什么要复用?
@@ -458,7 +506,7 @@ ticker.Stop()
 
 ---
 
-## 9. 本周小结
+## 11. 本周小结
 
 *   **io**: Reader/Writer 接口, io.Copy, bufio.
 *   **os**: 文件操作, 环境变量.

@@ -162,7 +162,440 @@ go build -ldflags="\
 
 ## 6. Go 项目结构最佳实践
 
-### 4.1 标准项目布局
+### 6.1 标准项目布局
+
+```
+project/
+├── cmd/                    # 主应用入口
+│   ├── myapp/
+│   │   └── main.go         # myapp 的 main 函数
+│   └── cli/
+│       └── main.go         # CLI 工具的 main 函数
+├── internal/               # 私有代码, 不可被外部导入
+│   ├── app/                # 应用初始化, DI 容器
+│   ├── config/             # 配置加载
+│   ├── handler/            # HTTP/gRPC 处理器
+│   ├── service/            # 业务逻辑层
+│   ├── repository/         # 数据访问层
+│   └── model/              # 领域模型
+├── pkg/                    # 公共库, 可被外部导入
+│   ├── logger/             # 日志封装
+│   └── httpclient/         # HTTP 客户端封装
+├── api/                    # API 定义 (OpenAPI, protobuf)
+│   └── openapi.yaml
+├── web/                    # Web 静态资源
+├── scripts/                # 构建/部署脚本
+├── deployments/            # 部署配置
+│   ├── docker/
+│   └── kubernetes/
+├── docs/                   # 文档
+├── test/                   # 集成测试/E2E 测试
+├── .github/
+│   └── workflows/          # GitHub Actions
+├── .golangci.yml           # Linter 配置
+├── Makefile                # 常用命令
+├── Dockerfile
+├── go.mod
+├── go.sum
+└── README.md
+```
+
+### 6.2 internal 的作用
+
+`internal/` 目录下的包**只能被同一模块内的代码导入**:
+
+```
+github.com/user/project/
+├── internal/
+│   └── secret/             # 只能被 github.com/user/project 内部导入
+└── pkg/
+    └── public/             # 可以被任何模块导入
+```
+
+### 6.3 Makefile 示例
+
+```makefile
+.PHONY: all build test lint clean run
+
+all: lint test build
+
+build:
+	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/myapp ./cmd/myapp
+
+test:
+	go test -v -race -cover ./...
+
+lint:
+	golangci-lint run
+
+run:
+	go run ./cmd/myapp
+
+clean:
+	rm -rf bin/
+
+# 生成代码 (mock, protobuf 等)
+generate:
+	go generate ./...
+
+# 依赖更新
+deps:
+	go mod tidy
+	go mod verify
+
+# Docker 构建
+docker:
+	docker build -t myapp:latest .
+```
+
+### 6.4 分层架构
+
+```
+                    ┌─────────────────┐
+                    │   Handler       │  HTTP/gRPC 入口
+                    └────────┬────────┘
+                             │ 调用
+                    ┌────────▼────────┐
+                    │   Service       │  业务逻辑
+                    └────────┬────────┘
+                             │ 调用
+                    ┌────────▼────────┐
+                    │   Repository    │  数据访问
+                    └────────┬────────┘
+                             │ 调用
+                    ┌────────▼────────┐
+                    │   Database      │  持久化
+                    └─────────────────┘
+```
+
+**依赖方向**: Handler → Service → Repository (单向依赖)
+
+---
+
+## 7. 代码审查 (Code Review)
+
+### 7.1 Pull Request 规范
+
+**标题**: `[类型] 简短描述`
+
+```
+[feat] 添加用户认证功能
+[fix] 修复订单金额计算错误
+[refactor] 重构数据库连接池
+[docs] 更新 API 文档
+```
+
+**描述模板**:
+
+```markdown
+## 变更内容
+- 添加 JWT 认证中间件
+- 添加登录/注册 API
+
+## 测试
+- [ ] 单元测试通过
+- [ ] 集成测试通过
+- [ ] 本地手动测试
+
+## 关联 Issue
+Closes #123
+```
+
+### 7.2 Code Review Checklist
+
+**功能正确性**:
+- [ ] 代码是否实现了需求?
+- [ ] 边界条件是否处理?
+- [ ] 错误场景是否覆盖?
+
+**代码质量**:
+- [ ] 是否遵循 Go 惯用法?
+- [ ] 命名是否清晰?
+- [ ] 是否有重复代码?
+- [ ] 函数是否过长 (建议 < 50 行)?
+
+**并发安全**:
+- [ ] 共享状态是否正确同步?
+- [ ] 是否存在数据竞争?
+- [ ] Context 是否正确传递?
+
+**测试**:
+- [ ] 是否有充分的测试?
+- [ ] 测试是否覆盖边界情况?
+
+**性能**:
+- [ ] 是否有不必要的内存分配?
+- [ ] 是否有 N+1 查询?
+
+### 7.3 团队协作约定
+
+```go
+// 1. 错误处理: 返回 error, 不要 panic
+func GetUser(id int64) (*User, error) {
+    // ...
+}
+
+// 2. Context 作为第一个参数
+func (s *Service) Create(ctx context.Context, user *User) error {
+    // ...
+}
+
+// 3. 使用选项模式处理可选参数
+type ServerOption func(*Server)
+
+func WithPort(port int) ServerOption {
+    return func(s *Server) { s.port = port }
+}
+
+// 4. 接口定义在使用方, 而非实现方
+// 定义小接口, 只包含被使用的方法
+type UserGetter interface {
+    GetByID(ctx context.Context, id int64) (*User, error)
+}
+```
+
+---
+
+## 8. Git 基础
+
+### 8.1 常用命令
+
+```bash
+git init                      # 初始化仓库
+git clone URL                 # 克隆仓库
+git status                    # 查看状态
+git add .                     # 暂存所有变更
+git commit -m "message"       # 提交
+git push origin main          # 推送
+git pull                      # 拉取更新
+git log --oneline -10         # 查看最近 10 条提交
+```
+
+### 8.2 分支操作
+
+```bash
+git branch feature/login      # 创建分支
+git checkout feature/login    # 切换分支
+git checkout -b feature/login # 创建并切换
+git merge feature/login       # 合并分支
+git branch -d feature/login   # 删除分支
+```
+
+### 8.3 远程操作
+
+```bash
+git remote -v                 # 查看远程仓库
+git fetch                     # 获取远程更新 (不合并)
+git pull --rebase             # 拉取并变基
+git push -u origin feature    # 推送并设置跟踪
+```
+
+---
+
+## 9. Git 工作流
+
+### 9.1 Git Flow
+
+*   **main**: 生产环境代码
+*   **develop**: 开发分支
+*   **feature/xxx**: 功能分支
+*   **release/xxx**: 发布分支
+*   **hotfix/xxx**: 热修复分支
+
+### 9.2 GitHub Flow (简化版)
+
+1.  从 `main` 创建功能分支: `feature/add-login`
+2.  开发并提交
+3.  创建 Pull Request
+4.  代码审查 (Code Review)
+5.  合并到 `main`
+6.  删除功能分支
+
+### 9.3 Commit 规范 (Conventional Commits)
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+**常用 type**:
+*   `feat`: 新功能
+*   `fix`: Bug 修复
+*   `docs`: 文档更新
+*   `style`: 格式调整 (不影响逻辑)
+*   `refactor`: 重构
+*   `test`: 测试
+*   `chore`: 构建/工具变更
+
+示例:
+```
+feat(auth): add JWT authentication
+
+- Add JWT middleware
+- Add login endpoint
+- Add token refresh endpoint
+
+Closes #123
+```
+
+---
+
+## 10. GitHub Actions (CI/CD)
+
+### 10.1 基本结构
+
+在 `.github/workflows/` 下创建 YAML 文件:
+
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: go test -v ./...
+```
+
+### 10.2 完整 CI 流程
+
+```yaml
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint  # 等待 lint 完成
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: go test -v -race -coverprofile=coverage.out ./...
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.out
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: CGO_ENABLED=0 go build -ldflags="-s -w" -o app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: app
+```
+
+### 10.3 矩阵构建
+
+```yaml
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ['1.21', '1.22']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - run: go test ./...
+```
+
+---
+
+## 11. 代码质量工具
+
+### 11.1 golangci-lint
+
+最流行的 Go linter 聚合器:
+
+```bash
+# 安装
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# 运行
+golangci-lint run
+```
+
+### 11.2 配置 .golangci.yml
+
+```yaml
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+
+linters-settings:
+  errcheck:
+    check-blank: true
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+```
+
+### 11.3 go vet
+
+内置的静态分析工具:
+
+```bash
+go vet ./...
+```
+
+### 11.4 gofmt & goimports
+
+```bash
+gofmt -s -w .        # 格式化并简化
+goimports -w .       # 格式化 + 自动管理 import
+```
+
+---
+
+## 12. Docker 容器化
 
 ```
 project/
@@ -272,385 +705,23 @@ docker:
 
 ---
 
-## 5. 代码审查 (Code Review)
+## 13. 练习
 
-### 5.1 Pull Request 规范
-
-**标题**: `[类型] 简短描述`
-
-```
-[feat] 添加用户认证功能
-[fix] 修复订单金额计算错误
-[refactor] 重构数据库连接池
-[docs] 更新 API 文档
-```
-
-**描述模板**:
-
-```markdown
-## 变更内容
-- 添加 JWT 认证中间件
-- 添加登录/注册 API
-
-## 测试
-- [ ] 单元测试通过
-- [ ] 集成测试通过
-- [ ] 本地手动测试
-
-## 关联 Issue
-Closes #123
-```
-
-### 5.2 Code Review Checklist
-
-**功能正确性**:
-- [ ] 代码是否实现了需求?
-- [ ] 边界条件是否处理?
-- [ ] 错误场景是否覆盖?
-
-**代码质量**:
-- [ ] 是否遵循 Go 惯用法?
-- [ ] 命名是否清晰?
-- [ ] 是否有重复代码?
-- [ ] 函数是否过长 (建议 < 50 行)?
-
-**并发安全**:
-- [ ] 共享状态是否正确同步?
-- [ ] 是否存在数据竞争?
-- [ ] Context 是否正确传递?
-
-**测试**:
-- [ ] 是否有充分的测试?
-- [ ] 测试是否覆盖边界情况?
-
-**性能**:
-- [ ] 是否有不必要的内存分配?
-- [ ] 是否有 N+1 查询?
-
-### 5.3 团队协作约定
-
-```go
-// 1. 错误处理: 返回 error, 不要 panic
-func GetUser(id int64) (*User, error) {
-    // ...
-}
-
-// 2. Context 作为第一个参数
-func (s *Service) Create(ctx context.Context, user *User) error {
-    // ...
-}
-
-// 3. 使用选项模式处理可选参数
-type ServerOption func(*Server)
-
-func WithPort(port int) ServerOption {
-    return func(s *Server) { s.port = port }
-}
-
-// 4. 接口定义在使用方, 而非实现方
-// 定义小接口, 只包含被使用的方法
-type UserGetter interface {
-    GetByID(ctx context.Context, id int64) (*User, error)
-}
-```
-
----
-
-## 4. Git 基础
-
-### 4.1 常用命令
-
-```bash
-git init                      # 初始化仓库
-git clone URL                 # 克隆仓库
-git status                    # 查看状态
-git add .                     # 暂存所有变更
-git commit -m "message"       # 提交
-git push origin main          # 推送
-git pull                      # 拉取更新
-git log --oneline -10         # 查看最近 10 条提交
-```
-
-### 4.2 分支操作
-
-```bash
-git branch feature/login      # 创建分支
-git checkout feature/login    # 切换分支
-git checkout -b feature/login # 创建并切换
-git merge feature/login       # 合并分支
-git branch -d feature/login   # 删除分支
-```
-
-### 4.3 远程操作
-
-```bash
-git remote -v                 # 查看远程仓库
-git fetch                     # 获取远程更新 (不合并)
-git pull --rebase             # 拉取并变基
-git push -u origin feature    # 推送并设置跟踪
-```
-
----
-
-## 5. Git 工作流
-
-### 5.1 Git Flow
-
-*   **main**: 生产环境代码
-*   **develop**: 开发分支
-*   **feature/xxx**: 功能分支
-*   **release/xxx**: 发布分支
-*   **hotfix/xxx**: 热修复分支
-
-### 5.2 GitHub Flow (简化版)
-
-1.  从 `main` 创建功能分支: `feature/add-login`
-2.  开发并提交
-3.  创建 Pull Request
-4.  代码审查 (Code Review)
-5.  合并到 `main`
-6.  删除功能分支
-
-### 5.3 Commit 规范 (Conventional Commits)
-
-```
-<type>(<scope>): <subject>
-
-<body>
-
-<footer>
-```
-
-**常用 type**:
-*   `feat`: 新功能
-*   `fix`: Bug 修复
-*   `docs`: 文档更新
-*   `style`: 格式调整 (不影响逻辑)
-*   `refactor`: 重构
-*   `test`: 测试
-*   `chore`: 构建/工具变更
-
-示例:
-```
-feat(auth): add JWT authentication
-
-- Add JWT middleware
-- Add login endpoint
-- Add token refresh endpoint
-
-Closes #123
-```
-
----
-
-## 6. GitHub Actions (CI/CD)
-
-### 6.1 基本结构
-
-在 `.github/workflows/` 下创建 YAML 文件:
-
-```yaml
-name: CI
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      - run: go test -v ./...
-```
-
-### 6.2 完整 CI 流程
-
-```yaml
-name: CI
-
-on: [push, pull_request]
-
-jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v4
-        with:
-          version: latest
-
-  test:
-    runs-on: ubuntu-latest
-    needs: lint  # 等待 lint 完成
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      - run: go test -v -race -coverprofile=coverage.out ./...
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.out
-
-  build:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      - run: CGO_ENABLED=0 go build -ldflags="-s -w" -o app
-      - uses: actions/upload-artifact@v4
-        with:
-          name: app
-          path: app
-```
-
-### 6.3 矩阵构建
-
-```yaml
-jobs:
-  test:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        go: ['1.21', '1.22']
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ matrix.go }}
-      - run: go test ./...
-```
-
----
-
-## 7. 代码质量工具
-
-### 7.1 golangci-lint
-
-最流行的 Go linter 聚合器:
-
-```bash
-# 安装
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-
-# 运行
-golangci-lint run
-```
-
-### 7.2 配置 .golangci.yml
-
-```yaml
-linters:
-  enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gofmt
-    - goimports
-    - misspell
-
-linters-settings:
-  errcheck:
-    check-blank: true
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-```
-
-### 7.3 go vet
-
-内置的静态分析工具:
-
-```bash
-go vet ./...
-```
-
-### 7.4 gofmt & goimports
-
-```bash
-gofmt -s -w .        # 格式化并简化
-goimports -w .       # 格式化 + 自动管理 import
-```
-
----
-
-## 8. Docker 容器化
-
-### 8.1 简单 Dockerfile
-
-```dockerfile
-FROM golang:1.22-alpine AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o server
-
-FROM alpine:latest
-COPY --from=builder /app/server /server
-ENTRYPOINT ["/server"]
-```
-
-### 8.2 Distroless (更安全)
-
-```dockerfile
-FROM golang:1.22 AS builder
-WORKDIR /app
-COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o server
-
-FROM gcr.io/distroless/static-debian12
-COPY --from=builder /app/server /
-ENTRYPOINT ["/server"]
-```
-
-### 8.3 构建与运行
-
-```bash
-docker build -t myapp .
-docker run -p 8080:8080 myapp
-```
-
----
-
-## 9. 练习
-
-### 9.1 创建 Go Module
+### 13.1 创建 Go Module
 
 创建一个新项目, 添加依赖 `github.com/fatih/color`, 编写带颜色输出的程序.
 
-### 9.2 配置 GitHub Actions
+### 13.2 配置 GitHub Actions
 
 为一个 Go 项目配置完整的 CI: lint, test, build.
 
-### 9.3 Docker 化
+### 13.3 Docker 化
 
 为一个简单的 HTTP 服务编写多阶段 Dockerfile.
 
 ---
 
-## 10. 思考题
+## 14. 思考题
 
 1.  为什么 go.sum 需要提交到 Git?
 2.  直接依赖和间接依赖有什么区别?
@@ -660,7 +731,7 @@ docker run -p 8080:8080 myapp
 
 ---
 
-## 11. 本周小结
+## 15. 本周小结
 
 *   **Go Module**: go.mod, go.sum, 语义化版本.
 *   **依赖管理**: go get, go mod tidy, go mod vendor.
@@ -672,3 +743,4 @@ docker run -p 8080:8080 myapp
 ---
 
 > 工程化是将代码从"能跑"变成"可靠"的关键. CI/CD 确保每次变更都经过验证.
+

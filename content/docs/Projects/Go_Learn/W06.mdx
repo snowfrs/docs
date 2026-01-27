@@ -172,7 +172,40 @@ func process(data []byte) {
 
 ---
 
-## 7. Cond (条件变量)
+## 7. sync.Map
+
+专门针对并发读优化的高性能 Map.
+
+```go
+var m sync.Map
+
+// 存储
+m.Store("hello", "world")
+
+// 读取
+if v, ok := m.Load("hello"); ok {
+    fmt.Println(v.(string))
+}
+
+// 删除
+m.Delete("hello")
+
+// 遍历
+m.Range(func(key, value interface{}) bool {
+    fmt.Println(key, value)
+    return true // 继续遍历
+})
+```
+
+**适用场景**:
+1.  **读多写少**: 键值对只写一次但读很多次 (如缓存).
+2.  **不相交的读写**: 多个 Goroutine 访问不同的键.
+
+**注意**: 通用场景下, `sync.RWMutex` + `map` 性能通常更好且类型安全.
+
+---
+
+## 8. Cond (条件变量)
 
 用于等待/通知模式 (较少直接使用, Channel 更常用).
 
@@ -442,7 +475,38 @@ func process(ctx context.Context, item Item) error {
 
 ---
 
-## 12. 练习
+## 12. 硬件亲和性: False Sharing (伪共享)
+
+这是高性能并发编程中常被忽视的杀手.
+
+### 12.1 什么是伪共享
+CPU 缓存以 **Cache Line** (通常 64 字节) 为单位加载. 如果两个无关变量 (如 `var A, B int64`) 恰好在同一个 Cache Line 中:
+1. Core 1 修改 A.
+2. Core 2 必须废弃整个 Cache Line (包含 B).
+3. Core 2 读取 B 时发生 Cache Miss.
+这导致看似独立的变量操作相互干扰.
+
+### 12.2 解决方案: Padding
+使用无意义的字节填充, 强行分隔变量.
+
+```go
+type NoPad struct {
+    a uint64
+    b uint64
+}
+
+type Pad struct {
+    a uint64
+    _ [56]byte // 填充, 确保 a 和 b 不在同一 Cache Line
+    b uint64
+}
+```
+
+在超高并发计数器中 (如 `sync.Pool` 内部), 这种优化至关重要.
+
+---
+
+## 13. 练习
 
 ### 12.1 并发安全的 Set
 
@@ -458,7 +522,7 @@ func process(ctx context.Context, item Item) error {
 
 ---
 
-## 13. 思考题
+## 14. 思考题
 
 1.  Mutex 和 Channel 各适合什么场景?
 2.  为什么 Pool 中的对象会被 GC 回收?
@@ -468,7 +532,7 @@ func process(ctx context.Context, item Item) error {
 
 ---
 
-## 14. 本周小结
+## 15. 本周小结
 
 *   **Mutex**: 互斥锁, 有正常/饥饿两种模式.
 *   **RWMutex**: 读写锁, 读多写少场景.

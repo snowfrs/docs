@@ -103,6 +103,7 @@ graph TD
 *   Channel 内部结构 (hchan)
 *   select 多路复用
 *   并发模式 (Worker Pool, Fan-out/Fan-in, Pipeline)
+*   Go 内存模型 (Happens-Before)
 
 ### Week 06: 并发进阶 - 同步与 Context
 
@@ -113,6 +114,7 @@ graph TD
 *   Race Detector
 *   atomic 操作
 *   **golang.org/x/sync: singleflight, errgroup, semaphore**
+*   sync.Map 与 False Sharing (伪共享)
 
 ---
 
@@ -155,6 +157,7 @@ graph TD
 *   net/http (服务器/客户端/连接池)
 *   encoding/json (序列化/流式处理)
 *   reflect 反射
+*   插件系统 (Plugins)
 *   time 包
 
 ### Week 10: HTTP API 开发与数据库
@@ -180,7 +183,9 @@ graph TD
 *   GC 三色标记与写屏障
 *   GOGC 与 GOMEMLIMIT
 *   **PGO (Go 1.21+)**
-*   性能优化技巧 (strings.Builder, sync.Pool)
+*   CGO 与 FFI (原理与开销)
+*   Go Assembly 简明指南
+*   性能优化技巧 (BCE, strings.Builder, sync.Pool)
 
 ### Week 12: Kubernetes 生态开发
 
@@ -195,7 +200,7 @@ graph TD
 
 ## Phase 6: 生产实践 (Week 13)
 
-### Week 13: 安全编程与生产实践
+### Week 13: 安全编程与生产可靠性
 
 
 *   输入验证 (SQL 注入, 命令注入, 路径遍历)
@@ -204,6 +209,7 @@ graph TD
 *   HTTP 安全头 (XSS, CSRF 防护)
 *   Secrets 管理 (环境变量, K8s Secrets, Vault)
 *   常见漏洞防护 (SSRF, Race Condition, DoS)
+*   分布式高可用模式 (熔断/限流/分布式锁)
 *   安全工具 (govulncheck, gosec)
 
 ---
