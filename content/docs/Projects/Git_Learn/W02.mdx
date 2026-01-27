@@ -408,7 +408,57 @@ npx husky add .husky/pre-commit "npm run lint"
 
 ---
 
-## 7. reset 与 checkout 深度理解
+## 7. 理解 Git 环境与底层变量
+
+Git 提供了丰富的环境变量来控制底层行为, 这些是编写高级脚本和调试的利器.
+
+### 7.1 位置控制
+
+| 变量 | 描述 | 用途 |
+| :--- | :--- | :--- |
+| `GIT_DIR` | `.git` 目录的路径 | 在非仓库目录执行 Git 命令 |
+| `GIT_WORK_TREE` | 工作区根目录 | 分离 Git 目录与工作区 |
+| `GIT_INDEX_FILE` | Index 文件路径 | 使用临时 Index 构建提交 |
+
+```bash
+# 示例: 在任意目录操作仓库
+export GIT_DIR=/path/to/repo/.git
+export GIT_WORK_TREE=/path/to/repo
+git status
+```
+
+### 7.2 身份与提交控制
+
+覆盖配置中的 `user.name` 等信息:
+
+*   `GIT_AUTHOR_NAME` / `GIT_AUTHOR_EMAIL`
+*   `GIT_COMMITTER_NAME` / `GIT_COMMITTER_EMAIL`
+*   `GIT_AUTHOR_DATE` / `GIT_COMMITTER_DATE`
+
+```bash
+# 创建一个过去日期的提交
+GIT_AUTHOR_DATE="2000-01-01 12:00:00" git commit -m "Ancient commit"
+```
+
+### 7.3 调试变量
+
+当 Git 行为异常时, 这些变量能救命:
+
+| 变量 | 值 | 效果 |
+| :--- | :--- | :--- |
+| `GIT_TRACE` | `1` 或 `true` | 显示常规跟踪信息 (命令扩展) |
+| `GIT_TRACE_PACKET` | `1` | 显示网络包级跟踪 (fetch/push 调试) |
+| `GIT_CURL_VERBOSE` | `1` | 显示 HTTP 通信详情 (甚至 header) |
+| `GIT_TRACE_PERFORMANCE` | `1` | 显示性能计时数据 |
+
+```bash
+# 调试网络连接
+GIT_CURL_VERBOSE=1 git clone https://github.com/user/repo.git
+```
+
+---
+
+## 8. reset 与 checkout 深度理解
 
 ### 7.1 reset 的三种模式
 
@@ -453,7 +503,7 @@ git restore --source=HEAD~2 file.txt
 
 ---
 
-## 8. 练习
+## 9. 练习
 
 ### 8.1 Index 探索
 
@@ -474,7 +524,7 @@ git restore --source=HEAD~2 file.txt
 
 ---
 
-## 9. 思考题
+## 10. 思考题
 
 1. 为什么 Index 是二进制文件而不是目录?
 2. `git add -p` 是如何实现按块暂存的?
@@ -484,7 +534,7 @@ git restore --source=HEAD~2 file.txt
 
 ---
 
-## 10. 本周小结
+## 11. 本周小结
 
 - **三棵树**: Working Directory, Staging Area (Index), Repository.
 - **Index**: 二进制文件, 存储下一次提交的快照.

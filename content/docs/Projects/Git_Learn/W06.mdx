@@ -433,7 +433,58 @@ git archive --format=zip -o src.zip HEAD src/
 
 ---
 
-## 8. 练习
+## 8. 依赖管理: Submodule vs Subtree
+
+在处理嵌套仓库 (Repo in Repo) 时, Git 提供了两种主要方案.
+
+### 8.1 Submodules (子模块)
+
+Submodule 是指向外部仓库特定提交的指针.
+
+**优点**:
+- 严格的版本控制 (精确到 Commit ID).
+- 保持仓库体积小 (只存指针).
+
+**缺点**:
+- 必须记忆特定命令 (`git submodule update --init --recursive`).
+- 容易进入 Detached HEAD 状态.
+- 克隆时需额外步骤.
+
+**常用操作**:
+```bash
+# 添加子模块
+git submodule add https://github.com/lib/lib.git libs/lib
+
+# 克隆包含子模块的仓库
+git clone --recursive https://github.com/my/project.git
+
+# 更新子模块
+git submodule update --remote
+```
+
+### 8.2 Subtree (子树)
+
+Subtree 将外部仓库的代码直接拷贝并提交到当前仓库.
+
+**优点**:
+- 对使用者透明 (无需学习新命令).
+- 无需多步克隆.
+
+**缺点**:
+- 仓库体积增大.
+- 推送回上游较复杂.
+
+### 8.3 选型建议
+
+| 场景 | 推荐方案 |
+| :--- | :--- |
+| **组件开发** | Submodule (通常需要保持最新或特定版本) |
+| **工具库集成** | Subtree (一次集成, 很少修改) |
+| **DevOps** | Submodule (不同环境复用配置库) |
+
+---
+
+## 9. 练习
 
 ### 8.1 Worktree 练习
 
@@ -455,7 +506,7 @@ git archive --format=zip -o src.zip HEAD src/
 
 ---
 
-## 9. 思考题
+## 10. 思考题
 
 1. Worktree 和 clone 多个仓库有什么区别?
 2. Stash 丢失了如何恢复?
@@ -465,7 +516,7 @@ git archive --format=zip -o src.zip HEAD src/
 
 ---
 
-## 10. 本周小结
+## 11. 本周小结
 
 - **Worktree**: 同时检出多个分支.
 - **Stash**: 临时保存工作进度.

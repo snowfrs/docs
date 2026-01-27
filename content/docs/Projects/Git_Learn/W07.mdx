@@ -362,7 +362,59 @@ git sparse-checkout set src/
 
 ---
 
-## 6. 备份与迁移
+## 6. 超大规模仓库优化: Monorepo & Scalar
+
+对于 GB 级或百万文件的超大仓库 (如 Windows, Office), 标准 Git 会变慢.
+
+### 6.1 核心加速技术
+
+*   **Commit Graph**: 缓存提交图遍历结果, 加速 log/merge.
+*   **Multi-Pack Index (MIDX)**: 减少对象查找的 pack 文件扫描数.
+*   **Filesystem Monitor (FSMonitor)**: 避免扫描工作区 100k+ 文件, 仅处理 OS 变更通知.
+
+```bash
+# 写入 commit-graph
+git commit-graph write --reachable --changed-paths
+
+# 写入 MIDX
+git multi-pack-index write --bitmap
+```
+
+### 6.2 Scalar
+
+Microsoft 开源 (现合并入核心) 的大仓库管理工具.
+
+```bash
+# 注册大仓库 (自动配置所有优化参数)
+scalar register /path/to/repo
+
+# 克隆大仓库
+scalar clone https://github.com/microsoft/git
+```
+
+Scalar 会自动配置:
+- Partial Clone (不下载 Blob)
+- Sparse Checkout (只检出根目录)
+- FSMonitor
+- 后台维护任务
+
+### 6.3 Git Maintenance
+
+Git 的后台任务调度器 (cron/launchd):
+
+```bash
+# 开启后台维护
+git maintenance start
+```
+
+它会定期运行:
+- `gc`
+- `commit-graph`
+- `prefetch` (预取远程提交)
+
+---
+
+## 7. 备份与迁移
 
 ### 6.1 Clone 备份
 
@@ -405,7 +457,7 @@ git push --mirror
 
 ---
 
-## 7. 练习
+## 8. 练习
 
 ### 7.1 Bisect 练习
 
@@ -427,7 +479,7 @@ git push --mirror
 
 ---
 
-## 8. 思考题
+## 9. 思考题
 
 1. Bisect 的时间复杂度是多少?
 2. Reflog 能跨仓库使用吗?
@@ -437,7 +489,7 @@ git push --mirror
 
 ---
 
-## 9. 本周小结
+## 10. 本周小结
 
 - **Bisect**: 二分查找定位 Bug.
 - **Reflog**: 本地引用变更历史, 恢复利器.
