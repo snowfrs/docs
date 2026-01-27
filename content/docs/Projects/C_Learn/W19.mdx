@@ -1,0 +1,467 @@
+---
+title: "Week 19: Linux 内核基础"
+description: "掌握内核架构、内核模块开发、内核数据结构与并发控制."
+---
+
+## 1. 内核架构概述
+
+### 1.1 内核空间与用户空间
+
+```
++----------------------------+
+|       用户空间              |  应用程序
+|  User Space                |  glibc
++----------------------------+
+|       系统调用接口          |  syscall
++----------------------------+
+|       内核空间              |  VFS, 网络, 驱动
+|  Kernel Space              |  进程调度, 内存管理
++----------------------------+
+|       硬件                  |  CPU, 内存, 设备
++----------------------------+
+```
+
+### 1.2 内核子系统
+
+| 子系统 | 功能 |
+|--------|------|
+| 进程管理 | 进程创建、调度、终止 |
+| 内存管理 | 虚拟内存、页面分配 |
+| 文件系统 | VFS、具体文件系统 |
+| 网络 | 协议栈、Socket |
+| 设备驱动 | 字符设备、块设备、网络设备 |
+
+### 1.3 内核源码结构
+
+```
+linux/
+├── arch/       # 架构相关代码
+├── block/      # 块设备
+├── drivers/    # 设备驱动
+├── fs/         # 文件系统
+├── include/    # 头文件
+├── init/       # 初始化
+├── ipc/        # 进程间通信
+├── kernel/     # 核心代码 (调度等)
+├── lib/        # 库函数
+├── mm/         # 内存管理
+├── net/        # 网络
+└── scripts/    # 构建脚本
+```
+
+---
+
+## 2. 内核模块开发
+
+### 2.1 最简模块
+
+```c
+// hello.c
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("Hello World Module");
+
+static int __init hello_init(void) {
+    printk(KERN_INFO "Hello, Kernel!\n");
+    return 0;
+}
+
+static void __exit hello_exit(void) {
+    printk(KERN_INFO "Goodbye, Kernel!\n");
+}
+
+module_init(hello_init);
+module_exit(hello_exit);
+```
+
+### 2.2 Makefile
+
+```makefile
+obj-m := hello.o
+
+KDIR := /lib/modules/$(shell uname -r)/build
+
+all:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+clean:
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+```
+
+### 2.3 加载与卸载
+
+```bash
+# 编译
+make
+
+# 加载模块
+sudo insmod hello.ko
+
+# 查看日志
+dmesg | tail
+
+# 列出模块
+lsmod | grep hello
+
+# 卸载模块
+sudo rmmod hello
+```
+
+### 2.4 模块参数
+
+```c
+static int count = 1;
+static char *name = "default";
+
+module_param(count, int, 0644);
+MODULE_PARM_DESC(count, "Number of iterations");
+
+module_param(name, charp, 0644);
+MODULE_PARM_DESC(name, "User name");
+```
+
+```bash
+sudo insmod hello.ko count=5 name="Alice"
+```
+
+---
+
+## 3. 内核数据结构
+
+### 3.1 链表 (list_head)
+
+```c
+#include <linux/list.h>
+
+struct my_data {
+    int value;
+    struct list_head list;
+};
+
+LIST_HEAD(my_list);
+
+// 添加
+struct my_data *item = kmalloc(sizeof(*item), GFP_KERNEL);
+item->value = 42;
+list_add(&item->list, &my_list);
+
+// 遍历
+struct my_data *entry;
+list_for_each_entry(entry, &my_list, list) {
+    printk(KERN_INFO "Value: %d\n", entry->value);
+}
+
+// 安全删除遍历
+struct my_data *tmp;
+list_for_each_entry_safe(entry, tmp, &my_list, list) {
+    list_del(&entry->list);
+    kfree(entry);
+}
+```
+
+### 3.2 哈希表 (hlist)
+
+```c
+#include <linux/hashtable.h>
+
+DEFINE_HASHTABLE(my_hash, 8);  // 2^8 = 256 桶
+
+struct my_data {
+    int key;
+    int value;
+    struct hlist_node node;
+};
+
+// 添加
+hash_add(my_hash, &item->node, item->key);
+
+// 查找
+struct my_data *entry;
+hash_for_each_possible(my_hash, entry, node, key) {
+    if (entry->key == key) {
+        // 找到
+    }
+}
+```
+
+### 3.3 红黑树 (rbtree)
+
+```c
+#include <linux/rbtree.h>
+
+struct my_data {
+    int key;
+    struct rb_node node;
+};
+
+struct rb_root my_tree = RB_ROOT;
+
+// 插入和查找需要自己实现比较逻辑
+```
+
+---
+
+## 4. 内核内存分配
+
+### 4.1 kmalloc / kfree
+
+```c
+#include <linux/slab.h>
+
+// 分配 (类似 malloc)
+void *ptr = kmalloc(size, GFP_KERNEL);
+
+// 清零分配
+void *ptr = kzalloc(size, GFP_KERNEL);
+
+// 释放
+kfree(ptr);
+```
+
+### 4.2 GFP 标志
+
+| 标志 | 含义 |
+|------|------|
+| GFP_KERNEL | 可睡眠分配 |
+| GFP_ATOMIC | 不可睡眠 (中断上下文) |
+| GFP_USER | 用户空间 |
+
+### 4.3 vmalloc / vfree
+
+```c
+#include <linux/vmalloc.h>
+
+// 分配大块虚拟连续内存
+void *ptr = vmalloc(size);
+vfree(ptr);
+```
+
+### 4.4 slab 分配器
+
+```c
+struct kmem_cache *cache;
+
+// 创建 cache
+cache = kmem_cache_create("my_cache", sizeof(struct my_data),
+                          0, SLAB_HWCACHE_ALIGN, NULL);
+
+// 分配对象
+struct my_data *obj = kmem_cache_alloc(cache, GFP_KERNEL);
+
+// 释放对象
+kmem_cache_free(cache, obj);
+
+// 销毁 cache
+kmem_cache_destroy(cache);
+```
+
+---
+
+## 5. 内核并发控制
+
+### 5.1 自旋锁 (spinlock)
+
+```c
+#include <linux/spinlock.h>
+
+spinlock_t lock;
+spin_lock_init(&lock);
+
+spin_lock(&lock);
+// 临界区
+spin_unlock(&lock);
+
+// 禁用中断版本
+spin_lock_irqsave(&lock, flags);
+// 临界区
+spin_unlock_irqrestore(&lock, flags);
+```
+
+### 5.2 互斥锁 (mutex)
+
+```c
+#include <linux/mutex.h>
+
+struct mutex lock;
+mutex_init(&lock);
+
+mutex_lock(&lock);
+// 临界区 (可睡眠)
+mutex_unlock(&lock);
+```
+
+### 5.3 读写锁
+
+```c
+#include <linux/rwlock.h>
+
+rwlock_t lock;
+rwlock_init(&lock);
+
+read_lock(&lock);
+// 读操作
+read_unlock(&lock);
+
+write_lock(&lock);
+// 写操作
+write_unlock(&lock);
+```
+
+### 5.4 RCU (Read-Copy-Update)
+
+```c
+#include <linux/rcupdate.h>
+
+// 读端
+rcu_read_lock();
+// 访问数据
+rcu_read_unlock();
+
+// 写端
+// 1. 复制并修改
+// 2. 替换指针
+rcu_assign_pointer(ptr, new_data);
+// 3. 等待读者完成
+synchronize_rcu();
+// 4. 释放旧数据
+```
+
+---
+
+## 6. eBPF (Extended Berkeley Packet Filter)
+
+### 6.1 什么是 eBPF
+
+eBPF 允许在内核中安全运行用户提供的程序, 无需修改内核源码或加载内核模块.
+
+```
+用户空间                      内核空间
++---------+                  +------------------+
+|  BCC    |  编译/加载        |  eBPF 程序       |
+|  libbpf | -------->        |  (验证器检查)    |
++---------+                  +------------------+
+                                    |
+              挂载点: kprobe, tracepoint, XDP, cgroup...
+```
+
+### 6.2 eBPF 程序类型
+
+| 类型 | 用途 |
+| :--- | :--- |
+| `BPF_PROG_TYPE_KPROBE` | 动态追踪内核函数 |
+| `BPF_PROG_TYPE_TRACEPOINT` | 静态追踪点 |
+| `BPF_PROG_TYPE_XDP` | 高性能网络处理 |
+| `BPF_PROG_TYPE_SOCKET_FILTER` | Socket 过滤 |
+| `BPF_PROG_TYPE_CGROUP_*` | cgroup 控制 |
+
+### 6.3 使用 BCC (Python 前端)
+
+```python
+# pip install bcc
+from bcc import BPF
+
+prog = """
+int kprobe__do_sys_open(struct pt_regs *ctx, const char __user *filename, int flags) {
+    bpf_trace_printk("open: %s\\n", filename);
+    return 0;
+}
+"""
+
+b = BPF(text=prog)
+b.trace_print()
+```
+
+### 6.4 使用 libbpf (C 开发)
+
+```c
+// trace.bpf.c (eBPF 程序)
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+
+SEC("tracepoint/syscalls/sys_enter_openat")
+int trace_openat(struct trace_event_raw_sys_enter *ctx) {
+    bpf_printk("openat called\n");
+    return 0;
+}
+
+char LICENSE[] SEC("license") = "GPL";
+```
+
+```c
+// 用户空间加载器
+#include <bpf/libbpf.h>
+
+struct bpf_object *obj = bpf_object__open_file("trace.bpf.o", NULL);
+bpf_object__load(obj);
+struct bpf_link *link = bpf_program__attach(bpf_object__find_program_by_name(obj, "trace_openat"));
+// ...
+bpf_link__destroy(link);
+bpf_object__close(obj);
+```
+
+### 6.5 XDP (eXpress Data Path)
+
+内核最早处理网络包的位置, 性能极高:
+
+```c
+SEC("xdp")
+int xdp_drop_all(struct xdp_md *ctx) {
+    return XDP_DROP;  // 丢弃所有包
+}
+
+// 返回值: XDP_PASS, XDP_DROP, XDP_TX, XDP_REDIRECT
+```
+
+### 6.6 eBPF 工具生态
+
+| 工具 | 用途 |
+| :--- | :--- |
+| `bpftrace` | 单行追踪脚本 |
+| `perf` | 性能分析 |
+| `bpftool` | eBPF 程序管理 |
+| `Cilium` | Kubernetes 网络 |
+| `Falco` | 安全监控 |
+
+---
+
+## 7. 练习
+
+### 7.1 字符设备驱动
+
+编写一个简单的字符设备驱动.
+
+### 7.2 proc 文件
+
+创建 /proc 文件, 暴露模块信息.
+
+### 7.3 定时器
+
+使用内核定时器实现周期性任务.
+
+---
+
+## 8. 思考题
+
+1. 用户空间和内核空间如何通信?
+2. 为什么内核需要自己的数据结构?
+3. spinlock 和 mutex 的区别?
+4. RCU 适用于什么场景?
+5. 内核模块和用户程序的区别?
+
+---
+
+## 9. 本周小结
+
+- **内核架构**: 子系统, 源码结构.
+- **模块开发**: init/exit, 参数.
+- **数据结构**: list_head, hlist, rbtree.
+- **内存分配**: kmalloc, vmalloc, slab.
+- **并发控制**: spinlock, mutex, RCU.
+
+---
+
+> 内核开发需要对系统底层有深刻理解. 小心处理内存和并发, 错误可能导致系统崩溃.

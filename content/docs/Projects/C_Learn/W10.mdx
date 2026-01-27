@@ -1,0 +1,444 @@
+---
+title: "Week 10: 联合体与枚举"
+description: "掌握联合体原理、类型双关应用、枚举类型与 typedef."
+---
+
+## 1. 联合体 (Union)
+
+### 1.1 定义与语法
+
+```c
+union Data {
+    int i;
+    float f;
+    char str[20];
+};
+
+union Data d;
+d.i = 10;
+printf("d.i = %d\n", d.i);
+
+d.f = 3.14f;
+printf("d.f = %f\n", d.f);
+// 此时 d.i 的值已被覆盖
+```
+
+### 1.2 联合体 vs 结构体
+
+```c
+struct StructData {
+    int i;      // 4 bytes
+    float f;    // 4 bytes
+    char str[20]; // 20 bytes
+};
+// sizeof = 28 (加上对齐可能更大)
+
+union UnionData {
+    int i;
+    float f;
+    char str[20];
+};
+// sizeof = 20 (最大成员的大小)
+```
+
+### 1.3 内存布局
+
+联合体所有成员**共享同一块内存**:
+
+```
++---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+|                               20 bytes                                        |
++---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+    int i (4 bytes)
+    float f (4 bytes)
+    char str[20] (20 bytes)
+```
+
+---
+
+## 2. 联合体应用
+
+### 2.1 类型双关 (Type Punning)
+
+查看浮点数的二进制表示:
+
+```c
+union FloatBits {
+    float f;
+    uint32_t bits;
+};
+
+union FloatBits fb;
+fb.f = 3.14f;
+printf("Float: %f\n", fb.f);
+printf("Bits: 0x%08X\n", fb.bits);
+// 输出: Bits: 0x4048F5C3
+```
+
+### 2.2 网络协议解析
+
+```c
+union IPAddress {
+    uint32_t addr;
+    struct {
+        uint8_t a, b, c, d;
+    } octets;
+};
+
+union IPAddress ip;
+ip.addr = 0xC0A80101;  // 192.168.1.1 (网络字节序)
+printf("IP: %u.%u.%u.%u\n", 
+    ip.octets.d, ip.octets.c, ip.octets.b, ip.octets.a);
+```
+
+### 2.3 节省内存
+
+存储不同类型但互斥的数据:
+
+```c
+enum EventType { KEY_PRESS, MOUSE_CLICK, TIMER };
+
+struct Event {
+    enum EventType type;
+    union {
+        struct { int key_code; } key;
+        struct { int x, y, button; } mouse;
+        struct { int timer_id; } timer;
+    } data;
+};
+
+struct Event e;
+e.type = MOUSE_CLICK;
+e.data.mouse.x = 100;
+e.data.mouse.y = 200;
+e.data.mouse.button = 1;
+```
+
+### 2.4 匿名联合体 (C11)
+
+```c
+struct Event {
+    enum EventType type;
+    union {  // 匿名联合体
+        struct { int key_code; } key;
+        struct { int x, y; } mouse;
+    };
+};
+
+struct Event e;
+e.type = MOUSE_CLICK;
+e.mouse.x = 100;  // 直接访问
+```
+
+---
+
+## 3. 枚举类型
+
+### 3.1 基本定义
+
+```c
+enum Color {
+    RED,      // 0
+    GREEN,    // 1
+    BLUE      // 2
+};
+
+enum Color c = GREEN;
+printf("Color: %d\n", c);  // 1
+
+// 显式指定值
+enum Status {
+    OK = 0,
+    ERROR = -1,
+    PENDING = 100
+};
+```
+
+### 3.2 枚举的本质
+
+枚举值是**编译期常量**, 底层是整数:
+
+```c
+enum Color c = RED;
+
+// 可以赋任意整数 (不推荐)
+c = 100;
+
+// 可以进行算术运算
+c = RED + 1;
+
+// 可以用于 switch
+switch (c) {
+    case RED: break;
+    case GREEN: break;
+    case BLUE: break;
+}
+```
+
+### 3.3 枚举作为标志
+
+```c
+enum Permission {
+    PERM_READ = 1 << 0,   // 1
+    PERM_WRITE = 1 << 1,  // 2
+    PERM_EXEC = 1 << 2    // 4
+};
+
+unsigned int perms = PERM_READ | PERM_WRITE;
+
+if (perms & PERM_READ) {
+    printf("可读\n");
+}
+```
+
+---
+
+## 4. typedef
+
+### 4.1 类型别名
+
+```c
+typedef int Integer;
+typedef unsigned long long ULL;
+typedef char *String;
+
+Integer x = 10;
+ULL big = 12345678901234ULL;
+String s = "Hello";
+```
+
+### 4.2 结构体别名
+
+```c
+// 方法 1
+struct Point {
+    int x, y;
+};
+typedef struct Point Point;
+
+// 方法 2 (常用)
+typedef struct Point {
+    int x, y;
+} Point;
+
+// 方法 3 (匿名结构体)
+typedef struct {
+    int x, y;
+} Point;
+```
+
+### 4.3 函数指针别名
+
+```c
+// 原始声明
+int (*compare)(const void *, const void *);
+
+// 使用 typedef
+typedef int (*Comparator)(const void *, const void *);
+Comparator cmp = strcmp;
+```
+
+### 4.4 复杂类型别名
+
+```c
+// 数组指针
+typedef int (*ArrayPtr)[10];
+
+// 函数指针数组
+typedef int (*OpArray[])(int, int);
+
+// 返回函数指针的函数
+typedef int (*Op)(int, int);
+typedef Op (*GetOp)(char);
+```
+
+---
+
+## 5. 复杂类型声明
+
+### 5.1 阅读规则
+
+从标识符开始, 先右后左交替阅读:
+
+```c
+int *p;                // p 是指向 int 的指针
+int *p[10];            // p 是数组[10], 元素是指向 int 的指针
+int (*p)[10];          // p 是指针, 指向数组[10]
+int (*p)(int);         // p 是指针, 指向函数(int), 返回 int
+int (*p[10])(int);     // p 是数组[10], 元素是函数指针
+```
+
+### 5.2 使用 typedef 简化
+
+```c
+// 复杂声明
+int (*(*fp)(int))[10];
+// fp 是指针, 指向函数(int), 返回指向数组[10]的指针
+
+// 使用 typedef
+typedef int (*ArrayPtr)[10];
+typedef ArrayPtr (*FuncPtr)(int);
+FuncPtr fp;
+```
+
+### 5.3 cdecl 工具
+
+```bash
+$ cdecl
+cdecl> explain int (*(*fp)(int))[10]
+declare fp as pointer to function (int) returning pointer to array 10 of int
+```
+
+---
+
+## 6. 标签联合 (Tagged Union)
+
+### 6.1 概念
+
+标签联合 = 枚举标签 + 联合体:
+
+```c
+typedef enum {
+    TYPE_INT,
+    TYPE_FLOAT,
+    TYPE_STRING
+} ValueType;
+
+typedef struct {
+    ValueType type;
+    union {
+        int i;
+        float f;
+        char *s;
+    } data;
+} Value;
+
+void print_value(const Value *v) {
+    switch (v->type) {
+        case TYPE_INT:
+            printf("Int: %d\n", v->data.i);
+            break;
+        case TYPE_FLOAT:
+            printf("Float: %f\n", v->data.f);
+            break;
+        case TYPE_STRING:
+            printf("String: %s\n", v->data.s);
+            break;
+    }
+}
+```
+
+### 6.2 使用场景
+
+- 变体类型 (Variant)
+- 消息/事件系统
+- 解释器值类型
+- 协议数据单元
+
+---
+
+## 7. 严格别名规则 (Strict Aliasing)
+
+### 7.1 什么是严格别名
+
+严格别名规则规定: 不同类型的指针不应指向同一内存区域 (除非一方是 `char *`).
+
+```c
+// 违反严格别名规则
+int x = 0x12345678;
+short *p = (short *)&x;  // 未定义行为!
+*p = 0xABCD;
+```
+
+### 7.2 编译器优化影响
+
+```c
+void modify(int *pi, double *pd) {
+    *pi = 1;
+    *pd = 3.14;
+    // 编译器假设 pi 和 pd 不指向同一位置
+    // 可能重排或优化 *pi = 1
+    printf("%d\n", *pi);  // 可能输出 1, 也可能不是
+}
+
+int main(void) {
+    int x;
+    modify(&x, (double *)&x);  // 未定义行为
+    return 0;
+}
+```
+
+### 7.3 合法的类型双关
+
+```c
+// 方法 1: 使用 memcpy (标准兼容)
+float f = 3.14f;
+uint32_t bits;
+memcpy(&bits, &f, sizeof(bits));  // 安全
+
+// 方法 2: 使用联合体 (C99 明确允许)
+union {
+    float f;
+    uint32_t bits;
+} u;
+u.f = 3.14f;
+printf("0x%X\n", u.bits);  // 安全
+
+// 方法 3: 使用 char * (总是允许)
+float f = 3.14f;
+unsigned char *bytes = (unsigned char *)&f;
+for (int i = 0; i < sizeof(f); i++) {
+    printf("%02X ", bytes[i]);
+}
+```
+
+### 7.4 禁用严格别名优化
+
+```bash
+# GCC/Clang
+gcc -fno-strict-aliasing program.c
+```
+
+> **内核开发**: Linux 内核使用 `-fno-strict-aliasing` 编译.
+
+---
+
+## 8. 练习
+
+### 8.1 IPv4 地址转换
+
+使用联合体实现 IP 地址的点分十进制和整数形式转换.
+
+### 8.2 简单表达式求值器
+
+使用标签联合实现一个支持整数和浮点数的表达式求值器.
+
+### 8.3 状态机
+
+使用枚举实现一个简单状态机.
+
+---
+
+## 9. 思考题
+
+1. 联合体和结构体的本质区别是什么?
+2. 类型双关有什么风险?
+3. 枚举值可以超过枚举定义吗?
+4. typedef 和 #define 有什么区别?
+5. 什么时候使用标签联合?
+
+---
+
+## 10. 本周小结
+
+- **联合体**: 成员共享内存.
+- **类型双关**: 用联合体重新解释位模式.
+- **枚举**: 命名的整数常量.
+- **typedef**: 类型别名.
+- **复杂声明**: 右左法则.
+- **标签联合**: 类型安全的变体类型.
+- **严格别名**: 类型双关的合规方式.
+
+---
+
+> 联合体和枚举是 C 语言的特色功能. 正确使用它们, 可以写出高效且类型安全的代码.

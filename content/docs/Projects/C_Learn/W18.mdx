@@ -1,0 +1,446 @@
+---
+title: "Week 18: 调试与性能分析"
+description: "掌握 GDB 调试器、Valgrind、性能分析工具与静态分析."
+---
+
+## 1. GDB 调试器
+
+### 1.1 编译准备
+
+```bash
+# 添加调试信息
+gcc -g -O0 program.c -o program
+
+# -g: 生成调试信息
+# -O0: 禁用优化 (便于调试)
+```
+
+### 1.2 基本命令
+
+```bash
+gdb ./program
+
+# 运行
+(gdb) run [args]
+(gdb) run < input.txt
+
+# 断点
+(gdb) break main           # 函数断点
+(gdb) break file.c:10      # 行断点
+(gdb) break func if x > 5  # 条件断点
+(gdb) info breakpoints     # 查看断点
+(gdb) delete 1             # 删除断点
+(gdb) disable 1            # 禁用断点
+
+# 执行控制
+(gdb) next    (n)    # 下一行 (不进入函数)
+(gdb) step    (s)    # 下一行 (进入函数)
+(gdb) continue (c)   # 继续运行
+(gdb) finish         # 运行到函数返回
+(gdb) until 20       # 运行到第 20 行
+
+# 查看
+(gdb) print x        # 打印变量
+(gdb) print *p       # 解引用
+(gdb) print arr[0]@5 # 打印数组前 5 个元素
+(gdb) display x      # 每步显示变量
+(gdb) info locals    # 局部变量
+(gdb) backtrace (bt) # 调用栈
+
+# 修改
+(gdb) set x = 10     # 修改变量值
+
+# 退出
+(gdb) quit
+```
+
+### 1.3 查看内存
+
+```bash
+(gdb) x/10x ptr      # 16进制显示 10 个单元
+(gdb) x/10d ptr      # 十进制
+(gdb) x/10c ptr      # 字符
+(gdb) x/s ptr        # 字符串
+(gdb) x/10i func     # 反汇编
+```
+
+### 1.4 调试核心转储
+
+```bash
+# 启用 core dump
+ulimit -c unlimited
+
+# 运行程序崩溃后
+gdb ./program core
+
+# 查看崩溃位置
+(gdb) bt
+```
+
+### 1.5 调试正在运行的进程
+
+```bash
+gdb -p <pid>
+# 或
+gdb ./program
+(gdb) attach <pid>
+```
+
+---
+
+## 2. Valgrind
+
+### 2.1 内存错误检测
+
+```bash
+valgrind --leak-check=full ./program
+```
+
+### 2.2 常见错误
+
+```
+# 未初始化读取
+Use of uninitialised value
+
+# 无效读写
+Invalid read/write of size 4
+
+# 内存泄漏
+definitely lost: 40 bytes in 1 blocks
+
+# 非法释放
+Invalid free()
+
+# 重复释放
+Invalid free() / delete / delete[]
+```
+
+### 2.3 Valgrind 选项
+
+```bash
+# 完整泄漏检查
+valgrind --leak-check=full --show-leak-kinds=all ./program
+
+# 输出到文件
+valgrind --log-file=valgrind.log ./program
+
+# 跟踪子进程
+valgrind --trace-children=yes ./program
+```
+
+---
+
+## 3. AddressSanitizer
+
+### 3.1 使用
+
+```bash
+gcc -fsanitize=address -g program.c -o program
+./program
+```
+
+### 3.2 检测能力
+
+- 堆缓冲区溢出
+- 栈缓冲区溢出
+- 使用已释放内存
+- 内存泄漏
+- 全局缓冲区溢出
+
+### 3.3 其他 Sanitizer
+
+```bash
+# 未定义行为
+gcc -fsanitize=undefined -g program.c
+
+# 线程安全
+gcc -fsanitize=thread -g program.c
+
+# 内存泄漏
+gcc -fsanitize=leak -g program.c
+```
+
+---
+
+## 4. 性能分析
+
+### 4.1 gprof
+
+```bash
+# 编译
+gcc -pg program.c -o program
+
+# 运行
+./program
+
+# 分析
+gprof ./program gmon.out > analysis.txt
+```
+
+### 4.2 perf (Linux)
+
+```bash
+# 采样
+perf record ./program
+
+# 报告
+perf report
+
+# 统计
+perf stat ./program
+```
+
+### 4.3 time
+
+```bash
+time ./program
+# real    0m1.234s    实际时间
+# user    0m1.100s    用户态时间
+# sys     0m0.050s    内核态时间
+```
+
+### 4.4 简单计时
+
+```c
+#include <time.h>
+
+clock_t start = clock();
+// 代码
+clock_t end = clock();
+
+double cpu_time = (double)(end - start) / CLOCKS_PER_SEC;
+printf("CPU time: %f seconds\n", cpu_time);
+```
+
+---
+
+## 5. 静态分析
+
+### 5.1 编译器警告
+
+```bash
+gcc -Wall -Wextra -Werror -pedantic program.c
+```
+
+常用警告选项:
+- `-Wall`: 启用常见警告
+- `-Wextra`: 额外警告
+- `-Werror`: 警告视为错误
+- `-Wpedantic`: 严格标准检查
+
+### 5.2 Clang Static Analyzer
+
+```bash
+scan-build gcc program.c -o program
+scan-view /tmp/scan-build-xxx
+```
+
+### 5.3 cppcheck
+
+```bash
+cppcheck --enable=all program.c
+```
+
+### 5.4 strace / ltrace
+
+```bash
+# 跟踪系统调用
+strace ./program
+strace -e trace=open,read,write ./program  # 过滤
+strace -c ./program  # 统计
+
+# 跟踪库函数调用
+ltrace ./program
+ltrace -e malloc+free ./program  # 过滤
+```
+
+**strace 输出示例**:
+
+```
+open("file.txt", O_RDONLY) = 3
+read(3, "Hello\n", 4096) = 6
+write(1, "Hello\n", 6) = 6
+close(3) = 0
+```
+
+### 5.5 GDB TUI 模式
+
+```bash
+gdb -tui ./program
+
+# 或在 GDB 中
+(gdb) layout src     # 源代码视图
+(gdb) layout asm     # 汇编视图
+(gdb) layout split   # 源代码 + 汇编
+(gdb) layout regs    # 寄存器视图
+(gdb) focus cmd      # 焦点切换到命令窗口
+(gdb) refresh        # 刷新屏幕
+```
+
+### 5.6 调试宏
+
+```c
+#ifdef DEBUG
+    #define DEBUG_PRINT(fmt, ...) \
+        fprintf(stderr, "[DEBUG %s:%d] " fmt "\n", \
+                __FILE__, __LINE__, ##__VA_ARGS__)
+#else
+    #define DEBUG_PRINT(fmt, ...) ((void)0)
+#endif
+
+// 使用
+DEBUG_PRINT("x = %d, y = %d", x, y);
+```
+
+### 5.7 crash 工具 (内核崩溃分析)
+
+分析 Linux 内核崩溃转储的强大工具:
+
+**1. 配置 kdump**:
+
+```bash
+# 安装
+sudo apt install linux-crashdump  # Debian/Ubuntu
+sudo yum install kexec-tools crash  # RHEL/CentOS
+
+# 配置 /etc/default/kdump-tools
+USE_KDUMP=1
+KDUMP_SYSCTL="kernel.panic_on_oops=1"
+
+# 重启后验证
+cat /sys/kernel/kexec_crash_loaded  # 应输出 1
+```
+
+**2. 基本使用**:
+
+```bash
+# 分析 vmcore
+crash /usr/lib/debug/boot/vmlinux-$(uname -r) /var/crash/*/vmcore
+
+# 常用命令
+crash> bt              # 当前任务的调用栈
+crash> bt -a           # 所有 CPU 的调用栈
+crash> log             # 内核日志 (dmesg)
+crash> ps              # 进程列表
+crash> vm              # 虚拟内存信息
+crash> files           # 打开的文件
+crash> dis <func>      # 反汇编函数
+crash> struct task_struct <addr>  # 查看结构体
+crash> rd <addr> 10    # 读取内存
+crash> sym <addr>      # 地址转符号
+crash> mod             # 已加载模块
+crash> exit
+```
+
+**3. 实战示例**:
+
+```bash
+crash> bt
+PID: 1234   TASK: ffff8800deadbeef  CPU: 2   COMMAND: "buggy_driver"
+ #0 [ffff8800cafebabe] machine_kexec at ffffffff810...
+ #1 [ffff8800cafebabe] panic at ffffffff817...
+ #2 [ffff8800cafebabe] oops_end at ffffffff810...
+ #3 [ffff8800cafebabe] page_fault at ffffffff817...  # <-- 故障点
+ #4 [ffff8800cafebabe] buggy_function at ffffffffa00...
+
+crash> dis buggy_function
+# 查看故障点附近的汇编代码
+```
+
+**4. 调试内核模块**:
+
+```bash
+crash> mod -s mymodule /path/to/mymodule.ko
+crash> bt
+# 现在可以看到模块内的符号
+```
+
+---
+
+## 6. 常见 Bug 模式
+
+### 6.1 缓冲区溢出
+
+```c
+char buf[10];
+strcpy(buf, "This string is too long");  // 溢出!
+```
+
+### 6.2 空指针解引用
+
+```c
+int *p = NULL;
+*p = 10;  // 段错误!
+```
+
+### 6.3 内存泄漏
+
+```c
+void leak(void) {
+    int *p = malloc(sizeof(int));
+    // 忘记 free
+}
+```
+
+### 6.4 双重释放
+
+```c
+int *p = malloc(sizeof(int));
+free(p);
+free(p);  // 双重释放!
+```
+
+### 6.5 悬空指针
+
+```c
+int *p = malloc(sizeof(int));
+free(p);
+*p = 10;  // 悬空指针!
+```
+
+### 6.6 整数溢出
+
+```c
+int x = INT_MAX;
+x++;  // 未定义行为 (有符号)
+```
+
+---
+
+## 7. 练习
+
+### 7.1 调试练习
+
+编写一个有 Bug 的程序, 使用 GDB 定位问题.
+
+### 7.2 内存检查
+
+使用 Valgrind 检查一个程序的内存问题.
+
+### 7.3 性能优化
+
+使用 perf 分析程序的性能瓶颈并优化.
+
+---
+
+## 8. 思考题
+
+1. -O2 优化对调试有什么影响?
+2. Valgrind 和 ASan 的区别?
+3. 如何避免常见的内存错误?
+4. 性能分析的方法有哪些?
+5. 静态分析和动态分析的区别?
+
+---
+
+## 9. 本周小结
+
+- **GDB**: 断点, 单步, 查看变量和内存.
+- **Valgrind**: 内存泄漏, 非法访问.
+- **AddressSanitizer**: 快速内存错误检测.
+- **性能分析**: gprof, perf.
+- **静态分析**: 编译器警告, cppcheck.
+
+---
+
+> 调试是编程的重要技能. 善用工具, 可以大幅提高定位和解决问题的效率.

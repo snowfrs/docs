@@ -1,0 +1,726 @@
+---
+title: "Week 04: 函数"
+description: "掌握函数定义、参数传递、头文件组织、静态函数与内联函数."
+---
+
+## 1. 函数基础
+
+### 1.1 函数定义
+
+```c
+// 返回类型 函数名(参数列表) { 函数体 }
+int add(int a, int b) {
+    return a + b;
+}
+
+// 无返回值
+void print_hello(void) {
+    printf("Hello\n");
+}
+
+// 无参数 (显式 void)
+int get_random(void) {
+    return 42;
+}
+```
+
+### 1.2 函数声明 (原型)
+
+```c
+// 声明 (告诉编译器函数的存在)
+int add(int a, int b);
+
+// 定义 (实现函数)
+int add(int a, int b) {
+    return a + b;
+}
+
+int main(void) {
+    int result = add(1, 2);  // 调用
+    return 0;
+}
+```
+
+### 1.3 声明与定义的区别
+
+```c
+// 声明: 可以有多次
+int add(int, int);       // 参数名可省略
+int add(int a, int b);   // 参数名可保留
+
+// 定义: 只能有一次
+int add(int a, int b) {
+    return a + b;
+}
+```
+
+### 1.4 旧式函数定义 (K&R 风格)
+
+```c
+// 不推荐, 仅为了理解旧代码
+int add(a, b)
+int a;
+int b;
+{
+    return a + b;
+}
+```
+
+---
+
+## 2. 参数传递
+
+### 2.1 值传递 (Pass by Value)
+
+C 语言**只有值传递**:
+
+```c
+void modify(int x) {
+    x = 100;  // 修改的是副本
+}
+
+int main(void) {
+    int a = 10;
+    modify(a);
+    printf("a = %d\n", a);  // 10 (未改变)
+    return 0;
+}
+```
+
+### 2.2 传递指针
+
+通过指针模拟**引用传递**:
+
+```c
+void modify(int *p) {
+    *p = 100;  // 修改指针指向的值
+}
+
+int main(void) {
+    int a = 10;
+    modify(&a);
+    printf("a = %d\n", a);  // 100 (已改变)
+    return 0;
+}
+```
+
+### 2.3 传递数组
+
+数组作为参数时**衰变为指针**:
+
+```c
+void print_array(int arr[], int len) {
+    // arr 是指针, 不是数组
+    printf("sizeof(arr) = %zu\n", sizeof(arr));  // 8 (指针大小)
+    
+    for (int i = 0; i < len; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+}
+
+int main(void) {
+    int nums[] = {1, 2, 3, 4, 5};
+    printf("sizeof(nums) = %zu\n", sizeof(nums));  // 20 (数组大小)
+    print_array(nums, 5);
+    return 0;
+}
+```
+
+等价写法:
+
+```c
+void print_array(int arr[], int len);
+void print_array(int *arr, int len);   // 等价
+void print_array(int arr[5], int len); // 5 被忽略
+```
+
+### 2.4 传递多维数组
+
+```c
+// 必须指定除第一维外的所有维度
+void print_matrix(int mat[][3], int rows) {
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < 3; j++) {
+            printf("%d ", mat[i][j]);
+        }
+        printf("\n");
+    }
+}
+
+// 或使用指针
+void print_matrix(int (*mat)[3], int rows);  // 等价
+
+int main(void) {
+    int matrix[2][3] = {{1, 2, 3}, {4, 5, 6}};
+    print_matrix(matrix, 2);
+    return 0;
+}
+```
+
+### 2.5 const 修饰参数
+
+```c
+// 承诺不修改指针指向的内容
+void print_string(const char *s) {
+    // s[0] = 'X';  // 编译错误
+    printf("%s\n", s);
+}
+
+// 指针本身不可变
+void func(char *const p) {
+    // p = NULL;  // 编译错误
+    p[0] = 'X';   // OK
+}
+
+// 两者都不可变
+void func(const char *const p) {
+    // p = NULL;   // 编译错误
+    // p[0] = 'X'; // 编译错误
+}
+```
+
+---
+
+## 3. 返回值
+
+### 3.1 返回基本类型
+
+```c
+int add(int a, int b) {
+    return a + b;
+}
+
+double divide(double a, double b) {
+    if (b == 0) {
+        return 0.0;  // 错误处理
+    }
+    return a / b;
+}
+```
+
+### 3.2 返回指针
+
+```c
+// 危险: 返回局部变量的指针
+int *bad_function(void) {
+    int x = 10;
+    return &x;  // 警告: 返回局部变量地址
+}
+
+// 正确: 返回静态变量
+int *ok_function(void) {
+    static int x = 10;
+    return &x;
+}
+
+// 正确: 返回动态分配的内存
+int *good_function(void) {
+    int *p = malloc(sizeof(int));
+    *p = 10;
+    return p;  // 调用者负责 free
+}
+
+// 正确: 返回传入的指针
+int *pass_through(int *p) {
+    *p = 10;
+    return p;
+}
+```
+
+### 3.3 返回结构体
+
+```c
+struct Point {
+    int x, y;
+};
+
+// 返回结构体 (值拷贝)
+struct Point make_point(int x, int y) {
+    struct Point p = {x, y};
+    return p;
+}
+
+// 使用
+struct Point p = make_point(3, 4);
+```
+
+对于大型结构体, 值拷贝可能有性能开销. 可以考虑:
+- 通过指针参数返回
+- 返回指向静态或堆内存的指针
+
+---
+
+## 4. 多文件编程
+
+### 4.1 项目结构
+
+```
+project/
+├── main.c      # 主程序
+├── math_ops.h  # 头文件 (声明)
+├── math_ops.c  # 实现文件 (定义)
+└── Makefile
+```
+
+### 4.2 头文件
+
+```c
+// math_ops.h
+#ifndef MATH_OPS_H    // 头文件保护
+#define MATH_OPS_H
+
+// 函数声明
+int add(int a, int b);
+int subtract(int a, int b);
+
+#endif
+```
+
+### 4.3 实现文件
+
+```c
+// math_ops.c
+#include "math_ops.h"
+
+int add(int a, int b) {
+    return a + b;
+}
+
+int subtract(int a, int b) {
+    return a - b;
+}
+```
+
+### 4.4 主程序
+
+```c
+// main.c
+#include <stdio.h>
+#include "math_ops.h"
+
+int main(void) {
+    printf("%d\n", add(1, 2));
+    printf("%d\n", subtract(5, 3));
+    return 0;
+}
+```
+
+### 4.5 编译与链接
+
+```bash
+# 分步编译
+gcc -c main.c -o main.o
+gcc -c math_ops.c -o math_ops.o
+gcc main.o math_ops.o -o program
+
+# 一步编译
+gcc main.c math_ops.c -o program
+```
+
+### 4.6 头文件保护
+
+```c
+// 方法 1: #ifndef/#define/#endif
+#ifndef HEADER_H
+#define HEADER_H
+
+// 内容
+
+#endif
+
+// 方法 2: #pragma once (非标准, 但广泛支持)
+#pragma once
+
+// 内容
+```
+
+---
+
+## 5. 静态函数
+
+### 5.1 static 关键字
+
+`static` 限制函数的可见性为**当前文件**:
+
+```c
+// file1.c
+static int helper(int x) {  // 只在 file1.c 可见
+    return x * 2;
+}
+
+int public_func(int x) {
+    return helper(x) + 1;
+}
+```
+
+```c
+// file2.c
+// helper() 在这里不可见
+// int x = helper(10);  // 链接错误
+
+int y = public_func(10);  // OK
+```
+
+### 5.2 static 的作用
+
+1. **封装**: 隐藏实现细节
+2. **避免命名冲突**: 不同文件可以有同名 static 函数
+3. **优化**: 编译器知道函数不会被外部调用, 可以内联
+
+---
+
+## 6. 内联函数
+
+### 6.1 inline 关键字
+
+```c
+inline int square(int x) {
+    return x * x;
+}
+```
+
+### 6.2 inline 的含义
+
+`inline` 是**建议**, 不是命令:
+- 编译器可能内联, 也可能不内联
+- 即使不写 inline, 编译器也可能自动内联
+- 内联意味着在调用处展开函数体, 避免函数调用开销
+
+### 6.3 inline 与头文件
+
+```c
+// math.h
+#ifndef MATH_H
+#define MATH_H
+
+// 在头文件中定义 inline 函数
+static inline int square(int x) {
+    return x * x;
+}
+
+#endif
+```
+
+为什么需要 `static`:
+- 每个包含头文件的 .c 文件都会有这个函数的副本
+- `static` 避免链接时的多重定义错误
+
+### 6.4 C99 inline 语义
+
+```c
+// 在头文件中
+inline int func(int x) {
+    return x * 2;
+}
+
+// 在一个 .c 文件中提供外部定义
+extern inline int func(int x);
+```
+
+---
+
+## 7. 递归函数
+
+### 7.1 基本递归
+
+```c
+unsigned long factorial(unsigned int n) {
+    if (n == 0) {
+        return 1;  // 基准情况
+    }
+    return n * factorial(n - 1);  // 递归情况
+}
+```
+
+### 7.2 递归的栈消耗
+
+每次递归调用都会在栈上分配栈帧:
+
+```
+factorial(5)
+  └── factorial(4)
+        └── factorial(3)
+              └── factorial(2)
+                    └── factorial(1)
+                          └── factorial(0)
+```
+
+深度递归可能导致**栈溢出**.
+
+### 7.3 尾递归
+
+```c
+// 非尾递归: 递归调用后还有操作
+unsigned long factorial(unsigned int n) {
+    if (n == 0) return 1;
+    return n * factorial(n - 1);  // 需要保存 n
+}
+
+// 尾递归: 递归调用是最后一个操作
+unsigned long factorial_tail(unsigned int n, unsigned long acc) {
+    if (n == 0) return acc;
+    return factorial_tail(n - 1, n * acc);  // 可以优化为循环
+}
+
+unsigned long factorial(unsigned int n) {
+    return factorial_tail(n, 1);
+}
+```
+
+使用 `-O2` 编译, GCC 可能将尾递归优化为循环.
+
+---
+
+## 8. 函数指针
+
+### 8.1 基本语法
+
+```c
+int add(int a, int b) { return a + b; }
+int sub(int a, int b) { return a - b; }
+
+int main(void) {
+    // 声明函数指针
+    int (*op)(int, int);
+    
+    op = add;  // 指向 add 函数
+    printf("%d\n", op(3, 2));  // 5
+    
+    op = sub;  // 指向 sub 函数
+    printf("%d\n", op(3, 2));  // 1
+    
+    return 0;
+}
+```
+
+### 8.2 typedef 简化
+
+```c
+typedef int (*operation)(int, int);
+
+operation op = add;
+printf("%d\n", op(3, 2));
+```
+
+### 8.3 回调函数
+
+```c
+void foreach(int *arr, int len, void (*callback)(int)) {
+    for (int i = 0; i < len; i++) {
+        callback(arr[i]);
+    }
+}
+
+void print_int(int x) {
+    printf("%d\n", x);
+}
+
+void print_square(int x) {
+    printf("%d\n", x * x);
+}
+
+int main(void) {
+    int nums[] = {1, 2, 3, 4, 5};
+    
+    printf("原始值:\n");
+    foreach(nums, 5, print_int);
+    
+    printf("平方:\n");
+    foreach(nums, 5, print_square);
+    
+    return 0;
+}
+```
+
+### 8.4 函数指针数组
+
+```c
+int add(int a, int b) { return a + b; }
+int sub(int a, int b) { return a - b; }
+int mul(int a, int b) { return a * b; }
+int divide(int a, int b) { return b != 0 ? a / b : 0; }
+
+int main(void) {
+    // 函数指针数组
+    int (*ops[])(int, int) = {add, sub, mul, divide};
+    
+    int a = 10, b = 5;
+    for (int i = 0; i < 4; i++) {
+        printf("ops[%d](%d, %d) = %d\n", i, a, b, ops[i](a, b));
+    }
+    
+    return 0;
+}
+```
+
+---
+
+## 9. 可变参数函数
+
+### 9.1 stdarg.h
+
+```c
+#include <stdarg.h>
+
+int sum(int count, ...) {
+    va_list args;
+    va_start(args, count);  // 初始化
+    
+    int total = 0;
+    for (int i = 0; i < count; i++) {
+        total += va_arg(args, int);  // 获取下一个参数
+    }
+    
+    va_end(args);  // 清理
+    return total;
+}
+
+int main(void) {
+    printf("%d\n", sum(3, 10, 20, 30));  // 60
+    printf("%d\n", sum(5, 1, 2, 3, 4, 5));  // 15
+    return 0;
+}
+```
+
+### 9.2 printf 的实现原理
+
+```c
+// 简化版 printf
+void my_printf(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    
+    while (*fmt) {
+        if (*fmt == '%') {
+            fmt++;
+            switch (*fmt) {
+                case 'd':
+                    printf("%d", va_arg(args, int));
+                    break;
+                case 's':
+                    printf("%s", va_arg(args, char *));
+                    break;
+                case '%':
+                    putchar('%');
+                    break;
+            }
+        } else {
+            putchar(*fmt);
+        }
+        fmt++;
+    }
+    
+    va_end(args);
+}
+```
+
+---
+
+## 10. 函数属性与静态断言
+
+### 10.1 C11 `_Noreturn` 关键字
+
+标准的不返回函数声明:
+
+```c
+#include <stdnoreturn.h>
+
+noreturn void die(const char *msg) {
+    fprintf(stderr, "%s\n", msg);
+    exit(1);
+}
+
+// 或直接使用 _Noreturn
+_Noreturn void abort_program(void) {
+    abort();
+}
+```
+
+**C23 变化**: `[[noreturn]]` 属性语法取代 `_Noreturn`.
+
+### 10.2 C11 静态断言 `_Static_assert`
+
+编译期断言, 条件为假时编译失败:
+
+```c
+#include <assert.h>
+
+// C11: _Static_assert 需要两个参数
+_Static_assert(sizeof(int) == 4, "int must be 4 bytes");
+
+// C23: 第二个参数可选
+static_assert(sizeof(long) >= 4);
+
+// 常见用途
+struct Packet {
+    uint32_t header;
+    uint8_t data[60];
+};
+_Static_assert(sizeof(struct Packet) == 64, "Packet must be 64 bytes");
+
+// 类型大小检查
+_Static_assert(sizeof(size_t) == sizeof(void *), "size_t != pointer size");
+```
+
+### 10.3 GCC 扩展属性
+
+```c
+// 不返回
+void die(const char *msg) __attribute__((noreturn));
+
+// 纯函数 (无副作用, 仅依赖参数)
+int square(int x) __attribute__((const));
+
+// 已弃用
+int old_func(void) __attribute__((deprecated));
+
+// 格式检查
+void my_printf(const char *fmt, ...)
+    __attribute__((format(printf, 1, 2)));
+
+// 弱符号
+void weak_func(void) __attribute__((weak));
+```
+
+---
+
+## 11. 练习
+
+### 11.1 交换函数
+
+编写函数交换两个整数的值.
+
+### 11.2 字符串长度
+
+实现 `my_strlen` 函数.
+
+### 11.3 通用排序
+
+使用函数指针实现通用的比较排序函数.
+
+---
+
+## 12. 思考题
+
+1. 为什么 C 只有值传递?
+2. 数组为什么会衰变为指针?
+3. static 函数有什么好处?
+4. inline 一定会内联吗?
+5. 如何避免深度递归的栈溢出?
+
+---
+
+## 13. 本周小结
+
+- **函数定义**: 声明与定义, 参数与返回值.
+- **参数传递**: 值传递, 指针传递.
+- **多文件编程**: 头文件, 头文件保护.
+- **静态函数**: static 限制可见性.
+- **内联函数**: inline 建议.
+- **函数指针**: 回调, 函数指针数组.
+- **可变参数**: stdarg.h.
+
+---
+
+> 函数是程序的基本组成单元. 理解参数传递和函数指针, 是编写灵活代码的基础.

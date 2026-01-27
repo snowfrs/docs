@@ -1,0 +1,543 @@
+---
+title: "Week 07: 指针进阶"
+description: "掌握函数指针、指针与函数、回调机制、复杂指针声明解析."
+---
+
+## 1. 指针与函数
+
+### 1.1 传递指针参数
+
+```c
+// 值传递: 无法修改原变量
+void swap_bad(int a, int b) {
+    int temp = a;
+    a = b;
+    b = temp;
+}
+
+// 指针传递: 可以修改原变量
+void swap(int *a, int *b) {
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+int main(void) {
+    int x = 10, y = 20;
+    swap(&x, &y);
+    printf("x=%d, y=%d\n", x, y);  // x=20, y=10
+    return 0;
+}
+```
+
+### 1.2 返回指针
+
+```c
+// 危险: 返回局部变量地址
+int *bad_func(void) {
+    int x = 10;
+    return &x;  // 悬空指针!
+}
+
+// 安全: 返回静态变量
+int *static_func(void) {
+    static int x = 10;
+    return &x;
+}
+
+// 安全: 返回堆内存
+int *heap_func(void) {
+    int *p = malloc(sizeof(int));
+    *p = 10;
+    return p;  // 调用者负责 free
+}
+
+// 安全: 返回参数中的指针
+int *pass_through(int *p) {
+    *p *= 2;
+    return p;
+}
+```
+
+### 1.3 输出参数模式
+
+```c
+// 通过指针参数返回多个值
+int parse_point(const char *str, int *x, int *y) {
+    if (sscanf(str, "%d,%d", x, y) != 2) {
+        return -1;  // 失败
+    }
+    return 0;  // 成功
+}
+
+int main(void) {
+    int x, y;
+    if (parse_point("10,20", &x, &y) == 0) {
+        printf("x=%d, y=%d\n", x, y);
+    }
+    return 0;
+}
+```
+
+---
+
+## 2. 函数指针
+
+### 2.1 基本语法
+
+```c
+int add(int a, int b) { return a + b; }
+int sub(int a, int b) { return a - b; }
+
+int main(void) {
+    // 声明函数指针
+    int (*op)(int, int);
+    
+    op = add;        // 指向 add
+    printf("%d\n", op(3, 2));  // 5
+    
+    op = sub;        // 指向 sub
+    printf("%d\n", op(3, 2));  // 1
+    
+    // 显式取地址 (可选)
+    op = &add;       // 等价于 op = add
+    
+    // 显式解引用 (可选)
+    printf("%d\n", (*op)(3, 2));  // 等价于 op(3, 2)
+    
+    return 0;
+}
+```
+
+### 2.2 typedef 简化
+
+```c
+// 定义函数指针类型
+typedef int (*BinaryOp)(int, int);
+
+int add(int a, int b) { return a + b; }
+int mul(int a, int b) { return a * b; }
+
+int main(void) {
+    BinaryOp op = add;
+    printf("%d\n", op(3, 4));  // 7
+    
+    op = mul;
+    printf("%d\n", op(3, 4));  // 12
+    
+    return 0;
+}
+```
+
+### 2.3 函数指针数组
+
+```c
+typedef int (*Operation)(int, int);
+
+int add(int a, int b) { return a + b; }
+int sub(int a, int b) { return a - b; }
+int mul(int a, int b) { return a * b; }
+int divide(int a, int b) { return b ? a / b : 0; }
+
+int main(void) {
+    Operation ops[] = {add, sub, mul, divide};
+    const char *names[] = {"+", "-", "*", "/"};
+    
+    int a = 10, b = 3;
+    for (int i = 0; i < 4; i++) {
+        printf("%d %s %d = %d\n", a, names[i], b, ops[i](a, b));
+    }
+    
+    return 0;
+}
+```
+
+### 2.4 不使用 typedef 的声明
+
+```c
+// 函数指针变量
+int (*func_ptr)(int, int);
+
+// 函数指针数组
+int (*func_array[4])(int, int);
+
+// 返回函数指针的函数
+int (*get_operation(char c))(int, int) {
+    switch (c) {
+        case '+': return add;
+        case '-': return sub;
+        default: return NULL;
+    }
+}
+
+// 使用 typedef 更清晰
+typedef int (*Operation)(int, int);
+Operation get_operation(char c);
+```
+
+---
+
+## 3. 回调函数
+
+### 3.1 基本回调
+
+```c
+void foreach(int *arr, size_t len, void (*callback)(int)) {
+    for (size_t i = 0; i < len; i++) {
+        callback(arr[i]);
+    }
+}
+
+void print_int(int x) {
+    printf("%d ", x);
+}
+
+void print_square(int x) {
+    printf("%d ", x * x);
+}
+
+int main(void) {
+    int nums[] = {1, 2, 3, 4, 5};
+    
+    foreach(nums, 5, print_int);
+    printf("\n");  // 1 2 3 4 5
+    
+    foreach(nums, 5, print_square);
+    printf("\n");  // 1 4 9 16 25
+    
+    return 0;
+}
+```
+
+### 3.2 带用户数据的回调
+
+```c
+typedef void (*Callback)(int, void *);
+
+void foreach_with_data(int *arr, size_t len, Callback cb, void *user_data) {
+    for (size_t i = 0; i < len; i++) {
+        cb(arr[i], user_data);
+    }
+}
+
+void sum_callback(int x, void *data) {
+    int *sum = (int *)data;
+    *sum += x;
+}
+
+void count_callback(int x, void *data) {
+    int *count = (int *)data;
+    if (x > 0) {
+        (*count)++;
+    }
+}
+
+int main(void) {
+    int nums[] = {1, -2, 3, -4, 5};
+    
+    int sum = 0;
+    foreach_with_data(nums, 5, sum_callback, &sum);
+    printf("Sum: %d\n", sum);  // 3
+    
+    int count = 0;
+    foreach_with_data(nums, 5, count_callback, &count);
+    printf("Positive count: %d\n", count);  // 3
+    
+    return 0;
+}
+```
+
+### 3.3 qsort 示例
+
+```c
+#include <stdlib.h>
+
+// qsort 的比较函数原型
+// int (*compar)(const void *, const void *)
+
+int compare_int(const void *a, const void *b) {
+    return *(const int *)a - *(const int *)b;
+}
+
+int compare_int_desc(const void *a, const void *b) {
+    return *(const int *)b - *(const int *)a;
+}
+
+int main(void) {
+    int nums[] = {5, 2, 8, 1, 9};
+    size_t len = sizeof(nums) / sizeof(nums[0]);
+    
+    qsort(nums, len, sizeof(int), compare_int);
+    // nums: {1, 2, 5, 8, 9}
+    
+    qsort(nums, len, sizeof(int), compare_int_desc);
+    // nums: {9, 8, 5, 2, 1}
+    
+    return 0;
+}
+```
+
+### 3.4 bsearch 示例
+
+```c
+#include <stdlib.h>
+
+int compare_int(const void *a, const void *b) {
+    return *(const int *)a - *(const int *)b;
+}
+
+int main(void) {
+    int nums[] = {1, 2, 5, 8, 9};  // 必须已排序
+    size_t len = sizeof(nums) / sizeof(nums[0]);
+    
+    int key = 5;
+    int *result = bsearch(&key, nums, len, sizeof(int), compare_int);
+    
+    if (result) {
+        printf("Found: %d at index %ld\n", *result, result - nums);
+    } else {
+        printf("Not found\n");
+    }
+    
+    return 0;
+}
+```
+
+---
+
+## 4. 指针数组与数组指针
+
+### 4.1 指针数组
+
+```c
+// arr 是数组, 每个元素是 int*
+int *arr[5];
+
+int a = 1, b = 2, c = 3;
+arr[0] = &a;
+arr[1] = &b;
+arr[2] = &c;
+
+printf("%d\n", *arr[0]);  // 1
+
+// 常见用途: 字符串数组
+char *strings[] = {"Hello", "World", "C"};
+for (int i = 0; i < 3; i++) {
+    printf("%s\n", strings[i]);
+}
+```
+
+### 4.2 数组指针
+
+```c
+// p 是指针, 指向包含 5 个 int 的数组
+int (*p)[5];
+
+int arr[5] = {1, 2, 3, 4, 5};
+p = &arr;  // 取整个数组的地址
+
+printf("%d\n", (*p)[2]);  // 3
+
+// 用于二维数组
+int matrix[3][5] = {
+    {1, 2, 3, 4, 5},
+    {6, 7, 8, 9, 10},
+    {11, 12, 13, 14, 15}
+};
+
+int (*row)[5] = matrix;  // 指向第一行
+printf("%d\n", row[1][2]);  // 8 (第二行第三列)
+```
+
+### 4.3 区分方法
+
+```c
+int *arr[5];   // [] 优先级高于 *, 所以是指针的数组
+int (*p)[5];   // () 改变优先级, 所以是数组的指针
+
+// sizeof 验证
+int *ptr_arr[5];
+int (*arr_ptr)[5];
+
+// 假设 int* 为 8 字节, int 为 4 字节
+sizeof(ptr_arr);   // 40 (5 个指针)
+sizeof(arr_ptr);   // 8 (1 个指针)
+sizeof(*arr_ptr);  // 20 (5 个 int)
+```
+
+---
+
+## 5. 复杂声明解析
+
+### 5.1 右左法则
+
+从变量名开始, 先右后左交替阅读:
+
+```c
+int *p;
+// p 是指针, 指向 int
+
+int *p[10];
+// p 是数组[10], 元素是指针, 指向 int
+
+int (*p)[10];
+// p 是指针, 指向数组[10], 元素是 int
+
+int (*p)(int);
+// p 是指针, 指向函数(int), 返回 int
+
+int (*p[10])(int);
+// p 是数组[10], 元素是指针, 指向函数(int), 返回 int
+```
+
+### 5.2 cdecl 工具
+
+```bash
+# 安装
+sudo apt install cdecl
+
+# 使用
+cdecl> explain int (*(*fp)(int))[10]
+declare fp as pointer to function (int) returning pointer to array 10 of int
+```
+
+### 5.3 复杂声明示例
+
+```c
+// 信号处理函数
+void (*signal(int sig, void (*handler)(int)))(int);
+
+// 分解
+typedef void (*SigHandler)(int);
+SigHandler signal(int sig, SigHandler handler);
+```
+
+---
+
+## 6. 多级指针
+
+### 6.1 二级指针
+
+```c
+int x = 10;
+int *p = &x;
+int **pp = &p;
+
+printf("x = %d\n", x);       // 10
+printf("*p = %d\n", *p);     // 10
+printf("**pp = %d\n", **pp); // 10
+
+**pp = 20;
+printf("x = %d\n", x);  // 20
+```
+
+### 6.2 二级指针参数
+
+```c
+// 修改指针本身
+void alloc_int(int **pp, int value) {
+    *pp = malloc(sizeof(int));
+    **pp = value;
+}
+
+int main(void) {
+    int *p = NULL;
+    alloc_int(&p, 42);
+    printf("*p = %d\n", *p);  // 42
+    free(p);
+    return 0;
+}
+```
+
+### 6.3 命令行参数
+
+```c
+int main(int argc, char *argv[]) {
+    // argv 是 char** (指向字符串数组)
+    for (int i = 0; i < argc; i++) {
+        printf("argv[%d] = %s\n", i, argv[i]);
+    }
+    return 0;
+}
+
+// 等价声明
+int main(int argc, char **argv);
+```
+
+---
+
+## 7. 指针与 restrict (C99)
+
+### 7.1 restrict 含义
+
+`restrict` 告诉编译器: 该指针是访问其指向内存的**唯一方式**:
+
+```c
+void copy(int *restrict dest, const int *restrict src, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        dest[i] = src[i];
+    }
+}
+```
+
+### 7.2 优化效果
+
+```c
+// 无 restrict: 编译器不能假设 a、b、c 不重叠
+void add(int *a, int *b, int *c, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        a[i] = b[i] + c[i];
+    }
+}
+
+// 有 restrict: 编译器可以更好地优化
+void add_restricted(int * restrict a, 
+                    const int * restrict b, 
+                    const int * restrict c, 
+                    size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        a[i] = b[i] + c[i];
+    }
+}
+```
+
+---
+
+## 8. 练习
+
+### 8.1 实现 qsort
+
+使用函数指针实现通用排序函数.
+
+### 8.2 计算器
+
+使用函数指针数组实现简单计算器.
+
+### 8.3 链表遍历
+
+使用回调函数遍历链表并对每个元素执行操作.
+
+---
+
+## 9. 思考题
+
+1. 函数名和 &函数名 有区别吗?
+2. 为什么 qsort 的比较函数用 void*?
+3. restrict 有什么性能影响?
+4. 如何解读复杂指针声明?
+5. 二级指针的典型用途是什么?
+
+---
+
+## 10. 本周小结
+
+- **函数指针**: 指向函数的指针.
+- **回调函数**: 作为参数传递的函数.
+- **指针数组**: 元素是指针的数组.
+- **数组指针**: 指向数组的指针.
+- **复杂声明**: 右左法则解析.
+- **restrict**: 指针不重叠承诺.
+
+---
+
+> 函数指针是 C 语言实现多态的核心机制. 理解回调模式, 是编写灵活代码的关键.

@@ -1,0 +1,499 @@
+---
+title: "Week 08: 字符串处理"
+description: "掌握 C 字符串表示、标准库函数、安全函数与字符串解析."
+---
+
+## 1. C 字符串基础
+
+### 1.1 字符串表示
+
+C 语言没有内置字符串类型. 字符串是**以 '\0' 结尾的字符数组**:
+
+```c
+// 字符数组
+char str1[] = "Hello";
+// 内存: {'H', 'e', 'l', 'l', 'o', '\0'}
+// sizeof(str1) = 6
+
+// 等价写法
+char str2[] = {'H', 'e', 'l', 'l', 'o', '\0'};
+
+// 不包含 '\0' 的数组不是字符串
+char arr[] = {'H', 'e', 'l', 'l', 'o'};
+// sizeof(arr) = 5, 不是有效字符串
+```
+
+### 1.2 字符串字面量
+
+```c
+// 字符串字面量存储在只读内存区
+char *s1 = "Hello";
+
+// 不可修改 (未定义行为)
+// s1[0] = 'h';
+
+// 字符数组可以修改
+char s2[] = "Hello";
+s2[0] = 'h';  // OK
+```
+
+### 1.3 字符串初始化
+
+```c
+// 数组初始化
+char s1[10] = "Hello";
+// 内存: {'H', 'e', 'l', 'l', 'o', '\0', '\0', '\0', '\0', '\0'}
+
+// 指针初始化 (指向字面量)
+char *s2 = "Hello";
+
+// 动态分配
+char *s3 = malloc(10);
+strcpy(s3, "Hello");
+```
+
+---
+
+## 2. 字符串长度与大小
+
+### 2.1 strlen
+
+```c
+#include <string.h>
+
+size_t strlen(const char *s);
+
+char s[] = "Hello";
+printf("strlen = %zu\n", strlen(s));  // 5 (不包含 '\0')
+printf("sizeof = %zu\n", sizeof(s));  // 6 (包含 '\0')
+```
+
+### 2.2 strlen 实现
+
+```c
+size_t my_strlen(const char *s) {
+    size_t len = 0;
+    while (s[len] != '\0') {
+        len++;
+    }
+    return len;
+}
+
+// 指针版本
+size_t my_strlen_ptr(const char *s) {
+    const char *p = s;
+    while (*p != '\0') {
+        p++;
+    }
+    return p - s;
+}
+```
+
+### 2.3 性能注意
+
+```c
+// 不好: strlen 每次调用都遍历
+for (size_t i = 0; i < strlen(s); i++) {  // O(n^2)
+    printf("%c", s[i]);
+}
+
+// 好: 缓存长度
+size_t len = strlen(s);
+for (size_t i = 0; i < len; i++) {  // O(n)
+    printf("%c", s[i]);
+}
+```
+
+---
+
+## 3. 字符串复制
+
+### 3.1 strcpy
+
+```c
+char *strcpy(char *dest, const char *src);
+
+char dest[20];
+strcpy(dest, "Hello");
+printf("%s\n", dest);  // Hello
+
+// 危险: 不检查目标缓冲区大小
+char small[3];
+strcpy(small, "Hello");  // 缓冲区溢出!
+```
+
+### 3.2 strncpy (更安全)
+
+```c
+char *strncpy(char *dest, const char *src, size_t n);
+
+char dest[10];
+strncpy(dest, "Hello World", sizeof(dest) - 1);
+dest[sizeof(dest) - 1] = '\0';  // 确保以 '\0' 结尾
+
+// 注意: strncpy 不保证添加 '\0'
+```
+
+### 3.3 strlcpy (BSD, 推荐)
+
+```c
+// BSD/macOS 提供, Linux 需要 libbsd
+size_t strlcpy(char *dest, const char *src, size_t size);
+
+char dest[10];
+strlcpy(dest, "Hello World", sizeof(dest));
+// 返回 src 长度, 自动添加 '\0', 不会溢出
+```
+
+### 3.4 实现 strcpy
+
+```c
+char *my_strcpy(char *dest, const char *src) {
+    char *p = dest;
+    while ((*p++ = *src++) != '\0') {
+        // 空循环体
+    }
+    return dest;
+}
+```
+
+---
+
+## 4. 字符串连接
+
+### 4.1 strcat
+
+```c
+char *strcat(char *dest, const char *src);
+
+char s[20] = "Hello";
+strcat(s, " ");
+strcat(s, "World");
+printf("%s\n", s);  // Hello World
+
+// 危险: 不检查缓冲区大小
+```
+
+### 4.2 strncat
+
+```c
+char *strncat(char *dest, const char *src, size_t n);
+
+char s[20] = "Hello";
+strncat(s, " World!!!", sizeof(s) - strlen(s) - 1);
+```
+
+### 4.3 使用 snprintf 替代
+
+```c
+char s[20];
+snprintf(s, sizeof(s), "%s %s", "Hello", "World");
+// 更安全, 自动处理缓冲区大小
+```
+
+---
+
+## 5. 字符串比较
+
+### 5.1 strcmp
+
+```c
+int strcmp(const char *s1, const char *s2);
+
+// 返回值:
+// < 0: s1 < s2
+// = 0: s1 == s2
+// > 0: s1 > s2
+
+strcmp("abc", "abc");  // 0
+strcmp("abc", "abd");  // < 0
+strcmp("abd", "abc");  // > 0
+
+// 不能用 == 比较字符串!
+char *s1 = "hello";
+char *s2 = "hello";
+if (s1 == s2) { }  // 比较的是指针, 不是内容
+if (strcmp(s1, s2) == 0) { }  // 正确
+```
+
+### 5.2 strncmp
+
+```c
+int strncmp(const char *s1, const char *s2, size_t n);
+
+// 只比较前 n 个字符
+strncmp("Hello", "Help", 3);  // 0 (前3个相同)
+```
+
+### 5.3 strcasecmp (忽略大小写)
+
+```c
+#include <strings.h>  // POSIX
+
+int strcasecmp(const char *s1, const char *s2);
+
+strcasecmp("Hello", "hello");  // 0
+```
+
+---
+
+## 6. 字符串搜索
+
+### 6.1 strchr
+
+```c
+char *strchr(const char *s, int c);
+
+// 查找第一个出现的字符
+char *p = strchr("Hello World", 'o');
+if (p) {
+    printf("Found at: %ld\n", p - "Hello World");  // 4
+}
+
+// strrchr: 查找最后一个
+char *last = strrchr("Hello World", 'o');  // 指向 World 中的 o
+```
+
+### 6.2 strstr
+
+```c
+char *strstr(const char *haystack, const char *needle);
+
+// 查找子字符串
+char *p = strstr("Hello World", "World");
+if (p) {
+    printf("Found: %s\n", p);  // World
+}
+```
+
+### 6.3 strpbrk
+
+```c
+char *strpbrk(const char *s, const char *accept);
+
+// 查找任一字符
+char *p = strpbrk("Hello World", "aeiou");  // 第一个元音
+if (p) {
+    printf("Found: %c\n", *p);  // e
+}
+```
+
+### 6.4 strspn / strcspn
+
+```c
+size_t strspn(const char *s, const char *accept);
+size_t strcspn(const char *s, const char *reject);
+
+// strspn: 返回起始匹配字符集的长度
+strspn("123abc", "0123456789");  // 3
+
+// strcspn: 返回起始不匹配字符集的长度
+strcspn("hello, world", ", ");   // 5 (hello)
+```
+
+---
+
+## 7. 字符串转换
+
+### 7.1 atoi / atol / atof
+
+```c
+#include <stdlib.h>
+
+int atoi(const char *s);
+long atol(const char *s);
+double atof(const char *s);
+
+int n = atoi("42");     // 42
+int m = atoi("42abc");  // 42 (忽略尾部)
+int e = atoi("abc");    // 0 (无法转换)
+
+// 问题: 无法区分错误和 "0"
+```
+
+### 7.2 strtol / strtoul / strtod
+
+```c
+long strtol(const char *s, char **endptr, int base);
+
+char *end;
+long n = strtol("42abc", &end, 10);
+printf("n = %ld, rest = '%s'\n", n, end);  // n = 42, rest = 'abc'
+
+// 检测错误
+errno = 0;
+long m = strtol("999999999999999999", &end, 10);
+if (errno == ERANGE) {
+    printf("Overflow!\n");
+}
+
+// 不同进制
+strtol("ff", NULL, 16);  // 255
+strtol("1010", NULL, 2); // 10
+strtol("0xff", NULL, 0); // 255 (自动检测)
+```
+
+---
+
+## 8. 字符串分割
+
+### 8.1 strtok
+
+```c
+char *strtok(char *s, const char *delim);
+
+char str[] = "Hello,World,C";
+char *token = strtok(str, ",");
+while (token != NULL) {
+    printf("Token: %s\n", token);
+    token = strtok(NULL, ",");
+}
+// Token: Hello
+// Token: World
+// Token: C
+
+// 注意: strtok 会修改原字符串!
+// 原字符串变为: "Hello\0World\0C"
+```
+
+### 8.2 strtok_r (线程安全)
+
+```c
+char *strtok_r(char *s, const char *delim, char **saveptr);
+
+char str[] = "Hello,World,C";
+char *saveptr;
+char *token = strtok_r(str, ",", &saveptr);
+while (token != NULL) {
+    printf("Token: %s\n", token);
+    token = strtok_r(NULL, ",", &saveptr);
+}
+```
+
+### 8.3 不修改原字符串的分割
+
+```c
+// 使用 strcspn + strspn
+void split(const char *s, const char *delim) {
+    while (*s) {
+        size_t len = strcspn(s, delim);
+        printf("'%.*s'\n", (int)len, s);
+        s += len;
+        s += strspn(s, delim);  // 跳过分隔符
+    }
+}
+```
+
+---
+
+## 9. 格式化字符串
+
+### 9.1 sprintf / snprintf
+
+```c
+int sprintf(char *str, const char *format, ...);
+int snprintf(char *str, size_t size, const char *format, ...);
+
+char buf[100];
+sprintf(buf, "Name: %s, Age: %d", "Alice", 30);
+
+// 更安全
+snprintf(buf, sizeof(buf), "Name: %s, Age: %d", "Alice", 30);
+```
+
+### 9.2 sscanf
+
+```c
+int sscanf(const char *str, const char *format, ...);
+
+char str[] = "Alice 30";
+char name[20];
+int age;
+sscanf(str, "%s %d", name, &age);
+printf("Name: %s, Age: %d\n", name, age);
+
+// 返回成功匹配的数量
+int n = sscanf("10 20 30", "%d %d", &a, &b);
+// n = 2
+```
+
+---
+
+## 10. 宽字符与 Unicode
+
+### 10.1 宽字符
+
+```c
+#include <wchar.h>
+
+wchar_t wc = L'中';
+wchar_t ws[] = L"你好";
+
+wprintf(L"%ls\n", ws);
+```
+
+### 10.2 多字节字符
+
+```c
+#include <stdlib.h>
+#include <locale.h>
+
+int main(void) {
+    setlocale(LC_ALL, "");  // 设置本地化
+    
+    char mb[] = "你好";
+    wchar_t wc;
+    
+    // 多字节 -> 宽字符
+    mbtowc(&wc, mb, MB_CUR_MAX);
+    
+    // 宽字符 -> 多字节
+    char buf[MB_CUR_MAX];
+    wctomb(buf, wc);
+    
+    return 0;
+}
+```
+
+---
+
+## 11. 练习
+
+### 11.1 实现 strstr
+
+实现字符串搜索函数.
+
+### 11.2 单词计数
+
+统计字符串中的单词数量.
+
+### 11.3 字符串反转
+
+原地反转字符串.
+
+---
+
+## 12. 思考题
+
+1. 为什么 C 字符串需要 '\0' 结尾?
+2. strcpy 和 memcpy 有什么区别?
+3. 为什么 strtok 不是线程安全的?
+4. 如何安全地拼接字符串?
+5. 宽字符和多字节字符有什么区别?
+
+---
+
+## 13. 本周小结
+
+- **C 字符串**: 以 '\0' 结尾的字符数组.
+- **长度函数**: strlen (不含 '\0').
+- **复制函数**: strcpy, strncpy, strlcpy.
+- **比较函数**: strcmp, strncmp.
+- **搜索函数**: strchr, strstr, strpbrk.
+- **转换函数**: atoi, strtol.
+- **分割函数**: strtok, strtok_r.
+- **格式化**: sprintf, snprintf, sscanf.
+
+---
+
+> C 字符串的安全处理是防止缓冲区溢出的关键. 优先使用带长度限制的安全函数.

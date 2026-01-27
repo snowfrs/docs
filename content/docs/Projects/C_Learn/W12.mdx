@@ -1,0 +1,456 @@
+---
+title: "Week 12: 预处理器"
+description: "掌握宏定义、条件编译、预定义宏与预处理器技巧."
+---
+
+## 1. 预处理器概述
+
+### 1.1 预处理阶段
+
+预处理发生在编译之前:
+
+```
+源代码 (.c) → 预处理器 → 预处理后的代码 (.i) → 编译器
+```
+
+```bash
+# 查看预处理结果
+gcc -E main.c -o main.i
+```
+
+### 1.2 预处理指令
+
+所有预处理指令以 `#` 开头:
+
+```c
+#include    // 包含头文件
+#define     // 宏定义
+#undef      // 取消定义
+#if         // 条件编译
+#ifdef      // 如果定义
+#ifndef     // 如果未定义
+#else       // 否则
+#elif       // 否则如果
+#endif      // 结束条件
+#error      // 产生错误
+#warning    // 产生警告
+#pragma     // 编译器指令
+#line       // 修改行号
+```
+
+### 1.3 #include 搜索顺序
+
+```c
+#include <stdio.h>   // 尖括号: 系统头文件
+#include "myheader.h" // 引号: 用户头文件
+```
+
+**搜索顺序**:
+
+| 形式 | 搜索顺序 |
+|------|----------|
+| `#include "file.h"` | 1. 当前目录 2. -I 指定目录 3. 系统目录 |
+| `#include <file.h>` | 1. -I 指定目录 2. 系统目录 |
+
+```bash
+# 添加搜索路径
+gcc -I./include -I/opt/mylib/include program.c
+
+# 查看搜索路径
+gcc -E -v program.c 2>&1 | grep "search starts"
+```
+
+### 1.4 头文件最佳实践
+
+```c
+// myheader.h
+#ifndef MYHEADER_H
+#define MYHEADER_H
+
+// 只放声明, 不放定义
+extern int global_var;        // 变量声明
+void my_function(int x);      // 函数声明
+struct MyStruct;              // 前向声明
+typedef struct MyStruct MyStruct;
+
+// 内联函数可以放在头文件 (需要 static 或 extern inline)
+static inline int square(int x) {
+    return x * x;
+}
+
+#endif // MYHEADER_H
+```
+
+常见错误:
+- 在头文件中定义变量 (导致重复定义)
+- 缺少头文件保护 (导致重复包含)
+- 循环包含 (A 包含 B, B 包含 A)
+
+---
+
+## 2. 宏定义
+
+### 2.1 对象宏
+
+```c
+#define PI 3.14159
+#define MAX_SIZE 100
+#define GREETING "Hello, World!"
+
+double area = PI * r * r;
+int buffer[MAX_SIZE];
+```
+
+### 2.2 函数宏
+
+```c
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define SQUARE(x) ((x) * (x))
+
+int m = MAX(3, 5);     // ((3) > (5) ? (3) : (5))
+int s = SQUARE(4);     // ((4) * (4))
+```
+
+### 2.3 宏的陷阱
+
+```c
+// 陷阱 1: 运算符优先级
+#define BAD_SQUARE(x) x * x
+int s = BAD_SQUARE(1 + 2);  // 1 + 2 * 1 + 2 = 5, 不是 9
+
+// 正确: 加括号
+#define GOOD_SQUARE(x) ((x) * (x))
+
+// 陷阱 2: 多次求值
+#define BAD_MAX(a, b) ((a) > (b) ? (a) : (b))
+int x = 5;
+int m = BAD_MAX(x++, 3);  // x++ 可能被求值两次!
+
+// 陷阱 3: 分号问题
+#define BAD_SWAP(a, b) { int t = a; a = b; b = t; }
+
+if (condition)
+    BAD_SWAP(x, y);  // 编译错误或逻辑错误
+else
+    // ...
+
+// 正确: 使用 do-while
+#define SWAP(a, b) do { int t = (a); (a) = (b); (b) = t; } while(0)
+```
+
+### 2.4 多行宏
+
+```c
+#define PRINT_DEBUG(msg) \
+    do { \
+        printf("DEBUG [%s:%d]: %s\n", __FILE__, __LINE__, msg); \
+    } while(0)
+```
+
+### 2.5 字符串化 (#)
+
+```c
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
+printf("%s\n", STRINGIFY(Hello));  // "Hello"
+printf("%s\n", STRINGIFY(1 + 2));  // "1 + 2"
+
+#define VERSION 1.2.3
+printf("Version: %s\n", TOSTRING(VERSION));  // "1.2.3"
+```
+
+### 2.6 连接 (##)
+
+```c
+#define CONCAT(a, b) a##b
+#define MAKE_VAR(name, num) name##_##num
+
+int CONCAT(foo, bar) = 10;  // int foobar = 10;
+int MAKE_VAR(var, 1) = 20;  // int var_1 = 20;
+
+// 常见用法: 生成唯一标识符
+#define UNIQUE(name) CONCAT(name, __LINE__)
+int UNIQUE(temp);  // int temp42; (假设在第 42 行)
+```
+
+---
+
+## 3. 条件编译
+
+### 3.1 #if / #endif
+
+```c
+#define DEBUG 1
+
+#if DEBUG
+    printf("Debug mode\n");
+#endif
+
+#if DEBUG == 1
+    printf("Debug level 1\n");
+#elif DEBUG == 2
+    printf("Debug level 2\n");
+#else
+    printf("Release mode\n");
+#endif
+```
+
+### 3.2 #ifdef / #ifndef
+
+```c
+#ifdef DEBUG
+    printf("Debug mode\n");
+#endif
+
+#ifndef RELEASE
+    printf("Not release\n");
+#endif
+
+// 常用于头文件保护
+#ifndef HEADER_H
+#define HEADER_H
+
+// 头文件内容
+
+#endif
+```
+
+### 3.3 #pragma once
+
+```c
+// 非标准但广泛支持的头文件保护
+#pragma once
+
+// 头文件内容
+```
+
+### 3.4 defined 运算符
+
+```c
+#if defined(DEBUG) && DEBUG > 0
+    printf("Debug enabled\n");
+#endif
+
+#if !defined(FEATURE_X) || defined(LEGACY_MODE)
+    // 兼容代码
+#endif
+```
+
+---
+
+## 4. 预定义宏
+
+### 4.1 标准预定义宏
+
+```c
+printf("File: %s\n", __FILE__);      // 当前文件名
+printf("Line: %d\n", __LINE__);      // 当前行号
+printf("Date: %s\n", __DATE__);      // 编译日期 "Jan 16 2026"
+printf("Time: %s\n", __TIME__);      // 编译时间 "12:00:00"
+printf("Function: %s\n", __func__);  // 当前函数名 (C99)
+```
+
+### 4.2 编译器特定宏
+
+```c
+#ifdef __GNUC__
+    printf("GCC version: %d.%d\n", __GNUC__, __GNUC_MINOR__);
+#endif
+
+#ifdef __clang__
+    printf("Clang\n");
+#endif
+
+#ifdef _MSC_VER
+    printf("MSVC version: %d\n", _MSC_VER);
+#endif
+```
+
+### 4.3 平台检测
+
+```c
+#ifdef _WIN32
+    #include <windows.h>
+#elif defined(__linux__)
+    #include <unistd.h>
+#elif defined(__APPLE__)
+    #include <TargetConditionals.h>
+#endif
+```
+
+---
+
+## 5. 高级技巧
+
+### 5.1 X-Macro
+
+```c
+// 定义列表
+#define ERROR_LIST \
+    X(OK, "Success") \
+    X(NOT_FOUND, "Not found") \
+    X(INVALID, "Invalid input") \
+    X(TIMEOUT, "Timeout")
+
+// 生成枚举
+enum ErrorCode {
+    #define X(name, msg) ERROR_##name,
+    ERROR_LIST
+    #undef X
+    ERROR_COUNT
+};
+
+// 生成字符串数组
+const char *error_messages[] = {
+    #define X(name, msg) msg,
+    ERROR_LIST
+    #undef X
+};
+
+// 使用
+printf("Error: %s\n", error_messages[ERROR_NOT_FOUND]);
+```
+
+### 5.2 静态断言 (C11)
+
+```c
+_Static_assert(sizeof(int) == 4, "int must be 4 bytes");
+_Static_assert(sizeof(void *) == 8, "64-bit platform required");
+
+// 预处理器版本
+#if CHAR_BIT != 8
+    #error "CHAR_BIT must be 8"
+#endif
+```
+
+### 5.3 泛型选择 (C11)
+
+```c
+#define print_type(x) _Generic((x), \
+    int: printf("int: %d\n", x), \
+    double: printf("double: %f\n", x), \
+    char *: printf("string: %s\n", x), \
+    default: printf("unknown type\n") \
+)
+
+print_type(42);       // int: 42
+print_type(3.14);     // double: 3.14
+print_type("hello");  // string: hello
+```
+
+### 5.4 可变参数宏 (C99)
+
+```c
+#define LOG(fmt, ...) \
+    printf("[LOG] " fmt "\n", ##__VA_ARGS__)
+
+LOG("Hello");                    // [LOG] Hello
+LOG("Value: %d", 42);            // [LOG] Value: 42
+LOG("x=%d, y=%d", 10, 20);       // [LOG] x=10, y=20
+```
+
+### 5.5 C23 预处理器新特性
+
+**1. `#embed` (嵌入二进制文件)**
+
+```c
+// 编译期将文件内容嵌入数组
+const unsigned char favicon[] = {
+    #embed "favicon.ico"
+};
+
+// 带参数
+const char license[] = {
+    #embed "LICENSE" limit(1024)  // 限制大小
+};
+
+// 检测支持
+#ifdef __has_embed
+    #if __has_embed("config.bin")
+        const char config[] = { #embed "config.bin" };
+    #endif
+#endif
+```
+
+**2. `#warning` (标准化)**
+
+```c
+#warning "This API is deprecated, use new_api() instead"
+```
+
+**3. `__VA_OPT__` (改进的可变参数)**
+
+```c
+// C99: ##__VA_ARGS__ (GNU 扩展)
+#define LOG_OLD(fmt, ...) printf(fmt, ##__VA_ARGS__)
+
+// C23: __VA_OPT__ (标准)
+#define LOG(fmt, ...) printf(fmt __VA_OPT__(,) __VA_ARGS__)
+
+LOG("Hello");           // printf("Hello")
+LOG("x=%d", 42);        // printf("x=%d", 42)
+```
+
+**4. `#elifdef` / `#elifndef`**
+
+```c
+// C23 简化语法
+#ifdef DEBUG
+    // debug
+#elifdef TESTING
+    // testing
+#elifndef PRODUCTION
+    // not production
+#endif
+
+// 等价于 C11 写法
+#if defined(DEBUG)
+    // debug
+#elif defined(TESTING)
+    // testing
+#elif !defined(PRODUCTION)
+    // not production
+#endif
+```
+
+---
+
+## 6. 练习
+
+### 6.1 调试宏
+
+实现一个 DEBUG_PRINT 宏, 在调试模式下打印文件名、行号和消息.
+
+### 6.2 断言宏
+
+实现一个 ASSERT 宏, 条件失败时打印信息并终止程序.
+
+### 6.3 X-Macro
+
+使用 X-Macro 技术生成状态机的枚举和字符串.
+
+---
+
+## 7. 思考题
+
+1. 宏和函数有什么区别?
+2. 为什么要给宏参数加括号?
+3. 头文件保护的作用是什么?
+4. X-Macro 有什么优势?
+5. `##__VA_ARGS__` 的作用是什么?
+
+---
+
+## 8. 本周小结
+
+- **对象宏**: 常量替换.
+- **函数宏**: 代码替换, 注意括号和副作用.
+- **条件编译**: #if, #ifdef, #ifndef.
+- **预定义宏**: __FILE__, __LINE__, __func__.
+- **高级技巧**: X-Macro, _Generic, 可变参数宏.
+
+---
+
+> 预处理器是 C 语言的元编程工具. 正确使用宏, 可以减少重复代码, 但过度使用会降低可读性.
