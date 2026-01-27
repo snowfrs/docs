@@ -8,11 +8,11 @@ icon: Goal
 
 ---
 
-## 云原生的四大基石
+## 1. 云原生的四大基石
 
 Kubernetes 的成功并非凭空而来, 它建立在 Linux 内核的成熟隔离机制与分布式系统理论之上. 理解这些基石是深入掌握容器编排的前提.
 
-### 1. Linux Namespace: 进程级资源隔离
+### 1.1 Linux Namespace: 进程级资源隔离
 
 Namespace 为进程提供了一个**独立的系统资源视图**, 使其仿佛运行在独立的操作系统中.
 
@@ -48,7 +48,7 @@ graph TD
 *   **关键系统调用**: `clone(2)` 创建新进程并放入新 Namespace, `setns(2)` 加入已存在的 Namespace, `unshare(2)` 将当前进程移入新 Namespace.
 *   **持久化**: Namespace 的生命周期由引用计数管理, 可通过 bind mount `/proc/<pid>/ns/*` 文件实现持久化.
 
-### 2. Cgroups: 资源配额与限制
+### 1.2 Cgroups: 资源配额与限制
 
 Cgroups (Control Groups) 提供了**资源限制、优先级分配、审计与控制**的能力, 是容器 "受控运行" 的保障.
 
@@ -83,7 +83,7 @@ Cgroups (Control Groups) 提供了**资源限制、优先级分配、审计与�
 
 *   **OOM Score**: Kubelet 通过 `/proc/<pid>/oom_score_adj` 调整进程的 OOM 优先级, QoS 等级越低 (BestEffort), 值越高, 越容易被杀死.
 
-### 3. OverlayFS: 分层镜像与写时复制
+### 1.3 OverlayFS: 分层镜像与写时复制
 
 OverlayFS 是容器镜像 **分层存储** 的内核基础, 实现了镜像复用与容器隔离的平衡.
 
@@ -121,7 +121,7 @@ graph TD
 
 *   **性能考量**: 首次写入大文件时触发 copy-up, 可能导致延迟峰值. 对于写密集型应用, 建议使用 Volume 挂载绕过 OverlayFS.
 
-### 4. 声明式 API 与调谐循环: 分布式系统的核心范式
+### 1.4 声明式 API 与调谐循环: 分布式系统的核心范式
 
 Kubernetes 的设计哲学是 **声明式 (Declarative)** 而非命令式. 用户描述期望状态 (Desired State), 系统自动驱动实际状态 (Actual State) 向期望状态收敛.
 
@@ -178,7 +178,7 @@ sequenceDiagram
 
 当实际状态偏离期望状态 (如 Pod 被意外删除), Controller 的调谐循环会**自动检测差异并创建新 Pod**, 无需人工干预. 这是 Kubernetes "自愈" 能力的本质.
 
-### 基石总结
+### 1.5 总结
 
 | 基石 | 层级 | 核心能力 | Kubernetes 依赖 |
 | :--- | :--- | :--- | :--- |
@@ -191,7 +191,7 @@ sequenceDiagram
 
 ---
 
-## 核心学习模块大纲
+## 2. 核心学习模块大纲
 
 ### 第一阶段: 容器基础设施与集群引导 (Week 1-2)
 
@@ -249,7 +249,37 @@ sequenceDiagram
 
 ---
 
-## 学习路径知识图谱
+---
+
+## 3. Kubernetes 演进路线图
+
+从 Dockershim 移除到 AI 原生支持, Kubernetes 正在经历从 "容器编排" 到 "云原生操作系统" 的蜕变.
+
+### 3.1 关键里程碑 (v1.24 - v1.35)
+
+| 版本时间轴 | 核心变革 | 标志性特性 |
+| :--- | :--- | :--- |
+| **v1.24 (2022)** | **Runtime 解耦** | **Dockershim 移除**, Containerd/CRI-O 成为标配. |
+| **v1.25 (2022)** | **安全基线** | **PSP 移除**, Pod Security Standards (PSS) 正式 GA. |
+| **v1.26 - v1.29** | **批处理增强** | Job API 完善 (Indexed Job, Suspend), 更好地支持 AI/ML. |
+| **v1.30 (2024)** | **网关革命** | **Gateway API GA**, 逐步取代 Ingress 成为流量治理标准. |
+| **v1.31 - v1.33** | **动态资源** | **DRA (Dynamic Resource Allocation)** GA, GPU/FPGA 细粒度共享. |
+| **v1.34 - v1.35** | **配置与扩展** | **CEL (Common Expression Language)** 全面接管准入控制; **Wasm** 原生侧车支持. |
+
+### 3.2 v1.35 时代的关键趋势
+
+1.  **AI/LLM 原生调度**:
+    随着大型模型训练常态化, Kubernetes **DRA** 允许 Pod 请求切片的 GPU 显存 (如 "0.5 GPU"), 且无需重启即可垂直伸缩 (**In-place VPA**).
+
+2.  **Platform Engineering 崛起**:
+    焦点从 "管理集群" 转向 "构建平台". **KubeVela**, **Crossplane** 等 OAM 实践让开发者通过 Claim 申请资源, 而非直接操作 Deployment.
+
+3.  **零信任默认 (Zero Trust by Default)**:
+    **User Namespaces** 达到生产级 GA, 彻底隔离容器 root 与宿主机 root. **mTLS** (Ambient Mesh) 成为节点间通信的标准配置.
+
+---
+
+## 4. 学习路径知识图谱
 
 ```mermaid
 graph TD

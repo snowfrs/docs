@@ -546,7 +546,27 @@ spec:
 
 ## 9. 供应链安全
 
-### 9.1 镜像漏洞扫描
+### 9.1 安全交付流水线
+
+```mermaid
+graph LR
+    subgraph "CI Stage"
+        Code[Code Commit] --> Build[Docker Build]
+        Build --> Scan[Trivy Vulnerability Scan]
+        Scan --> Sign[Cosign Sign]
+        Sign --> Push[Push to Registry]
+    end
+    
+    subgraph "CD Stage"
+        Push --> Deploy[ArgoCD Sync]
+        Deploy --> Adm[Kyverno Admission]
+        Adm -- "Verify Signature" --> V{Valid?}
+        V -- "Yes" --> Run[Pod Running]
+        V -- "No" --> Block[Admission Denied]
+    end
+```
+
+### 9.2 镜像漏洞扫描
 
 在 CI/CD 阶段集成 Trivy 进行扫描:
 

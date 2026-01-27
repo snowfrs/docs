@@ -248,6 +248,40 @@ graph TD
 | **Hook** | Sync Hooks (PreSync, PostSync) | 无原生 Hook |
 | **SSO** | 原生支持 OIDC/LDAP | 需额外配置 |
 
+### 6.4 配置管理: Helm vs Kustomize
+
+GitOps 的核心是将配置版本化. 选择合适的配置管理工具至关重要.
+
+| 特性 | Helm | Kustomize |
+| :--- | :--- | :--- |
+| **原理** | 模板引擎 (Go templates) | Patch overlay (OverlayFS 思想) |
+| **复用方式** | 引用 Chart, 传入 values.yaml | 引用 Base, 应用 Patches |
+| **复杂度** | 高 (需学习模板语法) | 低 (纯 YAML) |
+| **灵活性** | 极高 (逻辑控制, 循环) | 中 (受限于 Patch 能力) |
+| **GitOps 适配** | 需 `helm template` 渲染或 ArgoCD 插件 | 原生支持 (`kubectl apply -k`) |
+
+**工作流对比:**
+
+```mermaid
+graph TD
+    subgraph "Helm (Templating)"
+        H1[Chart Templates] --> H2{Render Engine}
+        H3[values.yaml] --> H2
+        H2 --> H4[Final Manifests]
+    end
+    
+    subgraph "Kustomize (Overlay)"
+        K1[Base Manifests] --> K2{Kustomize Engine}
+        K3[Overlays/Patches] --> K2
+        K2 --> K4[Final Manifests]
+    end
+```
+
+**实战选型建议**:
+*   **Helm**: 适合分发通用的第三方应用 (如 Prometheus, Redis), 或者是需要复杂逻辑控制的内部应用.
+*   **Kustomize**: 适合管理微服务的不同环境配置 (Dev/Staging/Prod), 这里通常只有镜像 Tag 或副本数的差异, Overlay 模式更干净.
+*   **混合模式 (Best Practice)**: 使用 Helm 管理依赖 Chart (base), 使用 Kustomize 针对不同环境打补丁 (overlay).
+
 ---
 
 ## 7. ArgoCD 深度实践
