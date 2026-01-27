@@ -1,0 +1,681 @@
+---
+title: "Week 04: 面向对象编程"
+description: "掌握类与对象、继承与多态、MRO 算法、特殊方法与属性访问机制."
+---
+
+## 1. 类与对象
+
+### 1.1 类的定义
+
+```python
+class Dog:
+    """表示一只狗的类"""
+    
+    # 类属性 (所有实例共享)
+    species = "Canis familiaris"
+    
+    def __init__(self, name, age):
+        """初始化方法"""
+        self.name = name   # 实例属性
+        self.age = age
+    
+    def bark(self):
+        """实例方法"""
+        return f"{self.name} says woof!"
+
+# 创建实例
+dog = Dog("Buddy", 3)
+print(dog.name)        # Buddy
+print(dog.bark())      # Buddy says woof!
+print(Dog.species)     # Canis familiaris
+print(dog.species)     # Canis familiaris
+```
+
+### 1.2 self 的本质
+
+`self` 是**实例的引用**, 在方法调用时自动传入:
+
+```python
+class MyClass:
+    def method(self):
+        print(f"self = {self}")
+
+obj = MyClass()
+obj.method()       # self = <__main__.MyClass object at 0x...>
+
+# 等价于
+MyClass.method(obj)
+```
+
+### 1.3 类属性 vs 实例属性
+
+```python
+class Counter:
+    count = 0  # 类属性
+    
+    def __init__(self):
+        Counter.count += 1
+        self.id = Counter.count  # 实例属性
+
+c1 = Counter()
+c2 = Counter()
+
+print(Counter.count)  # 2
+print(c1.count)       # 2 (通过实例访问类属性)
+print(c1.id)          # 1
+print(c2.id)          # 2
+
+# 实例属性会遮蔽类属性
+c1.count = 100
+print(c1.count)       # 100 (实例属性)
+print(Counter.count)  # 2 (类属性不变)
+```
+
+### 1.4 类方法与静态方法
+
+```python
+class MyClass:
+    class_attr = "shared"
+    
+    def instance_method(self):
+        """实例方法: 第一个参数是 self"""
+        return f"instance: {self}"
+    
+    @classmethod
+    def class_method(cls):
+        """类方法: 第一个参数是 cls (类本身)"""
+        return f"class: {cls.class_attr}"
+    
+    @staticmethod
+    def static_method():
+        """静态方法: 无特殊参数"""
+        return "static"
+
+obj = MyClass()
+
+# 实例方法: 只能通过实例调用
+obj.instance_method()
+
+# 类方法: 可通过类或实例调用
+MyClass.class_method()
+obj.class_method()
+
+# 静态方法: 可通过类或实例调用
+MyClass.static_method()
+obj.static_method()
+```
+
+---
+
+## 2. 继承与多态
+
+### 2.1 基本继承
+
+```python
+class Animal:
+    def __init__(self, name):
+        self.name = name
+    
+    def speak(self):
+        raise NotImplementedError
+
+class Dog(Animal):
+    def speak(self):
+        return f"{self.name} says woof!"
+
+class Cat(Animal):
+    def speak(self):
+        return f"{self.name} says meow!"
+
+dog = Dog("Buddy")
+cat = Cat("Whiskers")
+
+print(dog.speak())  # Buddy says woof!
+print(cat.speak())  # Whiskers says meow!
+```
+
+### 2.2 super() 调用父类方法
+
+```python
+class Animal:
+    def __init__(self, name):
+        self.name = name
+
+class Dog(Animal):
+    def __init__(self, name, breed):
+        super().__init__(name)  # 调用父类 __init__
+        self.breed = breed
+
+dog = Dog("Buddy", "Golden Retriever")
+print(dog.name)   # Buddy
+print(dog.breed)  # Golden Retriever
+```
+
+### 2.3 多态
+
+```python
+def animal_speak(animal):
+    """接受任何有 speak() 方法的对象"""
+    print(animal.speak())
+
+animal_speak(Dog("Buddy"))     # Buddy says woof!
+animal_speak(Cat("Whiskers"))  # Whiskers says meow!
+```
+
+**鸭子类型 (Duck Typing)**: Python 不检查类型, 只检查行为.
+
+```python
+class Robot:
+    def speak(self):
+        return "Beep boop!"
+
+# Robot 不继承 Animal, 但有 speak() 方法
+animal_speak(Robot())  # Beep boop!
+```
+
+### 2.4 多重继承
+
+```python
+class A:
+    def method(self):
+        print("A.method")
+
+class B:
+    def method(self):
+        print("B.method")
+
+class C(A, B):
+    pass
+
+c = C()
+c.method()  # A.method (按 MRO 顺序)
+```
+
+---
+
+## 3. 方法解析顺序 (MRO)
+
+### 3.1 什么是 MRO
+
+MRO (Method Resolution Order) 决定了多重继承时方法的查找顺序.
+
+```python
+class A:
+    pass
+
+class B(A):
+    pass
+
+class C(A):
+    pass
+
+class D(B, C):
+    pass
+
+print(D.mro())
+# [D, B, C, A, object]
+```
+
+### 3.2 C3 线性化算法
+
+Python 使用 **C3 线性化**算法计算 MRO, 保证:
+
+1. **子类优先于父类**
+2. **声明顺序保持**
+3. **单调性**: 子类的 MRO 中, 父类的相对顺序不变
+
+### 3.3 菱形继承问题
+
+```
+    A
+   / \
+  B   C
+   \ /
+    D
+```
+
+```python
+class A:
+    def method(self):
+        print("A")
+
+class B(A):
+    def method(self):
+        print("B")
+        super().method()
+
+class C(A):
+    def method(self):
+        print("C")
+        super().method()
+
+class D(B, C):
+    def method(self):
+        print("D")
+        super().method()
+
+d = D()
+d.method()
+# D
+# B
+# C
+# A
+
+print(D.mro())
+# [D, B, C, A, object]
+```
+
+### 3.4 super() 的真正含义
+
+`super()` 不是"调用父类", 而是**按 MRO 顺序调用下一个类**:
+
+```python
+class B(A):
+    def method(self):
+        super().method()  # 调用 MRO 中的下一个类 (可能是 C, 不是 A)
+```
+
+---
+
+## 4. 特殊方法 (Magic Methods)
+
+### 4.1 对象表示
+
+```python
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+    
+    def __str__(self):
+        """用户友好的字符串 (str(), print())"""
+        return f"({self.x}, {self.y})"
+    
+    def __repr__(self):
+        """开发者友好的字符串 (repr(), 调试)"""
+        return f"Point({self.x}, {self.y})"
+
+p = Point(3, 4)
+print(p)       # (3, 4)
+print(repr(p)) # Point(3, 4)
+```
+
+### 4.2 比较操作
+
+```python
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+    
+    def __eq__(self, other):
+        return self.x == other.x and self.y == other.y
+    
+    def __lt__(self, other):
+        return (self.x, self.y) < (other.x, other.y)
+    
+    def __hash__(self):
+        return hash((self.x, self.y))
+
+p1 = Point(1, 2)
+p2 = Point(1, 2)
+p3 = Point(3, 4)
+
+print(p1 == p2)  # True
+print(p1 < p3)   # True
+
+# 实现 __hash__ 后可用作字典键
+d = {p1: "point"}
+```
+
+### 4.3 算术操作
+
+```python
+class Vector:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+    
+    def __add__(self, other):
+        return Vector(self.x + other.x, self.y + other.y)
+    
+    def __mul__(self, scalar):
+        return Vector(self.x * scalar, self.y * scalar)
+    
+    def __rmul__(self, scalar):
+        return self * scalar
+    
+    def __repr__(self):
+        return f"Vector({self.x}, {self.y})"
+
+v1 = Vector(1, 2)
+v2 = Vector(3, 4)
+
+print(v1 + v2)    # Vector(4, 6)
+print(v1 * 3)     # Vector(3, 6)
+print(3 * v1)     # Vector(3, 6) (rmul)
+```
+
+### 4.4 容器操作
+
+```python
+class Deck:
+    def __init__(self):
+        self.cards = list(range(52))
+    
+    def __len__(self):
+        return len(self.cards)
+    
+    def __getitem__(self, index):
+        return self.cards[index]
+    
+    def __setitem__(self, index, value):
+        self.cards[index] = value
+    
+    def __contains__(self, item):
+        return item in self.cards
+    
+    def __iter__(self):
+        return iter(self.cards)
+
+deck = Deck()
+print(len(deck))     # 52
+print(deck[0])       # 0
+print(10 in deck)    # True
+
+for card in deck[:5]:
+    print(card)
+```
+
+### 4.5 可调用对象
+
+```python
+class Adder:
+    def __init__(self, n):
+        self.n = n
+    
+    def __call__(self, x):
+        return self.n + x
+
+add5 = Adder(5)
+print(add5(10))  # 15
+print(callable(add5))  # True
+```
+
+---
+
+## 5. 属性访问机制
+
+### 5.1 @property 装饰器
+
+```python
+class Circle:
+    def __init__(self, radius):
+        self._radius = radius
+    
+    @property
+    def radius(self):
+        """getter"""
+        return self._radius
+    
+    @radius.setter
+    def radius(self, value):
+        """setter"""
+        if value < 0:
+            raise ValueError("半径不能为负")
+        self._radius = value
+    
+    @property
+    def area(self):
+        """只读属性"""
+        return 3.14159 * self._radius ** 2
+
+c = Circle(5)
+print(c.radius)  # 5
+c.radius = 10
+print(c.area)    # 314.159
+# c.area = 100   # AttributeError
+```
+
+### 5.2 属性访问机制
+
+**`__getattribute__` vs `__getattr__`**
+
+| 方法 | 调用时机 | 用途 |
+| :--- | :--- | :--- |
+| `__getattribute__` | **所有**属性访问时调用 | 拦截所有属性访问 |
+| `__getattr__` | 仅当属性**不存在**时调用 | 提供默认值或动态属性 |
+
+```python
+class Demo:
+    def __init__(self):
+        self.exists = "I exist"
+    
+    def __getattribute__(self, name):
+        print(f"__getattribute__: {name}")
+        return super().__getattribute__(name)  # 必须调用父类
+    
+    def __getattr__(self, name):
+        print(f"__getattr__: {name}")
+        return f"Default for {name}"
+
+obj = Demo()
+print(obj.exists)
+# __getattribute__: exists
+# I exist
+
+print(obj.missing)
+# __getattribute__: missing  (先调用)
+# __getattr__: missing        (属性不存在时调用)
+# Default for missing
+```
+
+**`__setattr__` 与 `__delattr__`**
+
+```python
+class DynamicObject:
+    def __init__(self):
+        self._data = {}
+    
+    def __getattr__(self, name):
+        return self._data.get(name, f"No attr: {name}")
+    
+    def __setattr__(self, name, value):
+        if name == "_data":
+            super().__setattr__(name, value)  # 避免递归
+        else:
+            self._data[name] = value
+    
+    def __delattr__(self, name):
+        if name in self._data:
+            del self._data[name]
+
+obj = DynamicObject()
+obj.foo = "bar"
+print(obj.foo)      # bar
+print(obj.unknown)  # No attr: unknown
+```
+
+### 5.3 描述符 (Descriptor)
+
+描述符是实现了 `__get__`, `__set__`, `__delete__` 的对象:
+
+**Data Descriptor vs Non-data Descriptor:**
+
+| 类型 | 实现方法 | 优先级 |
+| :--- | :--- | :--- |
+| **Data Descriptor** | `__get__` + `__set__` (或 `__delete__`) | 优先于实例 `__dict__` |
+| **Non-data Descriptor** | 只有 `__get__` | 实例 `__dict__` 优先 |
+
+**属性查找顺序:**
+
+```python
+# obj.name 的查找顺序:
+# 1. type(obj).__mro__ 中的 Data Descriptor
+# 2. obj.__dict__['name']
+# 3. type(obj).__mro__ 中的 Non-data Descriptor
+# 4. 抛出 AttributeError
+```
+
+**完整描述符示例:**
+
+```python
+class Positive:
+    """强制属性为正数的描述符"""
+    
+    def __set_name__(self, owner, name):
+        self.name = name
+    
+    def __get__(self, obj, type=None):
+        if obj is None:
+            return self  # 类访问返回描述符本身
+        return obj.__dict__.get(self.name, 0)
+    
+    def __set__(self, obj, value):
+        if value < 0:
+            raise ValueError(f"{self.name} must be positive")
+        obj.__dict__[self.name] = value
+
+class Rectangle:
+    width = Positive()
+    height = Positive()
+    
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+r = Rectangle(10, 20)
+# r.width = -5  # ValueError
+```
+
+*   `@property` 是 Data Descriptor (实现了 `__get__` 和 `__set__`).
+*   函数是 Non-data Descriptor (只有 `__get__`, 返回 bound method).
+
+---
+
+## 6. dataclass (Python 3.7+)
+
+### 6.1 基本用法
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class Point:
+    x: float
+    y: float
+
+p = Point(3, 4)
+print(p)           # Point(x=3, y=4)
+print(p.x, p.y)    # 3 4
+print(p == Point(3, 4))  # True
+```
+
+### 6.2 进阶选项
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass(frozen=True)  # 不可变
+class ImmutablePoint:
+    x: float
+    y: float
+
+@dataclass
+class Person:
+    name: str
+    age: int = 0
+    hobbies: list = field(default_factory=list)  # 可变默认值
+    _id: int = field(repr=False, compare=False)  # 不参与 repr 和比较
+```
+
+### 6.3 `__post_init__`
+
+```python
+@dataclass
+class Rectangle:
+    width: float
+    height: float
+    area: float = field(init=False)
+    
+    def __post_init__(self):
+        self.area = self.width * self.height
+
+r = Rectangle(10, 20)
+print(r.area)  # 200
+```
+
+---
+
+## 7. 抽象基类 (ABC)
+
+```python
+from abc import ABC, abstractmethod
+
+class Shape(ABC):
+    @abstractmethod
+    def area(self):
+        """子类必须实现"""
+        pass
+    
+    @abstractmethod
+    def perimeter(self):
+        pass
+
+class Rectangle(Shape):
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+    
+    def area(self):
+        return self.width * self.height
+    
+    def perimeter(self):
+        return 2 * (self.width + self.height)
+
+# shape = Shape()  # TypeError: Can't instantiate abstract class
+rect = Rectangle(10, 20)
+print(rect.area())  # 200
+```
+
+---
+
+## 8. 练习
+
+### 8.1 银行账户类
+
+实现一个银行账户类, 支持存款、取款、查询余额, 并防止透支.
+
+### 8.2 向量类
+
+实现一个向量类, 支持加法、减法、点积、长度计算.
+
+### 8.3 链表实现
+
+使用类实现一个单向链表.
+
+---
+
+## 9. 思考题
+
+1. `self` 为什么不是关键字?
+2. `@classmethod` 和 `@staticmethod` 什么时候用?
+3. 为什么菱形继承需要 C3 线性化?
+4. `__new__` 和 `__init__` 有什么区别?
+5. 描述符和 `@property` 的关系是什么?
+
+---
+
+## 10. 本周小结
+
+- **类与对象**: 类属性, 实例属性, 方法.
+- **继承**: 单继承, 多继承, super().
+- **MRO**: C3 线性化算法.
+- **特殊方法**: `__str__`, `__eq__`, `__add__`, `__getitem__`.
+- **属性访问**: @property, `__getattr__`, 描述符.
+- **dataclass**: 简化数据类定义.
+- **ABC**: 抽象基类.
+
+---
+
+> 理解 Python 的对象模型和 MRO, 是掌握复杂继承关系的关键.

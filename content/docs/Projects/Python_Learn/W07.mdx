@@ -1,0 +1,566 @@
+---
+title: "Week 07: 文件 I/O 与系统交互"
+description: "掌握文件读写、pathlib、subprocess、日志系统与配置文件处理."
+---
+
+## 1. 文件基础操作
+
+### 1.1 打开文件
+
+```python
+# 基本语法
+f = open("file.txt", "r")  # 打开
+content = f.read()          # 操作
+f.close()                   # 关闭
+
+# 推荐: with 语句 (自动关闭)
+with open("file.txt", "r") as f:
+    content = f.read()
+```
+
+### 1.2 打开模式
+
+| 模式 | 描述 |
+|------|------|
+| `r` | 只读 (默认) |
+| `w` | 写入 (覆盖) |
+| `a` | 追加 |
+| `x` | 排他创建 (文件存在则失败) |
+| `b` | 二进制模式 |
+| `t` | 文本模式 (默认) |
+| `+` | 读写模式 |
+
+```python
+# 常见组合
+open("file.txt", "r")   # 读取文本
+open("file.txt", "w")   # 写入文本 (覆盖)
+open("file.txt", "a")   # 追加文本
+open("file.bin", "rb")  # 读取二进制
+open("file.bin", "wb")  # 写入二进制
+open("file.txt", "r+")  # 读写
+```
+
+### 1.3 编码
+
+```python
+# 指定编码 (推荐)
+with open("file.txt", "r", encoding="utf-8") as f:
+    content = f.read()
+
+# 处理编码错误
+with open("file.txt", "r", encoding="utf-8", errors="ignore") as f:
+    content = f.read()
+```
+
+---
+
+## 2. 读取文件
+
+### 2.1 读取方法
+
+```python
+with open("file.txt", "r", encoding="utf-8") as f:
+    # 读取全部
+    content = f.read()
+    
+    # 读取指定字节数
+    chunk = f.read(100)
+    
+    # 读取一行
+    line = f.readline()
+    
+    # 读取所有行 (列表)
+    lines = f.readlines()
+```
+
+### 2.2 逐行读取
+
+```python
+# 方法 1: 迭代文件对象 (推荐, 内存效率高)
+with open("file.txt", "r", encoding="utf-8") as f:
+    for line in f:
+        print(line.strip())
+
+# 方法 2: readline 循环
+with open("file.txt", "r", encoding="utf-8") as f:
+    while True:
+        line = f.readline()
+        if not line:
+            break
+        print(line.strip())
+```
+
+### 2.3 读取大文件
+
+```python
+def read_in_chunks(file_path, chunk_size=1024*1024):
+    """分块读取大文件"""
+    with open(file_path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+for chunk in read_in_chunks("large_file.bin"):
+    process(chunk)
+```
+
+---
+
+## 3. 写入文件
+
+### 3.1 写入方法
+
+```python
+with open("file.txt", "w", encoding="utf-8") as f:
+    # 写入字符串
+    f.write("Hello, World!\n")
+    
+    # 写入多行
+    lines = ["Line 1\n", "Line 2\n", "Line 3\n"]
+    f.writelines(lines)
+```
+
+### 3.2 追加模式
+
+```python
+with open("log.txt", "a", encoding="utf-8") as f:
+    f.write("New log entry\n")
+```
+
+### 3.3 print 写入文件
+
+```python
+with open("output.txt", "w") as f:
+    print("Hello, World!", file=f)
+    print("Another line", file=f)
+```
+
+---
+
+## 4. pathlib 模块
+
+### 4.1 创建路径
+
+```python
+from pathlib import Path
+
+# 当前目录
+p = Path(".")
+p = Path.cwd()
+
+# 用户目录
+p = Path.home()
+
+# 构建路径
+p = Path("/home/user") / "documents" / "file.txt"
+p = Path("/home/user").joinpath("documents", "file.txt")
+```
+
+### 4.2 路径属性
+
+```python
+p = Path("/home/user/documents/file.txt")
+
+p.name        # file.txt
+p.stem        # file
+p.suffix      # .txt
+p.suffixes    # ['.txt']
+p.parent      # /home/user/documents
+p.parents     # 所有父目录
+p.parts       # ('/', 'home', 'user', 'documents', 'file.txt')
+p.anchor      # /
+```
+
+### 4.3 路径判断
+
+```python
+p = Path("file.txt")
+
+p.exists()    # 是否存在
+p.is_file()   # 是否为文件
+p.is_dir()    # 是否为目录
+p.is_symlink() # 是否为符号链接
+p.is_absolute() # 是否为绝对路径
+```
+
+### 4.4 文件操作
+
+```python
+p = Path("file.txt")
+
+# 读写
+content = p.read_text(encoding="utf-8")
+p.write_text("Hello", encoding="utf-8")
+
+# 二进制
+data = p.read_bytes()
+p.write_bytes(b"Hello")
+
+# 创建/删除
+p.touch()              # 创建空文件
+p.unlink()             # 删除文件
+p.unlink(missing_ok=True)  # 忽略不存在
+
+# 目录操作
+d = Path("new_dir")
+d.mkdir()              # 创建目录
+d.mkdir(parents=True, exist_ok=True)  # 递归创建
+d.rmdir()              # 删除空目录
+
+# 重命名
+p.rename("new_name.txt")
+p.replace("other.txt")  # 覆盖目标
+```
+
+### 4.5 遍历目录
+
+```python
+p = Path(".")
+
+# 列出内容
+for item in p.iterdir():
+    print(item)
+
+# glob 匹配
+for py_file in p.glob("*.py"):
+    print(py_file)
+
+# 递归匹配
+for py_file in p.rglob("*.py"):
+    print(py_file)
+```
+
+### 4.6 tempfile 模块
+
+安全创建临时文件和目录:
+
+```python
+import tempfile
+
+# 临时文件 (自动删除)
+with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=True) as f:
+    f.write("temporary data")
+    print(f.name)  # /tmp/tmpxxxxx.txt
+# 退出 with 块后文件自动删除
+
+# 保留临时文件
+f = tempfile.NamedTemporaryFile(delete=False)
+print(f.name)
+f.close()
+# 需手动删除: os.unlink(f.name)
+
+# 临时目录
+with tempfile.TemporaryDirectory() as tmpdir:
+    print(tmpdir)  # /tmp/tmpxxxxxxx
+    # 在 tmpdir 中创建文件...
+# 退出后目录及内容自动删除
+
+# 获取临时目录路径
+tempfile.gettempdir()  # /tmp
+```
+
+### 4.7 shutil 模块
+
+高级文件操作:
+
+```python
+import shutil
+
+# 复制文件
+shutil.copy("src.txt", "dst.txt")       # 复制内容
+shutil.copy2("src.txt", "dst.txt")      # 复制内容 + 元数据
+shutil.copyfile("src.txt", "dst.txt")   # 仅复制内容 (更快)
+
+# 复制目录
+shutil.copytree("src_dir", "dst_dir")
+
+# 移动
+shutil.move("src", "dst")
+
+# 删除目录 (包括内容)
+shutil.rmtree("directory")
+shutil.rmtree("directory", ignore_errors=True)
+
+# 磁盘使用
+usage = shutil.disk_usage("/")
+print(f"Total: {usage.total // 2**30} GB")
+print(f"Used: {usage.used // 2**30} GB")
+print(f"Free: {usage.free // 2**30} GB")
+
+# 压缩/解压
+shutil.make_archive("backup", "zip", "src_dir")   # 创建 backup.zip
+shutil.unpack_archive("backup.zip", "dst_dir")    # 解压
+```
+
+---
+
+## 5. subprocess 模块
+
+### 5.1 run() 基本用法
+
+```python
+import subprocess
+
+# 执行命令
+result = subprocess.run(["ls", "-la"], capture_output=True, text=True)
+
+print(result.stdout)
+print(result.stderr)
+print(result.returncode)
+```
+
+### 5.2 常用参数
+
+```python
+result = subprocess.run(
+    ["command", "arg1", "arg2"],
+    capture_output=True,  # 捕获输出
+    text=True,            # 文本模式
+    check=True,           # 失败时抛出异常
+    timeout=30,           # 超时秒数
+    cwd="/tmp",           # 工作目录
+    env={"KEY": "value"}, # 环境变量
+)
+```
+
+### 5.3 shell 模式
+
+```python
+# 使用 shell (谨慎, 有安全风险)
+result = subprocess.run(
+    "ls -la | grep .py",
+    shell=True,
+    capture_output=True,
+    text=True
+)
+```
+
+### 5.4 Popen 进阶
+
+```python
+# 管道
+proc = subprocess.Popen(
+    ["cat"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    text=True
+)
+
+stdout, stderr = proc.communicate(input="Hello, World!")
+print(stdout)
+```
+
+### 5.5 实时读取输出
+
+```python
+import subprocess
+
+proc = subprocess.Popen(
+    ["ping", "-c", "3", "google.com"],
+    stdout=subprocess.PIPE,
+    text=True
+)
+
+for line in proc.stdout:
+    print(line.strip())
+
+proc.wait()
+```
+
+---
+
+## 6. 命令行参数 (argparse)
+
+### 6.1 基本用法
+
+```python
+import argparse
+
+parser = argparse.ArgumentParser(description="示例程序")
+
+# 位置参数
+parser.add_argument("filename", help="输入文件")
+
+# 可选参数
+parser.add_argument("-v", "--verbose", action="store_true")
+parser.add_argument("-n", "--number", type=int, default=10)
+parser.add_argument("-o", "--output", required=True)
+
+args = parser.parse_args()
+
+print(args.filename)
+print(args.verbose)
+print(args.number)
+print(args.output)
+```
+
+### 6.2 参数类型
+
+```python
+parser.add_argument("--count", type=int)
+parser.add_argument("--ratio", type=float)
+parser.add_argument("--mode", choices=["fast", "slow"])
+parser.add_argument("--files", nargs="+")  # 多个值
+parser.add_argument("--flag", action="store_true")
+parser.add_argument("--no-flag", action="store_false")
+```
+
+---
+
+## 7. 日志系统 (logging)
+
+### 7.1 基本用法
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
+logging.debug("Debug message")
+logging.info("Info message")
+logging.warning("Warning message")
+logging.error("Error message")
+logging.critical("Critical message")
+```
+
+### 7.2 日志级别
+
+| 级别 | 数值 | 用途 |
+|------|------|------|
+| DEBUG | 10 | 调试信息 |
+| INFO | 20 | 常规信息 |
+| WARNING | 30 | 警告 |
+| ERROR | 40 | 错误 |
+| CRITICAL | 50 | 严重错误 |
+
+### 7.3 日志配置
+
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.FileHandler("app.log"),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+logger.info("Application started")
+```
+
+### 7.4 日志到文件
+
+```python
+import logging
+from logging.handlers import RotatingFileHandler
+
+handler = RotatingFileHandler(
+    "app.log",
+    maxBytes=1024*1024,  # 1MB
+    backupCount=5
+)
+
+logger = logging.getLogger()
+logger.addHandler(handler)
+```
+
+---
+
+## 8. 配置文件
+
+### 8.1 JSON
+
+```python
+import json
+
+# 读取
+with open("config.json") as f:
+    config = json.load(f)
+
+# 写入
+with open("config.json", "w") as f:
+    json.dump(config, f, indent=2)
+```
+
+### 8.2 YAML
+
+```python
+import yaml
+
+# 读取
+with open("config.yaml") as f:
+    config = yaml.safe_load(f)
+
+# 写入
+with open("config.yaml", "w") as f:
+    yaml.dump(config, f, default_flow_style=False)
+```
+
+### 8.3 TOML (Python 3.11+)
+
+```python
+import tomllib
+
+with open("config.toml", "rb") as f:
+    config = tomllib.load(f)
+```
+
+### 8.4 环境变量
+
+```python
+import os
+
+# 读取
+db_host = os.environ.get("DB_HOST", "localhost")
+db_port = int(os.environ.get("DB_PORT", "5432"))
+
+# 设置
+os.environ["MY_VAR"] = "value"
+```
+
+---
+
+## 9. 练习
+
+### 9.1 日志分析
+
+读取日志文件, 统计错误级别日志的数量.
+
+### 9.2 目录同步
+
+实现一个目录同步工具, 将源目录的新文件复制到目标目录.
+
+### 9.3 命令行工具
+
+创建一个命令行工具, 支持多种参数.
+
+---
+
+## 10. 思考题
+
+1. 为什么要使用 `with` 语句打开文件?
+2. `pathlib` 相比 `os.path` 有什么优势?
+3. 什么时候应该使用 `shell=True`?
+4. 如何处理超大文件?
+5. 结构化日志有什么优势?
+
+---
+
+## 11. 本周小结
+
+- **文件操作**: open(), read(), write(), with 语句.
+- **pathlib**: 面向对象的路径处理.
+- **subprocess**: 执行外部命令.
+- **argparse**: 命令行参数解析.
+- **logging**: 日志记录.
+- **配置文件**: JSON, YAML, TOML.
+
+---
+
+> 文件 I/O 和系统交互是脚本开发的核心能力. 使用 pathlib 和 subprocess 可以写出更健壮的代码.

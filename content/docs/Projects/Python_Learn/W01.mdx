@@ -1,0 +1,648 @@
+---
+title: "Week 01: Python 简介与开发环境"
+description: "了解 Python 设计哲学, 配置开发环境, 掌握基本数据类型与输入输出."
+---
+
+## 1. Python 简介
+
+### 1.1 Python 是什么
+
+Python 是一门高级、解释型、动态类型的通用编程语言, 由 Guido van Rossum 于 1991 年发布.
+
+**核心特点**:
+- **可读性优先**: 使用缩进表示代码块, 强制代码可读
+- **动态类型**: 变量无需声明类型, 运行时确定
+- **自动内存管理**: 引用计数 + 垃圾回收
+- **丰富的标准库**: "Batteries Included"
+- **跨平台**: 运行在 Windows, Linux, macOS
+
+### 1.2 Python 设计哲学
+
+Python 之禅 (The Zen of Python):
+
+```python
+>>> import this
+The Zen of Python, by Tim Peters
+
+Beautiful is better than ugly.
+Explicit is better than implicit.
+Simple is better than complex.
+Complex is better than complicated.
+Flat is better than nested.
+Sparse is better than dense.
+Readability counts.
+...
+```
+
+**关键原则**:
+1. **显式优于隐式**: 代码应该清晰表达意图
+2. **简单优于复杂**: 优先选择简单方案
+3. **可读性很重要**: 代码被阅读的次数远多于编写
+
+### 1.3 Python 应用场景
+
+| 领域 | 典型框架/库 | 示例 |
+|------|------------|------|
+| Web 开发 | Django, Flask, FastAPI | 后端 API, 网站 |
+| 数据科学 | NumPy, Pandas, Matplotlib | 数据分析, 可视化 |
+| 机器学习 | TensorFlow, PyTorch, scikit-learn | 模型训练, 预测 |
+| 自动化运维 | Ansible, Fabric, Paramiko | 服务器管理, 部署 |
+| 系统脚本 | os, subprocess, pathlib | 文件处理, 任务调度 |
+| 网络爬虫 | Requests, Scrapy, BeautifulSoup | 数据采集 |
+
+### 1.4 Python 解释器实现
+
+| 实现 | 描述 | 适用场景 |
+|------|------|----------|
+| **CPython** | 官方实现, C 语言编写 | 通用开发 (默认) |
+| **PyPy** | JIT 编译, 运行更快 | 计算密集型任务 |
+| **Jython** | 运行在 JVM 上 | 与 Java 集成 |
+| **MicroPython** | 嵌入式设备 | IoT, 微控制器 |
+
+本课程使用 **CPython**, 即标准 Python 解释器.
+
+---
+
+## 2. 开发环境配置
+
+### 2.1 Python 安装
+
+**推荐: 使用 pyenv 管理多版本**
+
+```bash
+# macOS/Linux
+curl https://pyenv.run | bash
+
+# 添加到 shell 配置
+echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.bashrc
+echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.bashrc
+echo 'eval "$(pyenv init -)"' >> ~/.bashrc
+
+# 安装 Python
+pyenv install 3.12.0
+pyenv global 3.12.0
+
+# 验证
+python --version
+# Python 3.12.0
+```
+
+**Windows**: 从 [python.org](https://www.python.org/downloads/) 下载安装包, 勾选 "Add Python to PATH".
+
+### 2.2 虚拟环境 (venv)
+
+虚拟环境隔离项目依赖, 避免版本冲突:
+
+```bash
+# 创建虚拟环境
+python -m venv myenv
+
+# 激活
+# Linux/macOS
+source myenv/bin/activate
+
+# Windows
+myenv\Scripts\activate
+
+# 验证
+which python
+# /path/to/myenv/bin/python
+
+# 退出
+deactivate
+```
+
+### 2.3 包管理 (pip)
+
+```bash
+# 安装包
+pip install requests
+
+# 指定版本
+pip install requests==2.31.0
+
+# 升级包
+pip install --upgrade requests
+
+# 卸载
+pip uninstall requests
+
+# 查看已安装
+pip list
+
+# 导出依赖
+pip freeze > requirements.txt
+
+# 从文件安装
+pip install -r requirements.txt
+```
+
+### 2.4 IDE/编辑器配置
+
+**推荐: VS Code + Python 扩展**
+
+1. 安装 VS Code
+2. 安装 Python 扩展 (Microsoft)
+3. 配置 Python 解释器: `Ctrl+Shift+P` → "Python: Select Interpreter"
+
+**其他选择**:
+- PyCharm: 功能强大的 Python IDE
+- Vim/Neovim: 轻量级, 配合 LSP
+
+---
+
+## 3. Python 执行方式
+
+### 3.1 交互式解释器 (REPL)
+
+```bash
+$ python
+Python 3.12.0 (main, Oct  2 2023, 00:00:00)
+>>> 1 + 1
+2
+>>> print("Hello, World!")
+Hello, World!
+>>> exit()
+```
+
+REPL = Read-Eval-Print Loop, 适合快速测试代码.
+
+### 3.2 脚本执行
+
+```python
+# hello.py
+print("Hello, World!")
+```
+
+```bash
+python hello.py
+# Hello, World!
+```
+
+### 3.3 模块执行
+
+```bash
+# 以模块方式运行
+python -m http.server 8000
+# Serving HTTP on 0.0.0.0 port 8000 ...
+```
+
+`-m` 表示从 `sys.path` 中查找模块并执行.
+
+### 3.4 脚本 Shebang
+
+```python
+#!/usr/bin/env python3
+# script.py
+
+print("This is a script")
+```
+
+```bash
+chmod +x script.py
+./script.py
+```
+
+---
+
+## 4. 变量与类型系统
+
+### 4.1 动态类型
+
+Python 是**动态类型**语言: 变量可以指向任意类型的值.
+
+```python
+x = 10       # x 指向 int
+x = "hello"  # x 现在指向 str
+x = [1, 2]   # x 现在指向 list
+```
+
+变量只是**名称 (name)**, 绑定到**对象 (object)** 上.
+
+### 4.2 一切皆对象
+
+Python 中**一切皆对象**, 包括函数、类、模块:
+
+```python
+>>> type(42)
+<class 'int'>
+>>> type("hello")
+<class 'str'>
+>>> type(print)
+<class 'builtin_function_or_method'>
+>>> type(int)
+<class 'type'>
+```
+
+### 4.3 变量命名规则
+
+- 由字母、数字、下划线组成
+- 不能以数字开头
+- 区分大小写
+- 避免使用保留字 (`if`, `for`, `class` 等)
+
+**命名约定 (PEP 8)**:
+- `snake_case`: 变量、函数
+- `PascalCase`: 类名
+- `UPPER_CASE`: 常量
+- `_private`: 私有变量
+- `__dunder__`: 特殊方法
+
+### 4.4 id() 与 is
+
+```python
+a = [1, 2, 3]
+b = a
+c = [1, 2, 3]
+
+print(id(a))       # 140234567890176
+print(id(b))       # 140234567890176 (同一对象)
+print(id(c))       # 140234567890240 (不同对象)
+
+print(a is b)      # True (同一对象)
+print(a is c)      # False (不同对象)
+print(a == c)      # True (值相等)
+```
+
+- `id()`: 返回对象的内存地址
+- `is`: 比较对象身份 (地址)
+- `==`: 比较对象值
+
+---
+
+## 5. 基本数据类型
+
+### 5.1 数值类型
+
+**整数 (int)**
+
+```python
+x = 42
+y = -17
+z = 0b1010    # 二进制: 10
+w = 0o17      # 八进制: 15
+v = 0xFF      # 十六进制: 255
+
+# Python 整数没有大小限制
+big = 10 ** 100
+print(big)
+# 10000000000000000000000000000...
+```
+
+**小整数缓存 (Small Integer Cache):**
+
+CPython 预先创建 -5 到 256 的整数对象:
+
+```python
+a = 100
+b = 100
+print(a is b)  # True (同一对象, 来自缓存)
+
+a = 1000
+b = 1000
+print(a is b)  # False (不同对象, 超出缓存范围)
+```
+
+*   **缓存范围**: `-5` 到 `256` (共 262 个对象).
+*   **原因**: 这些整数使用频率高, 避免重复创建.
+*   **源码位置**: `Objects/longobject.c` 中的 `small_ints` 数组.
+```
+
+**浮点数 (float)**
+
+```python
+pi = 3.14159
+e = 2.718e0     # 科学计数法
+
+# 浮点精度问题
+print(0.1 + 0.2)  # 0.30000000000000004
+print(0.1 + 0.2 == 0.3)  # False
+
+# 使用 decimal 模块精确计算
+from decimal import Decimal
+print(Decimal('0.1') + Decimal('0.2'))  # 0.3
+```
+
+**复数 (complex)**
+
+```python
+z = 3 + 4j
+print(z.real)  # 3.0
+print(z.imag)  # 4.0
+print(abs(z))  # 5.0 (模)
+```
+
+### 5.2 布尔类型 (bool)
+
+```python
+is_valid = True
+is_empty = False
+
+# 布尔是 int 的子类
+print(True + True)   # 2
+print(False * 10)    # 0
+print(isinstance(True, int))  # True
+```
+
+**Truthy 与 Falsy**
+
+以下值在布尔上下文中为 `False`:
+- `False`
+- `None`
+- `0`, `0.0`, `0j`
+- `""` (空字符串)
+- `[]`, `{}`, `set()` (空容器)
+
+```python
+if []:
+    print("不会执行")
+    
+if [1]:
+    print("会执行")
+```
+
+### 5.3 字符串 (str)
+
+**创建字符串**
+
+```python
+s1 = 'Hello'
+s2 = "World"
+s3 = '''多行
+字符串'''
+s4 = """也可以用
+双引号"""
+```
+
+**字符串操作**
+
+```python
+s = "Python"
+
+# 索引 (从 0 开始)
+print(s[0])    # P
+print(s[-1])   # n (负索引从末尾)
+
+# 切片
+print(s[0:2])  # Py
+print(s[2:])   # thon
+print(s[::-1]) # nohtyP (反转)
+
+# 方法
+print(len(s))          # 6
+print(s.upper())       # PYTHON
+print(s.lower())       # python
+print(s.startswith("Py"))  # True
+print("th" in s)       # True
+```
+
+**字符串格式化**
+
+```python
+name = "Alice"
+age = 30
+
+# f-string (推荐, Python 3.6+)
+print(f"Name: {name}, Age: {age}")
+
+# format 方法
+print("Name: {}, Age: {}".format(name, age))
+
+# % 格式化 (旧式)
+print("Name: %s, Age: %d" % (name, age))
+```
+
+**字符串不可变**
+
+```python
+s = "hello"
+# s[0] = "H"  # TypeError: 'str' object does not support item assignment
+
+s = "H" + s[1:]  # 创建新字符串
+print(s)  # Hello
+```
+
+### 5.4 None 类型
+
+`None` 是唯一的 `NoneType` 实例, 表示"无值":
+
+```python
+result = None
+
+if result is None:
+    print("没有结果")
+    
+# 函数没有 return 语句时返回 None
+def no_return():
+    pass
+
+print(no_return())  # None
+```
+
+### 5.5 二进制类型 (bytes / bytearray)
+
+**bytes (不可变)**
+
+```python
+# 创建
+b1 = b"hello"           # 字面量
+b2 = bytes([72, 101])   # 从整数列表
+b3 = "你好".encode("utf-8")  # 编码字符串
+
+# 操作
+print(b1[0])    # 72 (返回整数)
+print(b1[:2])   # b'he'
+print(len(b1))  # 5
+
+# 解码
+text = b3.decode("utf-8")  # "你好"
+```
+
+**bytearray (可变)**
+
+```python
+ba = bytearray(b"hello")
+ba[0] = 72  # 修改第一个字节
+ba.append(33)
+ba.extend(b" world")
+print(ba)  # bytearray(b'Hello! world')
+
+# 常用于网络/文件 I/O 缓冲区
+buffer = bytearray(1024)
+```
+
+### 5.6 赋值表达式 `:=` (Python 3.8+)
+
+海象运算符, 在表达式中赋值:
+
+```python
+# 传统写法
+line = input()
+while line != "quit":
+    print(line)
+    line = input()
+
+# 使用 := (更简洁)
+while (line := input()) != "quit":
+    print(line)
+
+# 列表推导式中避免重复计算
+data = [1, 2, 3, 4, 5]
+results = [y for x in data if (y := x * 2) > 4]
+# results = [6, 8, 10]
+
+# 条件表达式
+if (n := len(data)) > 3:
+    print(f"List has {n} items")
+```
+
+---
+
+## 6. 类型转换
+
+```python
+# 转整数
+int("42")      # 42
+int(3.9)       # 3 (截断)
+int("1010", 2) # 10 (二进制)
+
+# 转浮点
+float("3.14")  # 3.14
+float(42)      # 42.0
+
+# 转字符串
+str(42)        # "42"
+str(3.14)      # "3.14"
+
+# 转布尔
+bool(0)        # False
+bool(1)        # True
+bool("")       # False
+bool("hello")  # True
+```
+
+---
+
+## 7. 输入与输出
+
+### 7.1 print() 函数
+
+```python
+print("Hello")
+print("Hello", "World")         # Hello World
+print("Hello", "World", sep="-") # Hello-World
+print("Hello", end="")          # 不换行
+print("World")                  # HelloWorld
+
+# 格式化输出
+name = "Alice"
+print(f"Hello, {name}!")
+```
+
+### 7.2 input() 函数
+
+```python
+name = input("请输入姓名: ")
+print(f"你好, {name}")
+
+# input 返回字符串
+age = input("请输入年龄: ")
+print(type(age))  # <class 'str'>
+
+age = int(input("请输入年龄: "))  # 转换为整数
+```
+
+---
+
+## 8. 运算符
+
+### 8.1 算术运算符
+
+| 运算符 | 描述 | 示例 |
+|--------|------|------|
+| `+` | 加法 | `3 + 2` → `5` |
+| `-` | 减法 | `3 - 2` → `1` |
+| `*` | 乘法 | `3 * 2` → `6` |
+| `/` | 除法 (浮点) | `7 / 2` → `3.5` |
+| `//` | 整除 | `7 // 2` → `3` |
+| `%` | 取余 | `7 % 2` → `1` |
+| `**` | 幂运算 | `2 ** 3` → `8` |
+
+### 8.2 比较运算符
+
+| 运算符 | 描述 |
+|--------|------|
+| `==` | 等于 |
+| `!=` | 不等于 |
+| `<`, `>` | 小于, 大于 |
+| `<=`, `>=` | 小于等于, 大于等于 |
+
+### 8.3 逻辑运算符
+
+| 运算符 | 描述 |
+|--------|------|
+| `and` | 与 |
+| `or` | 或 |
+| `not` | 非 |
+
+**短路求值**:
+```python
+# and: 第一个 False 就返回
+result = False and print("不执行")  # 不打印
+
+# or: 第一个 True 就返回
+result = True or print("不执行")    # 不打印
+```
+
+### 8.4 成员运算符
+
+```python
+"a" in "abc"      # True
+1 in [1, 2, 3]    # True
+"x" not in "abc"  # True
+```
+
+---
+
+## 9. 练习
+
+### 9.1 Hello World
+
+编写一个程序, 输出 "Hello, World!".
+
+### 9.2 变量交换
+
+不使用临时变量, 交换两个变量的值.
+
+### 9.3 温度转换
+
+编写程序将华氏温度转换为摄氏温度: `C = (F - 32) * 5/9`.
+
+### 9.4 字符串处理
+
+输入一个字符串, 输出其反转、长度、是否全为字母.
+
+---
+
+## 10. 思考题
+
+1. Python 是编译型还是解释型语言?
+2. 为什么 `0.1 + 0.2 != 0.3`?
+3. `is` 和 `==` 有什么区别?
+4. 为什么 Python 整数没有溢出问题?
+5. 虚拟环境的作用是什么?
+
+---
+
+## 11. 本周小结
+
+- **Python 特点**: 可读性优先, 动态类型, 自动内存管理.
+- **环境配置**: pyenv 管理版本, venv 隔离依赖, pip 安装包.
+- **执行方式**: REPL, 脚本, 模块.
+- **类型系统**: 一切皆对象, 动态类型.
+- **基本类型**: int, float, bool, str, None.
+- **运算符**: 算术, 比较, 逻辑, 成员.
+
+---
+
+> Python 的设计哲学是"优雅、明确、简单". 从第一行代码开始, 就要养成 Pythonic 的编码习惯.

@@ -1,0 +1,799 @@
+---
+title: "Week 03: 函数与模块系统"
+description: "掌握函数定义、参数机制、作用域规则、装饰器基础, 深入理解 Python 模块导入系统."
+---
+
+## 1. 函数定义
+
+### 1.1 基本语法
+
+```python
+def greet(name):
+    """向用户问好"""
+    return f"Hello, {name}!"
+
+result = greet("Alice")
+print(result)  # Hello, Alice!
+```
+
+### 1.2 文档字符串 (Docstring)
+
+```python
+def calculate_area(radius):
+    """
+    计算圆的面积.
+    
+    Args:
+        radius: 圆的半径 (正数)
+    
+    Returns:
+        float: 圆的面积
+        
+    Raises:
+        ValueError: 如果半径为负数
+    """
+    if radius < 0:
+        raise ValueError("半径不能为负")
+    return 3.14159 * radius ** 2
+
+# 访问文档
+print(calculate_area.__doc__)
+help(calculate_area)
+```
+
+### 1.3 返回值
+
+```python
+# 无返回值 (隐式返回 None)
+def print_hello():
+    print("Hello")
+
+result = print_hello()
+print(result)  # None
+
+# 多返回值 (实际返回元组)
+def get_user():
+    return "Alice", 30
+
+name, age = get_user()
+result = get_user()
+print(result)  # ('Alice', 30)
+print(type(result))  # <class 'tuple'>
+```
+
+---
+
+## 2. 函数参数
+
+### 2.1 位置参数与关键字参数
+
+```python
+def greet(name, greeting):
+    return f"{greeting}, {name}!"
+
+# 位置参数
+greet("Alice", "Hello")
+
+# 关键字参数
+greet(name="Alice", greeting="Hello")
+greet(greeting="Hello", name="Alice")  # 顺序无关
+
+# 混合使用 (位置参数必须在前)
+greet("Alice", greeting="Hello")
+```
+
+### 2.2 默认参数
+
+```python
+def greet(name, greeting="Hello"):
+    return f"{greeting}, {name}!"
+
+greet("Alice")           # Hello, Alice!
+greet("Alice", "Hi")     # Hi, Alice!
+```
+
+**陷阱: 可变默认参数**
+
+```python
+# 错误示例
+def add_item(item, lst=[]):
+    lst.append(item)
+    return lst
+
+print(add_item(1))  # [1]
+print(add_item(2))  # [1, 2] (共享同一个列表!)
+
+# 正确做法
+def add_item(item, lst=None):
+    if lst is None:
+        lst = []
+    lst.append(item)
+    return lst
+```
+
+### 2.3 *args (可变位置参数)
+
+```python
+def sum_all(*args):
+    """接收任意数量的位置参数"""
+    return sum(args)
+
+sum_all(1, 2, 3)        # 6
+sum_all(1, 2, 3, 4, 5)  # 15
+
+# args 是元组
+def show_args(*args):
+    print(type(args))  # <class 'tuple'>
+    for arg in args:
+        print(arg)
+```
+
+### 2.4 **kwargs (可变关键字参数)
+
+```python
+def show_info(**kwargs):
+    """接收任意数量的关键字参数"""
+    for key, value in kwargs.items():
+        print(f"{key}: {value}")
+
+show_info(name="Alice", age=30, city="Beijing")
+# name: Alice
+# age: 30
+# city: Beijing
+
+# kwargs 是字典
+def show_kwargs(**kwargs):
+    print(type(kwargs))  # <class 'dict'>
+```
+
+### 2.5 参数组合
+
+```python
+# 顺序: 位置参数, *args, 默认参数, **kwargs
+def func(a, b, *args, c=10, **kwargs):
+    print(f"a={a}, b={b}")
+    print(f"args={args}")
+    print(f"c={c}")
+    print(f"kwargs={kwargs}")
+
+func(1, 2, 3, 4, c=100, x=10, y=20)
+# a=1, b=2
+# args=(3, 4)
+# c=100
+# kwargs={'x': 10, 'y': 20}
+```
+
+### 2.6 仅位置参数与仅关键字参数 (Python 3.8+)
+
+```python
+# / 之前: 仅位置参数
+# * 之后: 仅关键字参数
+def func(pos_only, /, pos_or_kw, *, kw_only):
+    pass
+
+func(1, 2, kw_only=3)      # 正确
+func(1, pos_or_kw=2, kw_only=3)  # 正确
+# func(pos_only=1, 2, kw_only=3)  # 错误
+```
+
+### 2.7 参数解包
+
+```python
+def greet(name, greeting):
+    return f"{greeting}, {name}!"
+
+# 列表/元组解包
+args = ["Alice", "Hello"]
+greet(*args)  # Hello, Alice!
+
+# 字典解包
+kwargs = {"name": "Alice", "greeting": "Hello"}
+greet(**kwargs)  # Hello, Alice!
+```
+
+---
+
+## 3. 作用域 (Scope)
+
+### 3.1 LEGB 规则
+
+Python 按以下顺序查找变量:
+
+1. **L - Local**: 函数内部
+2. **E - Enclosing**: 外层函数 (闭包)
+3. **G - Global**: 模块级别
+4. **B - Built-in**: 内置命名空间
+
+```python
+x = "global"  # G
+
+def outer():
+    x = "enclosing"  # E
+    
+    def inner():
+        x = "local"  # L
+        print(x)  # local
+    
+    inner()
+    print(x)  # enclosing
+
+outer()
+print(x)  # global
+```
+
+### 3.2 global 关键字
+
+```python
+count = 0
+
+def increment():
+    global count
+    count += 1
+
+increment()
+print(count)  # 1
+```
+
+### 3.3 nonlocal 关键字
+
+```python
+def outer():
+    count = 0
+    
+    def inner():
+        nonlocal count
+        count += 1
+    
+    inner()
+    print(count)  # 1
+
+outer()
+```
+
+### 3.4 闭包 (Closure)
+
+闭包是捕获了外层作用域变量的函数:
+
+```python
+def make_multiplier(n):
+    def multiplier(x):
+        return x * n  # 捕获 n
+    return multiplier
+
+double = make_multiplier(2)
+triple = make_multiplier(3)
+
+print(double(5))  # 10
+print(triple(5))  # 15
+
+# 查看闭包变量
+print(double.__closure__)
+print(double.__closure__[0].cell_contents)  # 2
+```
+
+**闭包应用: 计数器**
+
+```python
+def make_counter():
+    count = 0
+    
+    def counter():
+        nonlocal count
+        count += 1
+        return count
+    
+    return counter
+
+c = make_counter()
+print(c())  # 1
+print(c())  # 2
+print(c())  # 3
+```
+
+---
+
+## 4. 装饰器基础
+
+### 4.1 什么是装饰器
+
+装饰器是**接收函数并返回新函数**的高阶函数:
+
+```python
+def my_decorator(func):
+    def wrapper():
+        print("Before")
+        func()
+        print("After")
+    return wrapper
+
+@my_decorator
+def say_hello():
+    print("Hello!")
+
+say_hello()
+# Before
+# Hello!
+# After
+
+# 等价于
+def say_hello():
+    print("Hello!")
+say_hello = my_decorator(say_hello)
+```
+
+### 4.2 带参数的被装饰函数
+
+```python
+def my_decorator(func):
+    def wrapper(*args, **kwargs):
+        print("Before")
+        result = func(*args, **kwargs)
+        print("After")
+        return result
+    return wrapper
+
+@my_decorator
+def greet(name):
+    print(f"Hello, {name}!")
+    return "Done"
+
+result = greet("Alice")
+# Before
+# Hello, Alice!
+# After
+print(result)  # Done
+```
+
+### 4.3 保留函数元信息
+
+```python
+from functools import wraps
+
+def my_decorator(func):
+    @wraps(func)  # 保留原函数的 __name__, __doc__ 等
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
+
+@my_decorator
+def greet(name):
+    """问候函数"""
+    pass
+
+print(greet.__name__)  # greet (而非 wrapper)
+print(greet.__doc__)   # 问候函数
+```
+
+### 4.4 常用装饰器示例
+
+**计时器**
+
+```python
+import time
+from functools import wraps
+
+def timer(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f"{func.__name__} 耗时: {end - start:.4f}s")
+        return result
+    return wrapper
+
+@timer
+def slow_function():
+    time.sleep(1)
+
+slow_function()  # slow_function 耗时: 1.0012s
+```
+
+**日志记录**
+
+```python
+def log(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        print(f"调用 {func.__name__}, 参数: {args}, {kwargs}")
+        result = func(*args, **kwargs)
+        print(f"返回: {result}")
+        return result
+    return wrapper
+```
+
+### 4.5 functools.lru_cache
+
+内置的缓存装饰器, 用于记忆化递归或重复计算:
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=128)
+def fibonacci(n):
+    if n < 2:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+
+fibonacci(100)  # 瞬间返回 (无缓存需数万亿次递归)
+
+# 查看缓存状态
+fibonacci.cache_info()
+# CacheInfo(hits=98, misses=101, maxsize=128, currsize=101)
+
+# 清除缓存
+fibonacci.cache_clear()
+```
+
+**cache (Python 3.9+)**:
+
+```python
+from functools import cache
+
+@cache  # 等价于 @lru_cache(maxsize=None)
+def expensive_computation(x):
+    return x ** 2
+```
+
+### 4.6 带参数的装饰器
+
+装饰器工厂模式 - 返回装饰器的函数:
+
+```python
+from functools import wraps
+
+def repeat(times):
+    """装饰器工厂: 重复执行函数 N 次"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for _ in range(times):
+                result = func(*args, **kwargs)
+            return result
+        return wrapper
+    return decorator
+
+@repeat(3)
+def greet(name):
+    print(f"Hello, {name}!")
+
+greet("Alice")
+# Hello, Alice!
+# Hello, Alice!
+# Hello, Alice!
+```
+
+**实用示例: 重试装饰器**
+
+```python
+import time
+from functools import wraps
+
+def retry(max_attempts=3, delay=1, exceptions=(Exception,)):
+    """失败时自动重试"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    attempts += 1
+                    if attempts == max_attempts:
+                        raise
+                    time.sleep(delay)
+        return wrapper
+    return decorator
+
+@retry(max_attempts=3, delay=0.5, exceptions=(ConnectionError,))
+def fetch_data(url):
+    # 可能失败的网络请求
+    pass
+```
+
+---
+
+## 5. 模块与包
+
+### 5.1 模块 (Module)
+
+一个 `.py` 文件就是一个模块:
+
+```python
+# math_utils.py
+def add(a, b):
+    return a + b
+
+def subtract(a, b):
+    return a - b
+
+PI = 3.14159
+```
+
+### 5.2 导入方式
+
+```python
+# 导入整个模块
+import math_utils
+print(math_utils.add(1, 2))
+
+# 导入特定成员
+from math_utils import add, PI
+print(add(1, 2))
+print(PI)
+
+# 导入所有成员 (不推荐)
+from math_utils import *
+
+# 别名
+import math_utils as mu
+from math_utils import add as a
+```
+
+### 5.3 包 (Package)
+
+包是包含 `__init__.py` 的目录:
+
+```
+mypackage/
+├── __init__.py
+├── module1.py
+├── module2.py
+└── subpackage/
+    ├── __init__.py
+    └── module3.py
+```
+
+```python
+# 导入包
+import mypackage.module1
+from mypackage import module2
+from mypackage.subpackage import module3
+```
+
+### 5.4 `__init__.py`
+
+`__init__.py` 在包被导入时执行:
+
+```python
+# mypackage/__init__.py
+
+# 暴露接口
+from .module1 import func1
+from .module2 import func2
+
+# 定义 __all__ 控制 * 导入
+__all__ = ["func1", "func2"]
+```
+
+### 5.5 相对导入与绝对导入
+
+```python
+# 绝对导入 (推荐)
+from mypackage.module1 import func1
+
+# 相对导入 (仅在包内使用)
+from . import module1          # 当前包
+from .. import other_module    # 父包
+from .subpackage import module3
+```
+
+---
+
+## 6. 模块导入机制
+
+### 6.1 sys.path
+
+Python 按以下顺序搜索模块:
+
+```python
+import sys
+print(sys.path)
+# ['',                          # 当前目录
+#  '/usr/lib/python3.12',       # 标准库
+#  '/usr/lib/python3.12/site-packages',  # 第三方包
+#  ...]
+```
+
+### 6.2 导入过程
+
+1. **检查 sys.modules**: 如果已导入, 直接返回缓存
+2. **查找模块**: 使用 Finder (如 `PathFinder`) 定位模块
+3. **加载模块**: 使用 Loader 创建模块对象并执行代码
+4. **缓存模块**: 添加到 `sys.modules`
+
+```python
+import sys
+
+# 查看已导入的模块
+print(sys.modules.keys())
+
+# 重新加载模块
+import importlib
+importlib.reload(mymodule)
+```
+
+### 6.3 `__name__` 与 `__main__`
+
+```python
+# mymodule.py
+print(f"__name__ = {__name__}")
+
+def main():
+    print("Main function")
+
+if __name__ == "__main__":
+    main()
+```
+
+```bash
+# 作为脚本运行
+python mymodule.py
+# __name__ = __main__
+# Main function
+
+# 作为模块导入
+python -c "import mymodule"
+# __name__ = mymodule
+```
+
+### 6.4 `__all__`
+
+控制 `from module import *` 导入的内容:
+
+```python
+# mymodule.py
+__all__ = ["public_func"]
+
+def public_func():
+    pass
+
+def _private_func():
+    pass
+```
+
+---
+
+## 7. 标准库概览
+
+### 7.1 os 模块
+
+```python
+import os
+
+# 工作目录
+os.getcwd()
+os.chdir("/tmp")
+
+# 环境变量
+os.environ["HOME"]
+os.getenv("PATH")
+
+# 路径操作
+os.path.join("/home", "user", "file.txt")
+os.path.exists("/tmp/file.txt")
+os.path.isfile("/tmp/file.txt")
+os.path.isdir("/tmp")
+os.path.dirname("/tmp/file.txt")  # /tmp
+os.path.basename("/tmp/file.txt") # file.txt
+
+# 目录操作
+os.listdir("/tmp")
+os.mkdir("/tmp/newdir")
+os.makedirs("/tmp/a/b/c", exist_ok=True)
+os.remove("/tmp/file.txt")
+os.rmdir("/tmp/emptydir")
+```
+
+### 7.2 pathlib 模块 (推荐)
+
+```python
+from pathlib import Path
+
+# 创建路径
+p = Path("/home/user/file.txt")
+p = Path.home() / "file.txt"
+
+# 属性
+p.name      # file.txt
+p.stem      # file
+p.suffix    # .txt
+p.parent    # /home/user
+p.parts     # ('/', 'home', 'user', 'file.txt')
+
+# 操作
+p.exists()
+p.is_file()
+p.is_dir()
+p.read_text()
+p.write_text("content")
+
+# 遍历
+for f in Path(".").glob("*.py"):
+    print(f)
+
+for f in Path(".").rglob("*.py"):  # 递归
+    print(f)
+```
+
+### 7.3 sys 模块
+
+```python
+import sys
+
+# 命令行参数
+sys.argv  # ['script.py', 'arg1', 'arg2']
+
+# Python 版本
+sys.version
+sys.version_info
+
+# 退出程序
+sys.exit(0)
+
+# 标准输入输出
+sys.stdin
+sys.stdout
+sys.stderr
+```
+
+### 7.4 json 模块
+
+```python
+import json
+
+# Python -> JSON
+data = {"name": "Alice", "age": 30}
+json_str = json.dumps(data)
+json.dump(data, open("data.json", "w"))
+
+# JSON -> Python
+obj = json.loads(json_str)
+obj = json.load(open("data.json"))
+
+# 格式化输出
+print(json.dumps(data, indent=2, ensure_ascii=False))
+```
+
+---
+
+## 8. 练习
+
+### 8.1 装饰器: 重试机制
+
+实现一个装饰器, 当函数抛出异常时自动重试 N 次.
+
+### 8.2 递归函数: 阶乘
+
+使用递归实现阶乘函数, 并添加缓存装饰器.
+
+### 8.3 模块开发
+
+创建一个简单的工具包, 包含字符串处理和数学计算模块.
+
+---
+
+## 9. 思考题
+
+1. 为什么可变对象不能作为默认参数?
+2. 闭包和类有什么关系?
+3. `@decorator` 语法糖等价于什么?
+4. 为什么要用 `if __name__ == "__main__"`?
+5. Python 如何处理循环导入?
+
+---
+
+## 10. 本周小结
+
+- **函数定义**: def, 返回值, 文档字符串.
+- **参数**: 位置, 关键字, *args, **kwargs, 仅位置/仅关键字.
+- **作用域**: LEGB, global, nonlocal.
+- **闭包**: 捕获外层变量的函数.
+- **装饰器**: 高阶函数, 修改函数行为.
+- **模块**: 导入, 包, `__init__.py`.
+- **导入机制**: sys.path, Finder, Loader, sys.modules.
+
+---
+
+> 函数是代码复用的基本单元, 模块是代码组织的基本单元. 掌握它们, 才能构建大型 Python 项目.

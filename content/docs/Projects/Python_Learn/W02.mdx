@@ -1,0 +1,875 @@
+---
+title: "Week 02: 控制流与数据结构"
+description: "掌握条件语句、循环结构, 深入理解列表、元组、字典、集合的内部实现."
+---
+
+## 1. 条件语句
+
+### 1.1 if 语句
+
+```python
+age = 18
+
+if age >= 18:
+    print("成年人")
+elif age >= 12:
+    print("青少年")
+else:
+    print("儿童")
+```
+
+**缩进**: Python 使用缩进 (推荐 4 个空格) 表示代码块, 而非花括号.
+
+### 1.2 条件表达式 (三元运算符)
+
+```python
+# 语法: value_if_true if condition else value_if_false
+status = "成年" if age >= 18 else "未成年"
+```
+
+### 1.3 多条件判断
+
+```python
+# and: 全部为 True
+if age >= 18 and nationality == "China":
+    print("中国成年公民")
+
+# or: 任一为 True
+if day == "Saturday" or day == "Sunday":
+    print("周末")
+
+# not: 取反
+if not is_empty:
+    print("非空")
+```
+
+### 1.4 链式比较
+
+```python
+# Python 支持链式比较
+if 0 <= age <= 120:
+    print("有效年龄")
+
+# 等价于
+if 0 <= age and age <= 120:
+    print("有效年龄")
+```
+
+### 1.5 match 语句 (Python 3.10+)
+
+结构化模式匹配:
+
+```python
+def http_status(status):
+    match status:
+        case 200:
+            return "OK"
+        case 404:
+            return "Not Found"
+        case 500 | 502 | 503:
+            return "Server Error"
+        case _:
+            return "Unknown"
+
+print(http_status(200))  # OK
+print(http_status(502))  # Server Error
+```
+
+**模式匹配进阶**:
+
+```python
+def describe_point(point):
+    match point:
+        case (0, 0):
+            return "Origin"
+        case (0, y):
+            return f"Y-axis at {y}"
+        case (x, 0):
+            return f"X-axis at {x}"
+        case (x, y):
+            return f"Point at ({x}, {y})"
+        case _:
+            return "Not a point"
+
+print(describe_point((0, 5)))  # Y-axis at 5
+```
+
+---
+
+## 2. 循环结构
+
+### 2.1 for 循环
+
+```python
+# 遍历列表
+fruits = ["apple", "banana", "cherry"]
+for fruit in fruits:
+    print(fruit)
+
+# 遍历字符串
+for char in "Python":
+    print(char)
+
+# 遍历字典
+user = {"name": "Alice", "age": 30}
+for key in user:
+    print(key, user[key])
+
+for key, value in user.items():
+    print(key, value)
+```
+
+### 2.2 range() 函数
+
+```python
+# range(stop)
+for i in range(5):
+    print(i)  # 0, 1, 2, 3, 4
+
+# range(start, stop)
+for i in range(2, 5):
+    print(i)  # 2, 3, 4
+
+# range(start, stop, step)
+for i in range(0, 10, 2):
+    print(i)  # 0, 2, 4, 6, 8
+
+# 倒序
+for i in range(5, 0, -1):
+    print(i)  # 5, 4, 3, 2, 1
+```
+
+**range 是惰性对象**:
+
+```python
+r = range(1000000)
+print(r)          # range(0, 1000000)
+print(r[500000])  # 500000
+# 不会真正创建 100 万个数字, 按需计算
+```
+
+### 2.3 while 循环
+
+```python
+count = 0
+while count < 5:
+    print(count)
+    count += 1
+
+# 无限循环
+while True:
+    line = input("Enter command: ")
+    if line == "quit":
+        break
+    print(f"You entered: {line}")
+```
+
+### 2.4 break, continue, else
+
+```python
+# break: 跳出循环
+for i in range(10):
+    if i == 5:
+        break
+    print(i)  # 0, 1, 2, 3, 4
+
+# continue: 跳过本次迭代
+for i in range(5):
+    if i == 2:
+        continue
+    print(i)  # 0, 1, 3, 4
+
+# else: 循环正常结束时执行 (未被 break)
+for i in range(5):
+    print(i)
+else:
+    print("循环完成")  # 执行
+
+for i in range(5):
+    if i == 3:
+        break
+else:
+    print("不会执行")  # break 导致不执行
+```
+
+### 2.5 enumerate() 与 zip()
+
+```python
+# enumerate: 带索引遍历
+fruits = ["apple", "banana", "cherry"]
+for index, fruit in enumerate(fruits):
+    print(f"{index}: {fruit}")
+# 0: apple
+# 1: banana
+# 2: cherry
+
+# 指定起始索引
+for index, fruit in enumerate(fruits, start=1):
+    print(f"{index}: {fruit}")
+
+# zip: 并行遍历
+names = ["Alice", "Bob", "Charlie"]
+ages = [25, 30, 35]
+for name, age in zip(names, ages):
+    print(f"{name} is {age}")
+```
+
+---
+
+## 3. 列表 (List)
+
+### 3.1 列表创建
+
+```python
+# 字面量
+fruits = ["apple", "banana", "cherry"]
+
+# 空列表
+empty = []
+empty = list()
+
+# 从可迭代对象创建
+chars = list("hello")  # ['h', 'e', 'l', 'l', 'o']
+
+# 重复
+zeros = [0] * 5  # [0, 0, 0, 0, 0]
+```
+
+### 3.2 列表操作
+
+```python
+fruits = ["apple", "banana", "cherry"]
+
+# 索引访问
+fruits[0]    # "apple"
+fruits[-1]   # "cherry"
+
+# 切片
+fruits[1:3]  # ["banana", "cherry"]
+fruits[:2]   # ["apple", "banana"]
+fruits[::2]  # ["apple", "cherry"]
+
+# 修改
+fruits[0] = "avocado"
+
+# 添加
+fruits.append("date")        # 末尾添加
+fruits.insert(1, "blueberry") # 指定位置插入
+fruits.extend(["elderberry"]) # 扩展
+
+# 删除
+fruits.remove("banana")  # 按值删除
+del fruits[0]            # 按索引删除
+popped = fruits.pop()     # 弹出末尾
+popped = fruits.pop(0)    # 弹出指定位置
+
+# 查找
+"apple" in fruits  # True
+fruits.index("cherry")  # 返回索引
+fruits.count("apple")   # 计数
+
+# 排序
+fruits.sort()          # 原地排序
+fruits.sort(reverse=True)
+sorted_list = sorted(fruits)  # 返回新列表
+
+# 反转
+fruits.reverse()
+reversed_list = fruits[::-1]
+
+# 长度
+len(fruits)
+```
+
+### 3.3 列表的内部结构
+
+Python 列表是**动态数组**:
+
+```
++---+---+---+---+---+---+---+---+
+| 0 | 1 | 2 | 3 | 4 |   |   |   |  <- 预分配空间
++---+---+---+---+---+---+---+---+
+  ^
+  |
+ PyListObject
+   - ob_item: 指向数组的指针
+   - allocated: 预分配大小
+   - ob_size: 实际元素数量
+```
+
+**扩容策略**:
+
+当 `ob_size == allocated` 时触发扩容:
+- 新容量 = `ob_size + (ob_size >> 3) + 6`
+- 约 1.125 倍增长
+
+### 3.4 列表浅拷贝与深拷贝
+
+```python
+import copy
+
+original = [[1, 2], [3, 4]]
+
+# 浅拷贝: 只复制第一层
+shallow = original.copy()
+shallow = list(original)
+shallow = original[:]
+
+shallow[0][0] = 99
+print(original)  # [[99, 2], [3, 4]] (嵌套对象共享)
+
+# 深拷贝: 递归复制所有层
+deep = copy.deepcopy(original)
+deep[0][0] = 100
+print(original)  # [[99, 2], [3, 4]] (不受影响)
+```
+
+---
+
+## 4. 元组 (Tuple)
+
+### 4.1 元组创建
+
+```python
+# 字面量
+point = (3, 4)
+single = (1,)  # 单元素元组需要逗号
+
+# 不带括号
+point = 3, 4
+
+# 空元组
+empty = ()
+empty = tuple()
+
+# 从可迭代对象
+t = tuple([1, 2, 3])
+```
+
+### 4.2 元组特性
+
+**不可变**: 元组一旦创建, 元素不可修改.
+
+```python
+point = (3, 4)
+# point[0] = 5  # TypeError
+
+# 但可以包含可变对象
+mixed = ([1, 2], [3, 4])
+mixed[0].append(3)  # 允许
+print(mixed)  # ([1, 2, 3], [3, 4])
+```
+
+### 4.3 元组解包
+
+```python
+point = (3, 4, 5)
+x, y, z = point
+
+# 扩展解包
+first, *rest = [1, 2, 3, 4, 5]
+print(first)  # 1
+print(rest)   # [2, 3, 4, 5]
+
+*head, last = [1, 2, 3, 4, 5]
+print(head)   # [1, 2, 3, 4]
+print(last)   # 5
+
+# 交换变量
+a, b = b, a
+```
+
+### 4.4 命名元组 (namedtuple)
+
+```python
+from collections import namedtuple
+
+Point = namedtuple("Point", ["x", "y"])
+p = Point(3, 4)
+
+print(p.x)    # 3
+print(p.y)    # 4
+print(p[0])   # 3 (仍可索引)
+```
+
+---
+
+## 5. 字典 (Dict)
+
+### 5.1 字典创建
+
+```python
+# 字面量
+user = {"name": "Alice", "age": 30}
+
+# dict() 构造
+user = dict(name="Alice", age=30)
+
+# 从键值对列表
+pairs = [("name", "Alice"), ("age", 30)]
+user = dict(pairs)
+
+# 空字典
+empty = {}
+empty = dict()
+```
+
+### 5.2 字典操作
+
+```python
+user = {"name": "Alice", "age": 30}
+
+# 访问
+user["name"]      # "Alice"
+user.get("name")  # "Alice"
+user.get("city", "Unknown")  # "Unknown" (默认值)
+
+# 修改/添加
+user["age"] = 31
+user["city"] = "Beijing"
+
+# 删除
+del user["city"]
+age = user.pop("age")       # 删除并返回值
+item = user.popitem()       # 删除并返回最后一项
+
+# 检查键
+"name" in user  # True
+
+# 遍历
+for key in user:
+    print(key, user[key])
+
+for key, value in user.items():
+    print(key, value)
+
+for key in user.keys():
+    print(key)
+
+for value in user.values():
+    print(value)
+
+# 合并 (Python 3.9+)
+defaults = {"theme": "dark"}
+settings = user | defaults
+
+# 更新
+user.update({"city": "Shanghai"})
+```
+
+### 5.3 字典的内部结构
+
+Python 3.7+ 字典保持**插入顺序**.
+
+**Python 3.6+ 紧凑字典实现:**
+
+```
+传统哈希表 (Python < 3.6):
++-------+-------+-------+-------+-------+
+| Empty | Entry | Empty | Entry | Empty |
++-------+-------+-------+-------+-------+
+  ↑ 大量空槽浪费内存
+
+紧凑字典 (Python 3.6+):
+indices: [None, 0, None, 1, None]  ← 稀疏索引数组
+entries: [(hash1, key1, val1),      ← 紧凑存储
+          (hash2, key2, val2)]
+```
+
+**Key-Sharing Dict (Split-Table Dict):**
+
+同一类的多个实例共享 key 表:
+
+```python
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+p1 = Point(1, 2)
+p2 = Point(3, 4)
+# p1.__dict__ 和 p2.__dict__ 共享相同的 key 表 ("x", "y")
+# 只有 value 表是独立的
+```
+
+*   **触发条件**: 类的 `__dict__` 包含相同的 key.
+*   **节省内存**: 大量实例时效果显著.
+
+**哈希冲突处理 (开放寻址法):**
+
+```python
+# 当 hash(key1) % table_size == hash(key2) % table_size
+# 使用探测序列寻找下一个空槽
+# 探测公式: next_index = (5 * index + 1 + perturb) % size
+# perturb 每次右移 5 位, 减少聚集
+```
+
+**键的要求**: 必须是**可哈希的** (hashable), 通常是不可变类型.
+
+```python
+# 可以作为键
+{1: "a", "hello": "b", (1, 2): "c"}
+
+# 不能作为键
+# {[1, 2]: "a"}  # TypeError: unhashable type: 'list'
+```
+
+### 5.4 defaultdict
+
+```python
+from collections import defaultdict
+
+# 默认值为 int (0)
+word_count = defaultdict(int)
+for word in ["apple", "banana", "apple"]:
+    word_count[word] += 1
+print(word_count)  # {'apple': 2, 'banana': 1}
+
+# 默认值为 list
+groups = defaultdict(list)
+data = [("a", 1), ("b", 2), ("a", 3)]
+for key, value in data:
+    groups[key].append(value)
+print(groups)  # {'a': [1, 3], 'b': [2]}
+```
+
+### 5.5 Counter
+
+统计元素频率的专用容器:
+
+```python
+from collections import Counter
+
+# 统计词频
+words = ["apple", "banana", "apple", "cherry", "banana", "apple"]
+counter = Counter(words)
+print(counter)  # Counter({'apple': 3, 'banana': 2, 'cherry': 1})
+
+# 常用方法
+counter.most_common(2)  # [('apple', 3), ('banana', 2)]
+counter.total()         # 6 (Python 3.10+)
+counter.update(["apple", "date"])  # 增量更新
+
+# Counter 运算
+c1 = Counter(a=3, b=1)
+c2 = Counter(a=1, b=2)
+c1 + c2  # Counter({'a': 4, 'b': 3})
+c1 - c2  # Counter({'a': 2}) (负数被丢弃)
+c1 & c2  # Counter({'a': 1, 'b': 1}) (取最小)
+c1 | c2  # Counter({'a': 3, 'b': 2}) (取最大)
+```
+
+### 5.6 deque (双端队列)
+
+高效的两端操作队列:
+
+```python
+from collections import deque
+
+# 创建
+d = deque([1, 2, 3])
+d = deque(maxlen=3)  # 固定长度 (自动丢弃旧元素)
+
+# 两端操作 (O(1) 时间复杂度)
+d.append(4)       # 右侧添加
+d.appendleft(0)   # 左侧添加
+d.pop()           # 右侧弹出
+d.popleft()       # 左侧弹出
+
+# 旋转
+d = deque([1, 2, 3, 4, 5])
+d.rotate(2)   # [4, 5, 1, 2, 3] (右移)
+d.rotate(-2)  # [1, 2, 3, 4, 5] (左移)
+
+# 滑动窗口示例
+def sliding_window_max(nums, k):
+    """滑动窗口最大值"""
+    result = []
+    window = deque()  # 存储索引
+    for i, num in enumerate(nums):
+        while window and nums[window[-1]] < num:
+            window.pop()
+        window.append(i)
+        if window[0] <= i - k:
+            window.popleft()
+        if i >= k - 1:
+            result.append(nums[window[0]])
+    return result
+```
+
+---
+
+## 6. 集合 (Set)
+
+### 6.1 集合创建
+
+```python
+# 字面量
+fruits = {"apple", "banana", "cherry"}
+
+# set() 构造
+fruits = set(["apple", "banana", "cherry"])
+
+# 空集合 (注意: {} 是空字典)
+empty = set()
+```
+
+### 6.2 集合特性
+
+- **无序**: 元素顺序不固定
+- **唯一**: 自动去重
+- **元素必须可哈希**
+
+```python
+numbers = {3, 1, 4, 1, 5, 9, 2, 6}
+print(numbers)  # {1, 2, 3, 4, 5, 6, 9}
+```
+
+### 6.3 集合操作
+
+```python
+a = {1, 2, 3, 4}
+b = {3, 4, 5, 6}
+
+# 添加/删除
+a.add(5)
+a.remove(1)      # 不存在会报错
+a.discard(100)   # 不存在不报错
+a.pop()          # 弹出任意元素
+
+# 集合运算
+a | b   # 并集: {1, 2, 3, 4, 5, 6}
+a & b   # 交集: {3, 4}
+a - b   # 差集: {1, 2}
+a ^ b   # 对称差集: {1, 2, 5, 6}
+
+# 判断
+a.issubset(b)      # a 是否是 b 的子集
+a.issuperset(b)    # a 是否是 b 的超集
+a.isdisjoint(b)    # a 和 b 是否不相交
+```
+
+### 6.4 frozenset (不可变集合)
+
+```python
+fs = frozenset([1, 2, 3])
+# fs.add(4)  # AttributeError
+
+# 可以作为字典的键
+d = {fs: "value"}
+```
+
+### 6.5 heapq (堆操作)
+
+最小堆实现, 用于 Top-K 问题和优先级调度:
+
+```python
+import heapq
+
+# 创建堆
+data = [3, 1, 4, 1, 5, 9, 2, 6]
+heapq.heapify(data)  # 原地转换为堆
+
+# 堆操作
+heapq.heappush(data, 0)     # 插入元素
+smallest = heapq.heappop(data)  # 弹出最小元素
+
+# Top-K 问题
+nums = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3]
+heapq.nlargest(3, nums)   # [9, 6, 5]
+heapq.nsmallest(3, nums)  # [1, 1, 2]
+
+# 带 key 函数
+data = [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]
+heapq.nsmallest(1, data, key=lambda x: x["age"])
+
+# 合并有序序列
+list1 = [1, 3, 5]
+list2 = [2, 4, 6]
+merged = list(heapq.merge(list1, list2))  # [1, 2, 3, 4, 5, 6]
+```
+
+**实现优先级队列:**
+
+```python
+import heapq
+
+class PriorityQueue:
+    def __init__(self):
+        self._queue = []
+        self._index = 0
+    
+    def push(self, item, priority):
+        # 负数使高优先级在前
+        heapq.heappush(self._queue, (-priority, self._index, item))
+        self._index += 1
+    
+    def pop(self):
+        return heapq.heappop(self._queue)[-1]
+
+pq = PriorityQueue()
+pq.push("low", 1)
+pq.push("high", 10)
+pq.push("medium", 5)
+print(pq.pop())  # high
+```
+
+---
+
+## 7. 推导式 (Comprehension)
+
+### 7.1 列表推导式
+
+```python
+# 基本形式
+squares = [x ** 2 for x in range(10)]
+# [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]
+
+# 带条件
+evens = [x for x in range(10) if x % 2 == 0]
+# [0, 2, 4, 6, 8]
+
+# 嵌套循环
+matrix = [[i * j for j in range(3)] for i in range(3)]
+# [[0, 0, 0], [0, 1, 2], [0, 2, 4]]
+
+# 展平矩阵
+flat = [x for row in matrix for x in row]
+# [0, 0, 0, 0, 1, 2, 0, 2, 4]
+```
+
+### 7.2 字典推导式
+
+```python
+# 基本形式
+squares = {x: x ** 2 for x in range(5)}
+# {0: 0, 1: 1, 2: 4, 3: 9, 4: 16}
+
+# 键值互换
+original = {"a": 1, "b": 2}
+inverted = {v: k for k, v in original.items()}
+# {1: 'a', 2: 'b'}
+```
+
+### 7.3 集合推导式
+
+```python
+unique_lengths = {len(word) for word in ["apple", "banana", "cherry"]}
+# {5, 6}
+```
+
+### 7.4 生成器表达式
+
+生成器表达式是**惰性**的, 按需生成值:
+
+```python
+# 使用圆括号
+gen = (x ** 2 for x in range(1000000))
+print(gen)  # <generator object ...>
+
+# 惰性求值, 不会立即计算
+for value in gen:
+    if value > 100:
+        break
+    print(value)
+```
+
+---
+
+## 8. 可迭代对象与迭代器
+
+### 8.1 可迭代对象 (Iterable)
+
+实现了 `__iter__()` 方法的对象:
+
+```python
+# 这些都是可迭代的
+[1, 2, 3]          # list
+(1, 2, 3)          # tuple
+{1, 2, 3}          # set
+{"a": 1, "b": 2}   # dict
+"hello"            # str
+range(10)          # range
+open("file.txt")   # file
+```
+
+### 8.2 迭代器 (Iterator)
+
+实现了 `__iter__()` 和 `__next__()` 方法的对象:
+
+```python
+nums = [1, 2, 3]
+it = iter(nums)  # 获取迭代器
+
+print(next(it))  # 1
+print(next(it))  # 2
+print(next(it))  # 3
+print(next(it))  # StopIteration
+```
+
+### 8.3 自定义迭代器
+
+```python
+class CountDown:
+    def __init__(self, start):
+        self.current = start
+    
+    def __iter__(self):
+        return self
+    
+    def __next__(self):
+        if self.current <= 0:
+            raise StopIteration
+        self.current -= 1
+        return self.current + 1
+
+for num in CountDown(5):
+    print(num)  # 5, 4, 3, 2, 1
+```
+
+---
+
+## 9. 练习
+
+### 9.1 列表去重
+
+编写函数, 移除列表中的重复元素并保持顺序.
+
+### 9.2 单词计数
+
+统计字符串中每个单词出现的次数.
+
+### 9.3 矩阵转置
+
+使用列表推导式转置一个矩阵.
+
+### 9.4 斐波那契迭代器
+
+实现一个生成斐波那契数列的迭代器.
+
+---
+
+## 10. 思考题
+
+1. 为什么列表是可变的, 而元组不可变?
+2. 字典的键为什么必须是可哈希的?
+3. 列表推导式和生成器表达式有什么区别?
+4. `for` 循环的 `else` 子句有什么用?
+5. Python 3.7+ 字典为什么保持插入顺序?
+
+---
+
+## 11. 本周小结
+
+- **条件语句**: if/elif/else, match (Python 3.10+).
+- **循环**: for, while, break, continue, else.
+- **列表**: 动态数组, 可变.
+- **元组**: 不可变序列.
+- **字典**: 哈希表, 键值对.
+- **集合**: 唯一元素, 集合运算.
+- **推导式**: 简洁的数据转换语法.
+- **迭代器协议**: `__iter__`, `__next__`.
+
+---
+
+> 数据结构是编程的根基. 理解 Python 容器类型的内部实现, 才能写出高效的代码.

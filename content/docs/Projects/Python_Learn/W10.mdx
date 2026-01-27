@@ -1,0 +1,547 @@
+---
+title: "Week 10: 自动化与脚本开发"
+description: "掌握正则表达式、文本处理、SSH 自动化、定时任务与 CLI 工具开发."
+---
+
+## 1. 正则表达式 (re 模块)
+
+### 1.1 基本匹配
+
+```python
+import re
+
+text = "My email is alice@example.com"
+
+# 搜索
+match = re.search(r"\w+@\w+\.\w+", text)
+if match:
+    print(match.group())  # alice@example.com
+
+# 全部匹配
+matches = re.findall(r"\d+", "a1b22c333")
+print(matches)  # ['1', '22', '333']
+
+# 匹配对象
+match = re.search(r"(\w+)@(\w+)\.(\w+)", text)
+print(match.group(0))  # alice@example.com
+print(match.group(1))  # alice
+print(match.groups())  # ('alice', 'example', 'com')
+```
+
+### 1.2 常用模式
+
+| 模式 | 描述 |
+|------|------|
+| `.` | 任意字符 (除换行) |
+| `\d` | 数字 |
+| `\w` | 字母数字下划线 |
+| `\s` | 空白字符 |
+| `^` | 行首 |
+| `$` | 行尾 |
+| `*` | 0 次或多次 |
+| `+` | 1 次或多次 |
+| `?` | 0 次或 1 次 |
+| `{n,m}` | n 到 m 次 |
+| `[]` | 字符类 |
+| `()` | 分组 |
+| `|` | 或 |
+
+### 1.3 替换
+
+```python
+# 替换
+result = re.sub(r"\d+", "X", "a1b22c333")
+print(result)  # aXbXcX
+
+# 使用函数替换
+def double(match):
+    return str(int(match.group()) * 2)
+
+result = re.sub(r"\d+", double, "a1b22c333")
+print(result)  # a2b44c666
+```
+
+### 1.4 分割
+
+```python
+parts = re.split(r"[,;\s]+", "a, b; c d")
+print(parts)  # ['a', 'b', 'c', 'd']
+```
+
+### 1.5 编译正则
+
+```python
+# 预编译提高性能
+pattern = re.compile(r"\w+@\w+\.\w+", re.IGNORECASE)
+matches = pattern.findall(text)
+```
+
+### 1.6 常用正则示例
+
+```python
+# 邮箱
+email = r"[\w.+-]+@[\w-]+\.[\w.-]+"
+
+# IP 地址
+ip = r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+
+# URL
+url = r"https?://[\w.-]+(?:/[\w./-]*)?"
+
+# 手机号 (中国)
+phone = r"1[3-9]\d{9}"
+```
+
+---
+
+## 2. 文本处理
+
+### 2.1 字符串方法
+
+```python
+text = "  Hello, World!  "
+
+# 清理
+text.strip()      # 去两端空白
+text.lstrip()     # 去左边
+text.rstrip()     # 去右边
+
+# 分割
+text.split(",")   # ['  Hello', ' World!  ']
+text.split()      # ['Hello,', 'World!'] (按空白)
+
+# 连接
+",".join(["a", "b", "c"])  # "a,b,c"
+
+# 查找
+text.find("World")   # 9
+text.index("World")  # 9 (不存在时抛出异常)
+text.count("l")      # 3
+
+# 替换
+text.replace("World", "Python")
+
+# 判断
+text.startswith("  Hello")
+text.endswith("!  ")
+text.isdigit()
+text.isalpha()
+```
+
+### 2.2 CSV 处理
+
+```python
+import csv
+
+# 读取
+with open("data.csv", "r", encoding="utf-8") as f:
+    reader = csv.reader(f)
+    for row in reader:
+        print(row)
+
+# 字典方式读取
+with open("data.csv", "r", encoding="utf-8") as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        print(row["name"], row["age"])
+
+# 写入
+with open("output.csv", "w", encoding="utf-8", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow(["name", "age"])
+    writer.writerow(["Alice", 30])
+    writer.writerows([["Bob", 25], ["Charlie", 35]])
+```
+
+### 2.3 日志解析示例
+
+```python
+import re
+from collections import Counter
+
+log_pattern = re.compile(
+    r'(?P<ip>\d+\.\d+\.\d+\.\d+).*'
+    r'\[(?P<date>.*?)\].*'
+    r'"(?P<method>\w+) (?P<path>\S+).*".*'
+    r'(?P<status>\d+)'
+)
+
+ip_counter = Counter()
+
+with open("access.log") as f:
+    for line in f:
+        match = log_pattern.search(line)
+        if match:
+            ip_counter[match.group("ip")] += 1
+
+for ip, count in ip_counter.most_common(10):
+    print(f"{ip}: {count}")
+```
+
+---
+
+## 3. SSH 自动化 (Paramiko)
+
+### 3.1 基本连接
+
+```python
+import paramiko
+
+client = paramiko.SSHClient()
+client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+client.connect(
+    hostname="192.168.1.100",
+    port=22,
+    username="user",
+    password="password"
+)
+
+# 执行命令
+stdin, stdout, stderr = client.exec_command("ls -la")
+print(stdout.read().decode())
+
+client.close()
+```
+
+### 3.2 使用密钥
+
+```python
+client.connect(
+    hostname="192.168.1.100",
+    username="user",
+    key_filename="/home/user/.ssh/id_rsa"
+)
+```
+
+### 3.3 SFTP 文件传输
+
+```python
+sftp = client.open_sftp()
+
+# 上传
+sftp.put("local_file.txt", "/remote/path/file.txt")
+
+# 下载
+sftp.get("/remote/path/file.txt", "local_file.txt")
+
+# 列目录
+files = sftp.listdir("/remote/path")
+
+sftp.close()
+```
+
+### 3.4 封装 SSH 类
+
+```python
+class SSHManager:
+    def __init__(self, host, user, password=None, key_file=None):
+        self.client = paramiko.SSHClient()
+        self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        connect_kwargs = {"hostname": host, "username": user}
+        if password:
+            connect_kwargs["password"] = password
+        if key_file:
+            connect_kwargs["key_filename"] = key_file
+        
+        self.client.connect(**connect_kwargs)
+    
+    def run(self, command):
+        stdin, stdout, stderr = self.client.exec_command(command)
+        return stdout.read().decode(), stderr.read().decode()
+    
+    def close(self):
+        self.client.close()
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *args):
+        self.close()
+
+with SSHManager("host", "user", password="pass") as ssh:
+    output, error = ssh.run("hostname")
+    print(output)
+```
+
+---
+
+## 4. Fabric (远程执行)
+
+### 4.1 基本用法
+
+```python
+from fabric import Connection
+
+c = Connection("user@host")
+result = c.run("uname -a")
+print(result.stdout)
+```
+
+### 4.2 多主机执行
+
+```python
+from fabric import SerialGroup
+
+hosts = ["user@host1", "user@host2", "user@host3"]
+group = SerialGroup(*hosts)
+
+results = group.run("uptime")
+for conn, result in results.items():
+    print(f"{conn.host}: {result.stdout}")
+```
+
+---
+
+## 5. 定时任务
+
+### 5.1 schedule 库
+
+```python
+import schedule
+import time
+
+def job():
+    print("任务执行中...")
+
+# 配置任务
+schedule.every(10).seconds.do(job)
+schedule.every().hour.do(job)
+schedule.every().day.at("10:30").do(job)
+schedule.every().monday.do(job)
+
+# 运行
+while True:
+    schedule.run_pending()
+    time.sleep(1)
+```
+
+### 5.2 APScheduler
+
+```python
+from apscheduler.schedulers.blocking import BlockingScheduler
+
+scheduler = BlockingScheduler()
+
+@scheduler.scheduled_job("interval", seconds=10)
+def timed_job():
+    print("任务执行")
+
+@scheduler.scheduled_job("cron", hour=10, minute=30)
+def cron_job():
+    print("定时任务")
+
+scheduler.start()
+```
+
+---
+
+## 6. CLI 工具开发
+
+### 6.1 click 库
+
+```python
+import click
+
+@click.command()
+@click.option("--name", "-n", required=True, help="用户名")
+@click.option("--count", "-c", default=1, help="重复次数")
+@click.option("--verbose", "-v", is_flag=True, help="详细模式")
+def hello(name, count, verbose):
+    """简单的问候程序"""
+    for _ in range(count):
+        if verbose:
+            click.echo(f"Verbose: Hello, {name}!")
+        else:
+            click.echo(f"Hello, {name}!")
+
+if __name__ == "__main__":
+    hello()
+```
+
+### 6.2 命令组
+
+```python
+@click.group()
+def cli():
+    """管理工具"""
+    pass
+
+@cli.command()
+@click.argument("name")
+def create(name):
+    """创建资源"""
+    click.echo(f"Creating {name}")
+
+@cli.command()
+@click.argument("name")
+def delete(name):
+    """删除资源"""
+    click.echo(f"Deleting {name}")
+
+if __name__ == "__main__":
+    cli()
+```
+
+### 6.3 typer (推荐)
+
+```python
+import typer
+
+app = typer.Typer()
+
+@app.command()
+def hello(name: str, count: int = 1, verbose: bool = False):
+    """问候程序"""
+    for _ in range(count):
+        if verbose:
+            typer.echo(f"Verbose: Hello, {name}!")
+        else:
+            typer.echo(f"Hello, {name}!")
+
+@app.command()
+def goodbye(name: str):
+    """告别程序"""
+    typer.echo(f"Goodbye, {name}!")
+
+if __name__ == "__main__":
+    app()
+```
+
+### 6.4 rich (终端美化)
+
+现代终端输出格式化, CLI 工具标配:
+
+```python
+from rich.console import Console
+from rich.table import Table
+from rich.progress import track
+from rich import print as rprint
+import time
+
+console = Console()
+
+# 富文本输出
+rprint("[bold red]Error:[/] Something went wrong")
+rprint("[green]Success![/] Operation completed")
+
+# 表格
+table = Table(title="Server Status")
+table.add_column("Name", style="cyan")
+table.add_column("Status", style="green")
+table.add_column("CPU %", justify="right")
+table.add_row("web-1", "running", "45%")
+table.add_row("web-2", "running", "32%")
+table.add_row("db-1", "[red]down[/]", "0%")
+console.print(table)
+
+# 进度条
+for item in track(range(100), description="Processing..."):
+    time.sleep(0.02)
+
+# 状态指示器
+with console.status("[bold green]Downloading...") as status:
+    for i in range(10):
+        time.sleep(0.5)
+        status.update(f"[bold green]Downloading... {i+1}/10")
+
+# 日志样式输出
+console.log("Starting process")
+console.log("[bold red]Warning:[/] High memory usage")
+
+# 语法高亮
+from rich.syntax import Syntax
+code = '''def hello(name):
+    print(f"Hello, {name}!")'''
+syntax = Syntax(code, "python", theme="monokai", line_numbers=True)
+console.print(syntax)
+```
+
+---
+
+## 7. 实用脚本示例
+
+### 7.1 批量重命名
+
+```python
+from pathlib import Path
+import re
+
+def batch_rename(directory, pattern, replacement):
+    path = Path(directory)
+    for file in path.glob("*"):
+        new_name = re.sub(pattern, replacement, file.name)
+        if new_name != file.name:
+            file.rename(file.parent / new_name)
+            print(f"Renamed: {file.name} -> {new_name}")
+
+batch_rename("./files", r"_v\d+", "")
+```
+
+### 7.2 服务健康检查
+
+```python
+import requests
+from concurrent.futures import ThreadPoolExecutor
+
+def check_service(url):
+    try:
+        response = requests.get(url, timeout=5)
+        return {"url": url, "status": response.status_code, "ok": response.ok}
+    except Exception as e:
+        return {"url": url, "status": None, "ok": False, "error": str(e)}
+
+services = [
+    "https://google.com",
+    "https://github.com",
+    "https://httpbin.org/status/500",
+]
+
+with ThreadPoolExecutor(max_workers=10) as executor:
+    results = list(executor.map(check_service, services))
+
+for r in results:
+    status = "✓" if r["ok"] else "✗"
+    print(f"{status} {r['url']}: {r['status']}")
+```
+
+---
+
+## 8. 练习
+
+### 8.1 日志分析器
+
+编写脚本分析 Nginx 日志, 统计 Top 10 访问 IP 和路径.
+
+### 8.2 批量部署脚本
+
+使用 Paramiko 编写批量部署脚本, 更新多台服务器.
+
+### 8.3 CLI 工具
+
+开发一个文件管理 CLI 工具, 支持列出、复制、删除操作.
+
+---
+
+## 9. 思考题
+
+1. 正则表达式的贪婪匹配和非贪婪匹配有什么区别?
+2. Paramiko 和 Fabric 有什么区别?
+3. schedule 和 APScheduler 如何选择?
+4. click 和 argparse 有什么优势?
+5. 如何安全地处理 SSH 密钥?
+
+---
+
+## 10. 本周小结
+
+- **正则表达式**: re 模块, 模式匹配, 替换.
+- **文本处理**: 字符串方法, CSV.
+- **SSH 自动化**: Paramiko, Fabric.
+- **定时任务**: schedule, APScheduler.
+- **CLI 工具**: click, typer.
+
+---
+
+> 自动化脚本是 SRE 的核心技能. 掌握这些工具, 可以大幅提升运维效率.

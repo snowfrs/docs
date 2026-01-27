@@ -1,0 +1,561 @@
+---
+title: "Week 11: 测试与代码质量"
+description: "掌握 pytest 测试框架、Mock、类型提示、代码检查与 pre-commit."
+---
+
+## 1. 测试基础
+
+### 1.1 为什么测试
+
+- **发现 Bug**: 尽早发现问题
+- **保护重构**: 确保修改不破坏功能
+- **文档作用**: 测试即使用示例
+- **设计驱动**: TDD 改善设计
+
+### 1.2 测试类型
+
+| 类型 | 范围 | 速度 | 依赖 |
+|------|------|------|------|
+| 单元测试 | 函数/类 | 快 | 无 |
+| 集成测试 | 模块间 | 中 | 少量 |
+| 端到端测试 | 完整系统 | 慢 | 全部 |
+
+---
+
+## 2. pytest 框架
+
+### 2.1 基本用法
+
+```python
+# test_example.py
+
+def add(a, b):
+    return a + b
+
+def test_add():
+    assert add(1, 2) == 3
+    assert add(-1, 1) == 0
+    assert add(0, 0) == 0
+```
+
+```bash
+# 运行测试
+pytest
+pytest test_example.py
+pytest test_example.py::test_add
+pytest -v  # 详细输出
+```
+
+### 2.2 测试类
+
+```python
+class TestCalculator:
+    def test_add(self):
+        assert add(1, 2) == 3
+    
+    def test_subtract(self):
+        assert subtract(5, 3) == 2
+```
+
+### 2.3 异常测试
+
+```python
+import pytest
+
+def divide(a, b):
+    if b == 0:
+        raise ValueError("除数不能为零")
+    return a / b
+
+def test_divide_by_zero():
+    with pytest.raises(ValueError) as excinfo:
+        divide(1, 0)
+    assert "除数不能为零" in str(excinfo.value)
+```
+
+### 2.4 参数化测试
+
+```python
+import pytest
+
+@pytest.mark.parametrize("a,b,expected", [
+    (1, 2, 3),
+    (0, 0, 0),
+    (-1, 1, 0),
+    (100, 200, 300),
+])
+def test_add_parametrized(a, b, expected):
+    assert add(a, b) == expected
+```
+
+---
+
+## 3. Fixtures
+
+### 3.1 基本 Fixture
+
+```python
+import pytest
+
+@pytest.fixture
+def sample_data():
+    return {"name": "Alice", "age": 30}
+
+def test_name(sample_data):
+    assert sample_data["name"] == "Alice"
+
+def test_age(sample_data):
+    assert sample_data["age"] == 30
+```
+
+### 3.2 Fixture 作用域
+
+```python
+@pytest.fixture(scope="function")  # 每个测试函数执行一次 (默认)
+def func_fixture():
+    return create_resource()
+
+@pytest.fixture(scope="class")  # 每个测试类执行一次
+def class_fixture():
+    return create_resource()
+
+@pytest.fixture(scope="module")  # 每个模块执行一次
+def module_fixture():
+    return create_resource()
+
+@pytest.fixture(scope="session")  # 整个测试会话执行一次
+def session_fixture():
+    return create_resource()
+```
+
+### 3.3 Setup/Teardown
+
+```python
+@pytest.fixture
+def database():
+    # Setup
+    db = connect_database()
+    
+    yield db  # 返回给测试
+    
+    # Teardown
+    db.close()
+
+def test_query(database):
+    result = database.query("SELECT 1")
+    assert result == 1
+```
+
+### 3.4 conftest.py
+
+共享 fixtures:
+
+```python
+# conftest.py
+import pytest
+
+@pytest.fixture
+def config():
+    return {"debug": True}
+
+# 所有测试文件都可以使用 config fixture
+```
+
+---
+
+## 4. Mock 与 Patch
+
+### 4.1 基本 Mock
+
+```python
+from unittest.mock import Mock
+
+# 创建 Mock 对象
+mock = Mock()
+mock.method()
+mock.method.assert_called_once()
+
+# 设置返回值
+mock.method.return_value = 42
+assert mock.method() == 42
+
+# 设置副作用
+mock.method.side_effect = Exception("Error")
+```
+
+### 4.2 Patch 装饰器
+
+```python
+from unittest.mock import patch
+
+# 假设 mymodule.py 中有:
+# import requests
+# def fetch_data(url):
+#     return requests.get(url).json()
+
+@patch("mymodule.requests.get")
+def test_fetch_data(mock_get):
+    # 配置 mock
+    mock_get.return_value.json.return_value = {"data": "test"}
+    
+    # 测试
+    result = fetch_data("http://example.com")
+    
+    assert result == {"data": "test"}
+    mock_get.assert_called_once_with("http://example.com")
+```
+
+### 4.3 上下文管理器
+
+```python
+def test_with_patch():
+    with patch("mymodule.requests.get") as mock_get:
+        mock_get.return_value.status_code = 200
+        # 测试代码
+```
+
+### 4.4 MagicMock
+
+```python
+from unittest.mock import MagicMock
+
+mock = MagicMock()
+
+# 支持魔术方法
+len(mock)
+mock[0]
+mock.__len__.return_value = 5
+assert len(mock) == 5
+```
+
+---
+
+## 5. 覆盖率 (coverage)
+
+### 5.1 测量覆盖率
+
+```bash
+# 安装
+pip install pytest-cov
+
+# 运行
+pytest --cov=mypackage
+pytest --cov=mypackage --cov-report=html
+```
+
+### 5.2 忽略代码
+
+```python
+def debug_function():  # pragma: no cover
+    """调试用, 不需要测试"""
+    pass
+```
+
+### 5.3 配置
+
+```ini
+# pyproject.toml
+[tool.coverage.run]
+branch = true
+source = ["mypackage"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+]
+```
+
+---
+
+## 6. 类型提示 (Type Hints)
+
+### 6.1 基本类型
+
+```python
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+def add(a: int, b: int) -> int:
+    return a + b
+
+age: int = 30
+names: list[str] = ["Alice", "Bob"]
+user: dict[str, int] = {"age": 30}
+```
+
+### 6.2 可选类型
+
+```python
+from typing import Optional
+
+def find_user(user_id: int) -> Optional[dict]:
+    """返回用户或 None"""
+    ...
+
+# Python 3.10+
+def find_user(user_id: int) -> dict | None:
+    ...
+```
+
+### 6.3 类型别名
+
+```python
+from typing import TypeAlias
+
+UserId: TypeAlias = int
+UserDict: TypeAlias = dict[str, str | int]
+
+def get_user(user_id: UserId) -> UserDict:
+    ...
+```
+
+### 6.4 泛型
+
+```python
+from typing import TypeVar, Generic
+
+T = TypeVar("T")
+
+class Stack(Generic[T]):
+    def __init__(self) -> None:
+        self.items: list[T] = []
+    
+    def push(self, item: T) -> None:
+        self.items.append(item)
+    
+    def pop(self) -> T:
+        return self.items.pop()
+
+stack: Stack[int] = Stack()
+stack.push(1)
+```
+
+### 6.5 Callable
+
+```python
+from typing import Callable
+
+def apply(func: Callable[[int, int], int], a: int, b: int) -> int:
+    return func(a, b)
+
+apply(lambda x, y: x + y, 1, 2)
+```
+
+---
+
+## 7. mypy 静态检查
+
+### 7.1 运行 mypy
+
+```bash
+pip install mypy
+mypy mypackage/
+```
+
+### 7.2 配置
+
+```ini
+# pyproject.toml
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+```
+
+### 7.3 处理错误
+
+```python
+# 忽略特定行
+x = some_func()  # type: ignore
+
+# 忽略特定错误
+x = some_func()  # type: ignore[arg-type]
+```
+
+---
+
+## 8. 代码风格
+
+### 8.1 PEP 8
+
+Python 官方风格指南:
+- 4 空格缩进
+- 行长度 79/99 字符
+- 导入顺序: 标准库, 第三方, 本地
+
+### 8.2 black (格式化)
+
+```bash
+pip install black
+black mypackage/
+```
+
+### 8.3 ruff (Linting)
+
+```bash
+pip install ruff
+ruff check mypackage/
+ruff check --fix mypackage/
+```
+
+### 8.4 isort (导入排序)
+
+```bash
+pip install isort
+isort mypackage/
+```
+
+---
+
+## 9. pre-commit
+
+### 9.1 配置
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+```
+
+### 9.2 安装与运行
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
+### 9.3 bandit (安全扫描)
+
+检测 Python 代码中的安全漏洞:
+
+```bash
+pip install bandit
+bandit -r mypackage/
+bandit -r mypackage/ -f json -o security_report.json
+```
+
+**配置文件 (.bandit):**
+
+```ini
+[bandit]
+exclude = tests,docs
+skips = B101,B601
+```
+
+**常见检测项:**
+
+| 编号 | 风险 | 描述 |
+| :--- | :--- | :--- |
+| B101 | Low | assert 语句在生产代码中 |
+| B102 | High | exec() 使用 |
+| B301 | High | pickle 反序列化 |
+| B601 | High | Paramiko 调用 (需审查) |
+| B608 | Medium | SQL 注入风险 |
+
+### 9.4 常见安全漏洞
+
+**1. 命令注入:**
+
+```python
+import subprocess
+
+# 危险
+user_input = "file.txt; rm -rf /"
+subprocess.run(f"cat {user_input}", shell=True)  # B602
+
+# 安全
+subprocess.run(["cat", user_input])  # 列表形式, 不使用 shell
+```
+
+**2. SQL 注入:**
+
+```python
+# 危险
+cursor.execute(f"SELECT * FROM users WHERE id = {user_id}")  # B608
+
+# 安全: 参数化查询
+cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+```
+
+**3. Pickle 反序列化:**
+
+```python
+import pickle
+
+# 危险: 不要反序列化不可信数据
+data = pickle.load(open("untrusted.pkl", "rb"))  # B301
+
+# 安全替代: 使用 JSON
+import json
+data = json.load(open("data.json"))
+```
+
+**4. 随机数安全:**
+
+```python
+import random
+import secrets
+
+# 危险: 用于安全场景
+token = ''.join(random.choices('abc123', k=32))  # 可预测
+
+# 安全
+token = secrets.token_hex(16)  # 密码学安全随机
+```
+
+---
+
+## 10. 练习
+
+### 10.1 测试覆盖
+
+为一个计算器模块编写完整测试, 达到 100% 覆盖率.
+
+### 10.2 Mock 练习
+
+测试一个调用外部 API 的函数, 使用 Mock 替代网络请求.
+
+### 10.3 类型标注
+
+为现有代码添加类型提示, 并通过 mypy 检查.
+
+---
+
+## 11. 思考题
+
+1. 什么时候应该使用 Mock?
+2. 测试覆盖率 100% 意味着没有 Bug 吗?
+3. 类型提示会影响运行时性能吗?
+4. 如何测试私有方法?
+5. Fixture 和 setup/teardown 有什么区别?
+
+---
+
+## 12. 本周小结
+
+- **pytest**: 断言, 参数化, fixtures.
+- **Mock**: 替代依赖, patch.
+- **覆盖率**: pytest-cov.
+- **类型提示**: 类型标注, mypy.
+- **代码风格**: black, ruff, isort.
+- **pre-commit**: Git 钩子自动检查.
+
+---
+
+> 测试和代码质量工具是现代软件开发的基石. 投入时间学习它们, 将在长期收获巨大回报.
