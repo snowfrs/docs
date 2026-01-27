@@ -625,26 +625,26 @@ services:
 
 ## 7. 本周实战任务
 
-### 6.1 性能基准测试
+### 7.1 性能基准测试
 
 1. 使用 `time` 命令对比 `strategy: linear` vs `strategy: free` 的执行时间
 2. 在 50 个容器节点上并发安装软件包
 3. 启用 pipelining 后对比执行时间
 
-### 6.2 Fact 缓存配置
+### 7.2 Fact 缓存配置
 
 1. 配置 jsonfile 缓存后端
 2. 第一次运行后检查缓存文件
 3. 第二次运行观察 fact 收集是否跳过
 
-### 6.3 自定义 Callback 插件
+### 7.3 自定义 Callback 插件
 
 编写 Callback 插件:
 1. 统计每个 Play 的总耗时
 2. 任务失败时发送告警到内部 API
 3. 脱敏处理包含 password 的输出
 
-### 6.4 异步任务链
+### 7.4 异步任务链
 
 编写 Playbook:
 1. 使用 `async: 600, poll: 0` 启动长时间任务

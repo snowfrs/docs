@@ -31,7 +31,7 @@ Ansible 的变量覆盖逻辑非常复杂, 共有 22 层. 在冲突时, 编号�
 
 在默认配置下, 当同一变量名在不同层级定义时, Ansible 采用 **"替换 (Replace)"** 策略.
 
-#### 1.1.1 Replace vs Merge
+#### 1.3.1 Replace vs Merge
 
 *   **Replace (默认)**: 高优先级的变量会完全替换掉低优先级的变量. 如果变量是字典 (Dictionary), 低优先级字典中的 Key 将全部丢失.
 *   **Merge**: 高优先级的字典会与低优先级的字典进行递归合并.
@@ -985,14 +985,14 @@ Ansible Vault 的安全性并非简单的密码替换, 其背后有着严密的�
 
 ### 4.3 加密粒度选择
 
-#### 4.2.1 文件级加密 (File-level)
+#### 4.3.1 文件级加密 (File-level)
 直接加密整个 YAML 文件. 优点是操作简单, 缺点是在 Git 中无法查看非敏感字段的变更.
 ```bash
 # 运行 Playbook 时需提供密码过关
 ansible-playbook site.yml --ask-vault-pass
 ```
 
-#### 4.2.2 变量级加密 (Variable-level)
+#### 4.3.2 变量级加密 (Variable-level)
 使用 `encrypt_string` 仅加密特定的 Value. 优点是配置文件保持明文可读, 仅敏感值被 `!vault` 标记包裹.
 ```bash
 # 生成加密字符串
@@ -1052,7 +1052,8 @@ db_password: !vault |
 3.  **Facts 联动**: 从 `hostvars` 中动态提取每个 web 节点的私有 IP, 并通过 `default` 过滤器处理缺失 IP 的异常情况.
 4.  **空白控制**: 使用 `{%-` 和 `-%}` 符号确保生成的配置文件没有多余空行.
 
-3.  配置 `ansible.cfg` 使用 `.vault_pass` 文件, 实现 Playbook 在不加参数的情况下能同时解密上述两种不同粒度的信息.
+### 5.3 Vault 加密实战
+1.  配置 `ansible.cfg` 使用 `.vault_pass` 文件, 实现 Playbook 在不加参数的情况下能同时解密上述两种不同粒度的信息.
 
 ### 5.4 进阶挑战: 复杂数据清洗与合并
 1.  **JMESPath**: 使用 `json_query` 从一个包含 10 个节点的复杂 JSON 字典中, 提取出所有 CPU 核心数 > 4 且操作系统为 Ubuntu 的节点清单.
