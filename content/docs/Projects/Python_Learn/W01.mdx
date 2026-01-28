@@ -471,30 +471,7 @@ print(ba)  # bytearray(b'Hello! world')
 buffer = bytearray(1024)
 ```
 
-### 5.6 赋值表达式 `:=` (Python 3.8+)
 
-海象运算符, 在表达式中赋值:
-
-```python
-# 传统写法
-line = input()
-while line != "quit":
-    print(line)
-    line = input()
-
-# 使用 := (更简洁)
-while (line := input()) != "quit":
-    print(line)
-
-# 列表推导式中避免重复计算
-data = [1, 2, 3, 4, 5]
-results = [y for x in data if (y := x * 2) > 4]
-# results = [6, 8, 10]
-
-# 条件表达式
-if (n := len(data)) > 3:
-    print(f"List has {n} items")
-```
 
 ---
 
@@ -598,6 +575,32 @@ result = True or print("不执行")    # 不打印
 
 ```python
 "a" in "abc"      # True
+```
+
+### 8.5 赋值表达式 `:=` (Python 3.8+)
+
+又称"海象运算符" (Walrus Operator), 允许在表达式内部进行赋值:
+
+```python
+# 传统写法
+line = input()
+while line != "quit":
+    print(line)
+    line = input()
+
+# 使用 := (更简洁)
+while (line := input()) != "quit":
+    print(line)
+
+# 列表推导式中避免重复计算
+data = [1, 2, 3, 4, 5]
+results = [y for x in data if (y := x * 2) > 4]
+# results = [6, 8, 10]
+
+# 条件表达式 (赋值并返回 n 的值)
+if (n := len(data)) > 3:
+    print(f"List has {n} items")
+```
 1 in [1, 2, 3]    # True
 "x" not in "abc"  # True
 ```
