@@ -520,7 +520,7 @@ semaphore mutex = 1;    // 互斥访问缓冲区
 
 ### 4.3 经典同步问题
 
-#### 4.2.1 生产者-消费者 (Bounded Buffer)
+#### 4.3.1 生产者-消费者 (Bounded Buffer)
 
 ```c
 #define N 100
@@ -551,7 +551,7 @@ void consumer() {
 }
 ```
 
-#### 4.2.2 读者-写者问题
+#### 4.3.2 读者-写者问题
 
 **读者优先**:
 
@@ -617,8 +617,6 @@ void mutex_unlock(mutex_t *m) {
     }
 }
 ```
-
-### 5.2 futex 机制
 
 ### 5.2 futex 机制
 
@@ -879,7 +877,7 @@ P4    4 3 3     0 0 2       4 3 1
 
 ## 10. Linux 内核高级同步
 
-### 9.1 RCU (Read-Copy-Update)
+### 10.1 RCU (Read-Copy-Update)
 
 适用于读多写少的场景:
 
@@ -915,7 +913,7 @@ kfree(old);                            // 安全释放旧版本
                               可以安全释放旧数据
 ```
 
-### 9.2 顺序锁 (Seqlock)
+### 10.2 顺序锁 (Seqlock)
 
 读者不阻塞写者, 但可能需要重试:
 
@@ -935,13 +933,11 @@ do {
 } while (read_seqretry(&lock, seq));
 ```
 
-### 9.3 lockdep: 运行时死锁检测
+### 10.3 lockdep: 运行时死锁检测
 
 Linux 内核的运行时死锁检测工具, 通过构建锁依赖图 (DAG) 在死锁发生前预警.
 
-#### 9.3.1 工作原理
-
-#### 9.3.1 工作原理
+#### 10.3.1 工作原理
 
 ```mermaid
 graph TD
@@ -957,7 +953,7 @@ graph TD
     style Warning fill:#ea4335,color:#fff
 ```
 
-#### 9.3.2 检测类型
+#### 10.3.2 检测类型
 
 | 检测场景 | 说明 |
 |----------|------|
@@ -967,7 +963,7 @@ graph TD
 | Softirq 安全违规 | 持有 spinlock 时调用可能睡眠的函数 |
 | 硬锁链 | hardirq→softirq→process 上下文加锁冲突 |
 
-#### 9.3.3 启用与使用
+#### 10.3.3 启用与使用
 
 ```c
 // 内核配置
@@ -987,7 +983,7 @@ CONFIG_PROVE_LOCKING=y   // 更严格的检测
 // which lock already depends on the new lock.
 ```
 
-#### 9.3.4 锁类 (Lock Class)
+#### 10.3.4 锁类 (Lock Class)
 
 lockdep 使用**锁类**而非锁实例进行追踪:
 
@@ -1000,11 +996,94 @@ lockdep_set_class(&lock1, &key1);
 lockdep_set_class(&lock2, &key2);
 ```
 
+### 10.4 Linux Kernel Memory Model (LKMM)
+
+LKMM 是 Linux 内核对内存访问顺序的形式化定义, 用于精确描述多处理器系统中内存操作的可见性保证.
+
+#### 10.4.1 内存顺序问题
+
+现代 CPU 和编译器会重排内存操作以提升性能:
+
+```
+// 源代码
+x = 1;      // 写 x
+r1 = y;     // 读 y
+
+// CPU 可能执行为:
+r1 = y;     // 读 y (先执行)
+x = 1;      // 写 x (后执行)
+```
+
+#### 10.4.2 LKMM 内存屏障
+
+| 屏障类型 | API | 作用 |
+|----------|-----|------|
+| **通用屏障** | `smp_mb()` | 阻止之前/之后的读写穿越 |
+| **写屏障** | `smp_wmb()` | 阻止写操作重排 |
+| **读屏障** | `smp_rmb()` | 阻止读操作重排 |
+| **依赖屏障** | `smp_read_barrier_depends()` | 数据依赖 (现代 CPU 自动保证) |
+| **完全屏障** | `mb()` | 包括 I/O 设备可见性 |
+
+#### 10.4.3 Acquire-Release 语义
+
+```c
+// 生产者 (Producer)
+store_value = new_data;
+smp_store_release(&flag, 1);  // 所有之前的写操作对消费者可见
+
+// 消费者 (Consumer)
+if (smp_load_acquire(&flag)) {    // 如果看到 flag=1
+    use(store_value);              // 保证能看到 new_data
+}
+```
+
+**核心规则**:
+- `smp_store_release()` 之前的写操作对配对的 `smp_load_acquire()` 之后的读可见
+- 形成 **happens-before** 关系
+
+#### 10.4.4 LKMM 与 C11 对比
+
+| 语义 | LKMM API | C11 memory_order |
+|------|----------|------------------|
+| Relaxed | `READ_ONCE()` / `WRITE_ONCE()` | `relaxed` |
+| Acquire | `smp_load_acquire()` | `acquire` |
+| Release | `smp_store_release()` | `release` |
+| Seq-Cst | `smp_mb()` 前后 | `seq_cst` |
+
+#### 10.4.5 herd7 形式化验证
+
+LKMM 使用 herd7 工具验证并发算法正确性:
+
+```
+// litmus 测试文件示例 (MP - Message Passing)
+C MP+porelease+poacquire
+
+{
+  x = 0; y = 0;
+}
+
+P0(int *x, int *y) {
+  WRITE_ONCE(*x, 1);
+  smp_store_release(y, 1);
+}
+
+P1(int *x, int *y) {
+  int r0;
+  int r1;
+  r0 = smp_load_acquire(y);
+  r1 = READ_ONCE(*x);
+}
+
+exists (1:r0=1 /\ 1:r1=0)  // 预期: 不可能
+```
+
+> **参考**: `tools/memory-model/Documentation/` 和 `Documentation/memory-barriers.txt`
+
 ---
 
-## 10. 无锁编程基础
+## 11. 无锁编程基础
 
-### 10.1 原子变量
+### 11.1 原子变量
 
 ```c
 #include <stdatomic.h>
@@ -1016,7 +1095,7 @@ atomic_load(&counter);          // 原子读
 atomic_store(&counter, 0);      // 原子写
 ```
 
-### 10.2 无锁栈示例
+### 11.2 无锁栈示例
 
 ```c
 struct node {
@@ -1054,9 +1133,9 @@ void *pop(struct lockfree_stack *s) {
 
 ---
 
-## 11. 锁机制深度对比
+## 12. 锁机制深度对比
 
-### 11.1 内核锁类型全览
+### 12.1 内核锁类型全览
 
 | 锁类型 | 机制 | 可睡眠 | 适用场景 | 优点 | 缺点 |
 |--------|------|--------|----------|------|------|
@@ -1067,9 +1146,9 @@ void *pop(struct lockfree_stack *s) {
 | **RCU** | 延迟销毁 | 读: 否 | 读极多写极少 | 读零开销 | 写复杂, 内存占用 |
 | **Seqlock** | 序列号检测 | 读: 否 | 写优先场景 | 写不阻塞 | 读可能重试 |
 
-### 11.2 Spinlock 公平性演进
+### 12.2 Spinlock 公平性演进
 
-#### 11.2.1 基础 Spinlock (不公平)
+#### 12.2.1 基础 Spinlock (不公平)
 
 ```c
 // 测试并设置 (TAS)
@@ -1081,7 +1160,7 @@ void spin_lock(spinlock_t *lock) {
 
 **问题**: 后来者可能抢先获取锁, 导致**饥饿**.
 
-#### 11.2.2 Ticket Lock (公平但有缓存问题)
+#### 12.2.2 Ticket Lock (公平但有缓存问题)
 
 ```c
 struct ticket_lock {
@@ -1098,7 +1177,7 @@ void spin_lock(struct ticket_lock *lock) {
 
 **问题**: 所有 CPU 自旋在同一变量 `now_serving`, 导致**缓存行震荡 (Cache Line Bouncing)**.
 
-#### 11.2.3 MCS Lock (解决缓存震荡)
+#### 12.2.3 MCS Lock (解决缓存震荡)
 
 MCS Lock 通过构建进程链表, 让每个 CPU 仅在本地变量上自旋, 避免了全局变量的缓存一致性开销: 
 
@@ -1116,7 +1195,7 @@ graph TD
 
 **释放逻辑**: 当 CPU 0 释放时, 直接修改 CPU 1 的本地标志位 `node1.wait = false`, 仅导致 CPU 1 的缓存失效.
 
-#### 11.2.4 Linux qspinlock
+#### 12.2.4 Linux qspinlock
 
 Linux 4.2+ 采用 **qspinlock**, 结合了 Ticket Lock 和 MCS:
 
@@ -1128,9 +1207,9 @@ Linux 4.2+ 采用 **qspinlock**, 结合了 Ticket Lock 和 MCS:
 
 ---
 
-## 12. 信号量深度详解
+## 13. 信号量深度详解
 
-### 12.1 信号量本质
+### 13.1 信号量本质
 
 **信号量 (Semaphore)** 是一个整型变量, 支持两个原子操作:
 
@@ -1139,7 +1218,7 @@ Linux 4.2+ 采用 **qspinlock**, 结合了 Ticket Lock 和 MCS:
 | P | Proberen (尝试) | wait / down | `S--`; 若 `S < 0` 则阻塞 |
 | V | Verhogen (增加) | signal / up | `S++`; 若有等待者则唤醒 |
 
-### 12.2 信号量类型
+### 13.2 信号量类型
 
 | 类型 | 初始值 | 用途 |
 |------|--------|------|
@@ -1147,7 +1226,7 @@ Linux 4.2+ 采用 **qspinlock**, 结合了 Ticket Lock 和 MCS:
 | **计数信号量** | N | 资源池管理 (如连接池) |
 | **同步信号量** | 0 | 线程间同步/通知 |
 
-### 12.3 信号量三要素
+### 13.3 信号量三要素
 
 ```mermaid
 graph TB
@@ -1159,7 +1238,7 @@ graph TB
     end
 ```
 
-### 12.4 信号量 vs Mutex
+### 13.4 信号量 vs Mutex
 
 | 对比项 | 信号量 | Mutex |
 |--------|--------|-------|
@@ -1170,9 +1249,9 @@ graph TB
 
 ---
 
-## 13. 死锁
+## 14. 死锁详解
 
-### 13.1 死锁概念
+### 14.1 死锁概念
 
 **死锁 (Deadlock)**: 一组进程中每个进程都在等待只能由该组其他进程引发的事件, 导致所有进程永久阻塞.
 
@@ -1187,7 +1266,7 @@ graph TD
     style RY fill:#fbbc04
 ```
 
-### 13.2 死锁发生的四个必要条件 (Coffman 条件)
+### 14.2 死锁发生的四个必要条件 (Coffman 条件)
 
 | 条件 | 英文 | 说明 |
 |------|------|------|
@@ -1198,7 +1277,7 @@ graph TD
 
 **关键**: 四个条件必须**同时满足**才会死锁.
 
-### 13.3 死锁处理策略
+### 14.3 死锁处理策略
 
 | 策略 | 英文 | 方法 | 代价 |
 |------|------|------|------|
@@ -1207,7 +1286,7 @@ graph TD
 | **检测+恢复** | Detection + Recovery | 允许死锁发生, 检测后恢复 | 开销大 |
 | **忽略** | Ignore (Ostrich) | 假装不会发生 | Unix/Linux 常用 |
 
-### 13.4 银行家算法
+### 14.4 银行家算法
 
 银行家算法通过判断系统是否处于**安全状态**来避免死锁:
 
@@ -1227,9 +1306,9 @@ P4    [4,3,3]      [0,0,2]    [4,3,1]
 安全序列: `<P1, P3, P4, P2, P0>`
 ```
 
-### 13.5 死锁检测
+### 14.5 死锁检测
 
-#### 13.5.1 资源分配图 (Resource Allocation Graph)
+#### 14.5.1 资源分配图 (Resource Allocation Graph)
 
 系统可以通过构建资源分配图来检测死锁.节点的定义如下: 
 - **圆圈**: 进程 (P)
@@ -1253,7 +1332,7 @@ graph TD
 2. 如果图中有环, 且每种资源只有一个实例, 则**一定死锁**.
 3. 如果图中有环, 且资源有多个实例, 则**可能死锁**.
 
-#### 13.5.2 Linux lockdep (见 §9.3)
+#### 14.5.2 Linux lockdep (见 §10.3)
 
 Linux 内核使用 lockdep 在**运行时**检测潜在死锁, 通过构建锁依赖 DAG 发现环.
 
@@ -1293,9 +1372,9 @@ Linux 内核使用 lockdep 在**运行时**检测潜在死锁, 通过构建锁�
 
 ---
 
-## 11. 哲学家就餐问题
+## 15. 哲学家就餐问题
 
-### 11.1 问题描述
+### 15.1 问题描述
 
 ```mermaid
 graph TD
@@ -1320,7 +1399,7 @@ graph TD
 ```
 **规则**: 哲学家需要拿起左右两把叉子才能进餐.所有人都先拿左手叉子会导致**死锁**.
 
-### 11.2 简单解法 (可能死锁)
+### 15.2 简单解法 (可能死锁)
 
 ```c
 semaphore fork[5];  // 初始值均为 1
@@ -1339,7 +1418,7 @@ void philosopher(int i) {
 
 **死锁场景**: 所有哲学家同时拿起左边的叉子, 然后都在等待右边的叉子.
 
-### 11.3 解决方案
+### 15.3 解决方案
 
 **方案 1: 限制就餐人数**
 
@@ -1412,7 +1491,7 @@ monitor dining_philosophers {
 }
 ```
 
-### 11.4 各方案对比
+### 15.4 各方案对比
 
 | 方案 | 优点 | 缺点 |
 |------|------|------|

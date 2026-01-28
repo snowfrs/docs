@@ -328,7 +328,7 @@ sequenceDiagram
 
 **线程的优势**:
 
-### 4.1 进程与线程模型对比
+### 4.2 进程与线程模型对比
 
 ```mermaid
 graph TD
@@ -379,7 +379,7 @@ graph TD
 | 通信方式 | IPC | 直接共享内存 |
 | 一个崩溃 | 不影响其他进程 | 整个进程崩溃 |
 
-### 4.2 线程的应用场景
+### 4.3 线程的应用场景
 
 | 场景 | 描述 | 示例 |
 |------|------|------|
@@ -388,7 +388,7 @@ graph TD
 | **响应性** | 后台线程处理耗时任务, UI 保持响应 | GUI 应用程序 |
 | **模块化** | 不同功能由不同线程负责 | 游戏引擎 (渲染,物理,AI) |
 
-### 4.3 Web 服务器的线程实现
+### 4.4 Web 服务器的线程实现
 
 **单线程服务器 (阻塞模型)**:
 
@@ -454,7 +454,7 @@ int main() {
 // 优点: 线程复用, 控制并发度
 ```
 
-### 4.4 线程实现的三种方式
+### 4.5 线程实现的三种方式
 
 | 类型 | 英文 | 调度者 | 优点 | 缺点 |
 |------|------|--------|------|------|
@@ -462,7 +462,7 @@ int main() {
 | 内核级线程 | Kernel-Level Thread (KLT) | 内核调度器 | 真并发, 阻塞独立, 利用多核 | 切换开销大 (需要系统调用) |
 | 混合模型 | M:N Model | 两级调度 | 灵活, 权衡性能 | 实现复杂 |
 
-### 4.4 用户级线程 (ULT) 工作原理
+### 4.6 用户级线程 (ULT) 工作原理
 
 ```mermaid
 graph TD
@@ -489,7 +489,7 @@ graph TD
     style Note fill:#fff9c4,stroke:#fbc02d,stroke-dasharray: 5 5
 ```
 
-### 4.5 重要概念: 原语与可再入程序
+### 4.7 重要概念: 原语与可再入程序
 
 **原语 (Primitive)**:
 
@@ -535,7 +535,7 @@ char *strtok_r(char *str, const char *delim, char **saveptr) {
 }
 ```
 
-### 4.6 Linux 线程模型 (1\:1)
+### 4.8 Linux 线程模型 (1\:1)
 
 Linux 使用 1\:1 模型: 每个用户线程对应一个内核 `task_struct`.
 
@@ -552,7 +552,7 @@ bool same_thread_group(struct task_struct *p1, struct task_struct *p2) {
 }
 ```
 
-### 4.7 Pthreads API
+### 4.9 Pthreads API
 
 ```c
 #include <pthread.h>
@@ -654,7 +654,7 @@ vruntime += delta_exec × (NICE_0_LOAD / weight)
 3. **Virtual Deadline (虚拟截止时间)**: 计算进程在未来的什么时候应该完成它的下一个时间片. EEVDF 始终选择当前合格且截止时间最早的任务.
 ```
 
-### 6.3 nice 值与权重
+### 6.4 nice 值与权重
 
 ```c
 // kernel/sched/core.c
@@ -671,7 +671,7 @@ const int sched_prio_to_weight[40] = {
 ```
 
 **权重比例**: 相邻 nice 值的权重比约为 1.25, 即 nice 每差 1, CPU 时间差 10%.
-### 6.4 红黑树组织
+### 6.5 红黑树组织
 
 CFS 使用红黑树按 vruntime 排序可运行进程:
 
@@ -692,7 +692,7 @@ graph TD
     style L2 fill:#e8f0fe,stroke:#4285f4
 ```
 
-### 6.5 CFS 核心代码路径
+### 6.6 CFS 核心代码路径
 
 ```c
 // kernel/sched/fair.c
@@ -730,7 +730,7 @@ static void update_curr(struct cfs_rq *cfs_rq) {
 }
 ```
 
-### 6.6 调度延迟与最小粒度
+### 6.7 调度延迟与最小粒度
 
 ```c
 // 调度周期 (所有进程至少运行一次的时间)
@@ -739,6 +739,66 @@ sched_latency_ns = nr_running × 0.75ms (多进程时)
 
 // 最小运行时间粒度
 sched_min_granularity_ns = 0.75ms
+```
+
+### 6.8 EEVDF 调度器 (Linux 6.6+)
+
+**EEVDF (Earliest Eligible Virtual Deadline First)** 是 Linux 6.6 引入的 CFS 替代者, 解决了 CFS 的延迟不确定性问题.
+
+#### 6.7.1 CFS 的局限性
+
+| 问题 | 描述 |
+|------|------|
+| **延迟不确定** | vruntime 只保证长期公平, 短期延迟无保证 |
+| **唤醒延迟** | 刚唤醒的进程可能等待较长时间 |
+| **交互响应** | 需要依赖启发式 (如 sleeper bonus) |
+
+#### 6.7.2 EEVDF 核心概念
+
+```mermaid
+graph TD
+    subgraph EEVDF ["EEVDF 调度决策"]
+        VD[Virtual Deadline] --> Eligible{是否 Eligible?}
+        Eligible -- "lag >= 0" --> Pick["选择最早 VD"]
+        Eligible -- "lag < 0" --> Wait["等待变为 eligible"]
+    end
+```
+
+| 概念 | 公式 | 说明 |
+|------|------|------|
+| **Virtual Runtime** | `vruntime` | 同 CFS, 累计加权运行时间 |
+| **Lag** | `lag = V - vruntime` | V 为全局虚拟时间, lag > 0 表示欠债 |
+| **Eligible** | `lag >= 0` | 进程有资格被调度 |
+| **Virtual Deadline** | `VD = vruntime + slice/weight` | 虚拟截止时间 |
+
+#### 6.7.3 调度决策
+
+```
+1. 从所有 eligible 进程中选择
+2. 选择 Virtual Deadline 最早的进程
+3. 如果无 eligible 进程, 选择 lag 最大者
+```
+
+#### 6.7.4 EEVDF vs CFS 对比
+
+| 特性 | CFS | EEVDF |
+|------|-----|-------|
+| **公平性保证** | 长期公平 | 短期 + 长期公平 |
+| **延迟边界** | 无硬性保证 | 有虚拟截止时间 |
+| **唤醒处理** | sleeper bonus (启发式) | lag 自然处理 |
+| **实现复杂度** | 较低 | 略高 |
+| **交互响应** | 需要调优 | 更可预测 |
+
+#### 6.7.5 内核配置
+
+```bash
+# Linux 6.6+ 默认启用 EEVDF
+# 查看当前调度器
+cat /sys/kernel/debug/sched/features
+
+# 相关 sysctl
+sysctl kernel.sched_min_granularity_ns
+sysctl kernel.sched_wakeup_granularity_ns
 ```
 
 ---
@@ -770,7 +830,7 @@ sched_setattr(pid, &attr, 0);
 
 ### 7.3 调度类优先级
 
-### 7.3 调度类优先级
+
 
 ```mermaid
 graph TD

@@ -645,6 +645,126 @@ graph TD
     Sentry --> Host["Host Kernel (受限 syscall)"]
 ```
 
+### 6.5 安全容器运行时综合对比
+
+| 特性 | runc (标准) | Kata Containers | Firecracker | gVisor |
+|------|-------------|-----------------|-------------|--------|
+| **隔离机制** | Namespace + Cgroup | 轻量级 VM | MicroVM | 用户态内核 |
+| **内核共享** | 共享宿主机内核 | 独立 Guest 内核 | 独立 Guest 内核 | Sentry (用户态) |
+| **启动时间** | ~50ms | ~150-300ms | ~125ms | ~150ms |
+| **内存开销** | ~5MB | ~30-50MB | ~5MB | ~20MB |
+| **性能损耗** | 基准 | 5-15% | 1-5% | 10-30% |
+| **Syscall 攻击面** | 全部暴露 | VM 边界隔离 | VM 边界隔离 | 受限重实现 |
+| **兼容性** | 完全兼容 | 良好 | 受限设备 | 部分兼容 |
+| **适用场景** | 可信工作负载 | 多租户, CI/CD | Serverless | 不可信代码 |
+| **主要用户** | Docker 默认 | OpenStack Zun | AWS Lambda | Google Cloud Run Sandbox |
+
+> **选型建议**: 
+> - 追求**最强隔离**: Kata Containers
+> - 追求**最快启动**: Firecracker
+> - 追求**最小攻击面**: gVisor
+> - 追求**最佳兼容性**: 标准 runc + Seccomp
+
+---
+
+### 6.6 机密计算 (Confidential Computing)
+
+机密计算通过硬件加密保护运行时数据, 防止云提供商和宿主机管理员访问敏感信息.
+
+#### 6.6.1 技术对比
+
+| 技术 | 厂商 | 加密范围 | 信任边界 |
+|------|------|----------|----------|
+| **AMD SEV** | AMD | VM 内存加密 | 仅 Guest 可见明文 |
+| **AMD SEV-ES** | AMD | + 寄存器状态加密 | 防止 VMM 读取 CPU 状态 |
+| **AMD SEV-SNP** | AMD | + 完整性保护 | 防止恶意修改 Guest 内存 |
+| **Intel TDX** | Intel | TD (Trust Domain) 隔离 | 硬件隔离的可信执行环境 |
+| **Intel SGX** | Intel | 飞地 (Enclave) 内存加密 | 仅应用级保护 |
+
+#### 6.6.2 AMD SEV-SNP 架构
+
+```mermaid
+graph TD
+    subgraph Host ["宿主机 (不可信)"]
+        VMM[Hypervisor/KVM]
+        PSP[AMD PSP<br/>安全处理器]
+    end
+    
+    subgraph Guest ["Guest VM (加密保护)"]
+        App[应用程序]
+        Kernel[Guest 内核]
+        Mem["加密内存<br/>(AES-128)"]
+    end
+    
+    VMM -.-> |"无法读取"| Mem
+    PSP --> |"密钥管理"| Mem
+    
+    style Guest fill:#ceead6
+    style Mem fill:#e8f0fe
+```
+
+#### 6.6.3 Intel TDX 架构
+
+```mermaid
+graph TD
+    subgraph SEAM ["Intel TDX Module (SEAM)"]
+        TDX[TDX 模块]
+    end
+    
+    subgraph TD ["Trust Domain (TD)"]
+        TD_App[应用]
+        TD_Kernel[TD 内核]
+    end
+    
+    subgraph Untrusted ["非可信域"]
+        VMM[KVM/Hypervisor]
+    end
+    
+    TDX --> |"隔离管理"| TD
+    VMM -.-> |"受限交互"| TDX
+    
+    style TD fill:#ceead6
+    style SEAM fill:#e8f0fe
+```
+
+#### 6.6.4 启用配置
+
+```bash
+# AMD SEV (KVM)
+# 检查 SEV 支持
+dmesg | grep -i sev
+
+# 启动 SEV 虚拟机
+qemu-system-x86_64 \
+    -machine q35,confidential-guest-support=sev0 \
+    -object sev-guest,id=sev0,policy=0x1
+
+# Intel TDX (需要 TDX 内核)
+# 检查 TDX 支持
+cat /sys/module/kvm_intel/parameters/tdx
+
+# 启动 TDX 虚拟机
+qemu-system-x86_64 \
+    -machine q35,confidential-guest-support=tdx \
+    -object tdx-guest,id=tdx
+```
+
+#### 6.6.5 远程证明 (Remote Attestation)
+
+```mermaid
+sequenceDiagram
+    participant Verifier as 验证方
+    participant Guest as 机密 VM
+    participant PSP as 安全处理器
+    
+    Guest->>PSP: 请求证明报告
+    PSP->>PSP: 签名 (PSP 私钥)
+    PSP->>Guest: 证明报告
+    Guest->>Verifier: 发送报告
+    Verifier->>Verifier: 验证签名 (AMD/Intel 根证书)
+    Verifier->>Guest: 部署敏感数据
+```
+
 ---
 
 ## 7. 高级虚拟化主题
@@ -673,24 +793,87 @@ virsh vcpupin vm1 1 3
 
 ### 7.3 实时迁移 (Live Migration)
 
+实时迁移允许在不中断服务的情况下将虚拟机从一台物理主机迁移到另一台.
+
+#### 7.3.1 Pre-copy 算法 (主流)
+
 ```mermaid
 sequenceDiagram
     participant Src as 源主机
     participant Dst as 目标主机
     participant VM as 虚拟机
     
-    Src->>Dst: 传输内存页 (第 1 轮)
+    Note over Src,Dst: 阶段 1: 批量传输
+    Src->>Dst: 传输全部内存页 (第 1 轮)
     Note over VM: 继续运行, 产生脏页
-    Src->>Dst: 传输脏页 (第 2 轮)
-    Note over VM: 脏页收敛
-    Src->>VM: 暂停
-    Src->>Dst: 传输剩余状态
+    
+    Note over Src,Dst: 阶段 2: 迭代传输
+    loop 脏页收敛
+        Src->>Dst: 传输脏页 (第 n 轮)
+        Note over VM: 继续运行
+    end
+    
+    Note over Src,Dst: 阶段 3: 停机切换
+    Src->>VM: 暂停 (stop-and-copy)
+    Src->>Dst: 传输剩余脏页 + CPU/设备状态
     Dst->>VM: 恢复运行
 ```
 
-**关键指标**:
-*   **总迁移时间**: 内存大小 / 带宽
-*   **停机时间**: 最后一轮脏页传输 + 状态同步
+**收敛条件**:
+- 脏页数量 < 阈值 (如 50 页)
+- 迭代次数达到上限 (如 30 轮)
+- 脏页速率降至可接受水平
+
+#### 7.3.2 Post-copy 算法
+
+```mermaid
+sequenceDiagram
+    participant Src as 源主机
+    participant Dst as 目标主机
+    participant VM as 虚拟机
+    
+    Src->>VM: 暂停
+    Src->>Dst: 传输 CPU 状态 + 最小内存
+    Dst->>VM: 立即恢复运行
+    
+    Note over VM,Dst: 按需拉取内存
+    VM->>Dst: 访问未迁移页 → Page Fault
+    Dst->>Src: 请求该页
+    Src->>Dst: 传输请求页
+    
+    Note over Src,Dst: 后台推送剩余页面
+    Src-->>Dst: 背景传输剩余内存
+```
+
+**对比**:
+
+| 特性 | Pre-copy | Post-copy |
+|------|----------|-----------|
+| **停机时间** | 较长 (等待收敛) | 极短 (立即切换) |
+| **总迁移时间** | 可能很长 (高脏页率) | 固定 (内存大小/带宽) |
+| **容错性** | 高 (源端保留完整副本) | 低 (切换后依赖源端) |
+| **适用场景** | 一般工作负载 | 写密集型工作负载 |
+
+#### 7.3.3 优化技术
+
+| 技术 | 原理 | 效果 |
+|------|------|------|
+| **XBZRLE** | 压缩脏页增量 (异或编码) | 减少 40-70% 传输量 |
+| **Multifd** | 多线程并行传输 | 提升 3-5 倍带宽利用率 |
+| **Auto-converge** | 限制 vCPU 降低脏页率 | 强制收敛 |
+| **RDMA** | 绕过内核直接内存访问 | 降低延迟至 μs 级 |
+
+```bash
+# QEMU Live Migration 示例
+virsh migrate --live --verbose vm1 qemu+ssh://dst-host/system
+
+# 启用压缩
+virsh migrate-setmaxdowntime vm1 100  # 最大停机 100ms
+virsh migrate-setspeed vm1 1000       # 限速 1000 MiB/s
+
+# 监控迁移进度
+virsh domjobinfo vm1
+```
 
 ---
 

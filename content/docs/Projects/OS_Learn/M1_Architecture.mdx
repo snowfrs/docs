@@ -547,7 +547,47 @@ graph BT
 | EL2 | Hypervisor | 虚拟机管理器 (KVM, Xen) |
 | EL3 | Secure Monitor | ARM TrustZone 安全监控 |
 
-### 5.5 特权指令
+### 5.5 RISC-V 特权模式
+
+RISC-V 采用模块化设计, 定义三种基本特权模式:
+
+```mermaid
+graph BT
+    U["U-mode (User)<br/>用户模式"]
+    S["S-mode (Supervisor)<br/>监管者模式"]
+    M["M-mode (Machine)<br/>机器模式"]
+    
+    U --> S
+    S --> M
+```
+
+| 模式 | 编码 | 功能 | 典型运行代码 |
+|------|------|------|--------------|
+| **U-mode** | 00 | 用户态, 受限访问 | 用户应用程序 |
+| **S-mode** | 01 | 管理虚拟内存, 中断 | OS 内核 (Linux) |
+| **M-mode** | 11 | 最高特权, 直接访问硬件 | Bootloader, SBI |
+
+**关键 CSR (Control and Status Registers)**:
+
+| 寄存器 | 功能 | 模式 |
+|--------|------|------|
+| `mstatus` | 全局状态 (中断使能, 特权级) | M |
+| `mepc` | 异常返回地址 | M |
+| `mcause` | 异常/中断原因 | M |
+| `stvec` | S-mode 陷阱向量基址 | S |
+| `satp` | 页表基址 (类似 CR3) | S |
+
+**RISC-V vs x86 vs ARM 对比**:
+
+| 特性 | x86 (Ring) | ARM (EL) | RISC-V |
+|------|------------|----------|--------|
+| **层数** | 4 (常用 2) | 4 | 3 |
+| **虚拟化层** | Ring 0 + VMX | EL2 | H-extension |
+| **安全层** | SGX (飞地) | EL3/TZ | M-mode |
+| **页表控制** | CR3 | TTBR | satp |
+| **进入高特权** | syscall/int | svc/hvc/smc | ecall |
+
+### 5.6 特权指令
 
 仅在内核态 (Ring 0 / EL1+) 可执行:
 
@@ -560,7 +600,7 @@ graph BT
 | 缓存控制 | `WBINVD` | 写回并无效化缓存 |
 | MSR 访问 | `WRMSR`, `RDMSR` | 读写模型特定寄存器 |
 
-### 5.6 安全执行环境 (TEE)
+### 5.7 安全执行环境 (TEE)
 
 随着物理攻击和旁路攻击的增加, 现代 CPU 提供了硬件级的安全隔离环境:
 
@@ -586,7 +626,7 @@ graph TD
     style SecureWorld fill:#e1f5fe,stroke:#01579b
 ```
 
-### 5.6 模式切换
+### 5.8 模式切换
 
 | 触发方式 | 方向 | 机制 |
 |----------|------|------|

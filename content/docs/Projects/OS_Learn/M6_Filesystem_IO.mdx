@@ -428,6 +428,10 @@ ext4 使用 JBD2 (Journaling Block Device 2) 实现日志:
 
 ---
 
+## 4. 链接与目录操作
+
+Linux 文件系统支持两种链接机制, 分别解决不同的引用需求.
+
 ### 4.1 硬链接 vs 符号链接
 
 ```mermaid
@@ -936,9 +940,9 @@ iounmap(regs);
 
 ---
 
-## 10. 文件系统一致性保证
+## 12. 文件系统一致性保证
 
-### 10.1 一致性问题
+### 12.1 一致性问题
 
 文件系统操作涉及多个元数据更新, 若中途崩溃:
 
@@ -953,7 +957,7 @@ iounmap(regs);
 若在步骤 3-4 之间崩溃 → 位图与实际不一致
 ```
 
-### 10.2 一致性机制对比
+### 12.2 一致性机制对比
 
 | 机制 | 英文 | 原理 | 优点 | 缺点 |
 |------|------|------|------|------|
@@ -961,7 +965,7 @@ iounmap(regs);
 | **日志** | Journaling | 先写日志再写数据 | 恢复快 (~秒级) | 写放大 |
 | **CoW** | Copy-on-Write | 原子替换根指针 | 无日志, 快照免费 | 碎片化 |
 
-### 10.3 日志文件系统 (ext4)
+### 12.3 日志文件系统 (ext4)
 
 ```mermaid
 flowchart TD
@@ -984,7 +988,7 @@ flowchart TD
 | **ordered** | 仅元数据 (数据先写) | 中等 | **默认** |
 | **writeback** | 仅元数据 | 最快 | 可能数据不一致 |
 
-### 10.4 CoW 文件系统 (Btrfs, ZFS)
+### 12.4 CoW 文件系统 (Btrfs, ZFS)
 
 ```mermaid
 graph LR
@@ -1002,9 +1006,9 @@ graph LR
 
 ---
 
-## 11. io_uring 高级特性
+## 13. io_uring 高级特性
 
-### 11.1 SQPOLL 模式
+### 13.1 SQPOLL 模式
 
 **SQPOLL (Submission Queue Polling)**: 内核线程持续轮询 SQ, 实现**零系统调用**:
 
@@ -1022,7 +1026,7 @@ graph LR
     style SQPOLL fill:#e3f2fd,stroke:#1e88e5
 ```
 
-### 11.2 启用 SQPOLL
+### 13.2 启用 SQPOLL
 
 ```c
 struct io_uring ring;
@@ -1039,7 +1043,7 @@ io_uring_prep_read(sqe, fd, buf, size, 0);
 io_uring_submit(&ring);  // 仅更新 SQ tail, 无 syscall
 ```
 
-### 11.3 io_uring vs 传统异步 I/O
+### 13.3 io_uring vs 传统异步 I/O
 
 | 特性 | io_uring | epoll | POSIX AIO |
 |------|----------|-------|-----------|
@@ -1053,7 +1057,7 @@ io_uring_submit(&ring);  // 仅更新 SQ tail, 无 syscall
 
 ---
 
-## 12. 零拷贝技术深度对比 (Zero Copy)
+## 14. 零拷贝技术深度对比 (Zero Copy)
 
 零拷贝的目标是最大限度减少数据在 "内核 Page Cache" 与 "用户态 Buffer" 以及 "网络栈" 之间的无谓拷贝.
 
@@ -1066,11 +1070,11 @@ io_uring_submit(&ring);  // 仅更新 SQ tail, 无 syscall
 
 ---
 
-## 13. I/O 栈调优策略
+## 15. I/O 栈调优策略
 
 面对不同的存储介质, "一刀切" 的默认配置往往是性能瓶颈.
 
-### 13.1 预读 (Readahead)
+### 15.1 预读 (Readahead)
 
 内核通过预判顺序流来提前读取数据到 Cache.
 - **参数**: `blockdev --setra [sectors] /dev/sda`
@@ -1078,7 +1082,7 @@ io_uring_submit(&ring);  // 仅更新 SQ tail, 无 syscall
     - **Sequntial Workload (流媒体/日志)**: 调大到 4096 (2MB) 甚至更高, 减少小 IO 次数.
     - **Random Workload (数据库)**: 数据库通常有自己的 buffer pool 预读逻辑, 系统预读过大反而造成 Cache Pollution. 建议设为 128 (64KB) 或更小.
 
-### 13.2 队列深度 (Queue Depth)
+### 15.2 队列深度 (Queue Depth)
 
 设备能够并发处理的 I/O 请求数.
 - **HDD**: 机械臂物理限制, 队列过深只会增加 Latency. 保持默认或减小.
@@ -1086,17 +1090,187 @@ io_uring_submit(&ring);  // 仅更新 SQ tail, 无 syscall
 
 ---
 
-## 14. 块层与 I/O 调度器
+## 16. 块层与 I/O 调度器
 
 为了优化物理磁盘 (尤其是 HDD) 的寻道开销, 内核对 I/O 请求进行合并与排序:
 
-### 13.1 经典算法对比
+### 16.1 经典算法对比
 
 | 调度器 | 英文 | 策略 | 适用场景 |
 | :--- | :--- | :--- | :--- |
 | **Deadline** | Deadline Scheduler | 为读写请求设置截止时间, 读优先 | **通用首选**. 避免请求被无限推迟. |
 | **BFQ** | Budget Fair Queueing | 基于权重的比例公平分配带宽 | **桌面系统**. 改善多任务下的交互体验. |
 | **Kyber** | Kyber Scheduler | 基于目标延迟 (Latency-based) | **NVMe/SSD**. 处理现代固态硬盘的高吞吐,低延时场景. |
+
+---
+
+## 17. Copy-on-Write 文件系统: Btrfs 与 ZFS
+
+现代 CoW 文件系统通过原子指针替换实现数据一致性, 无需传统日志.
+
+### 17.1 CoW 核心原理
+
+```mermaid
+graph LR
+    subgraph Before ["写入前"]
+        R1[Root Pointer] --> B1[Block A]
+        R1 --> B2[Block B]
+    end
+    
+    subgraph After ["写入后"]
+        R2[New Root] --> B1
+        R2 --> B3["Block B' (新数据)"]
+    end
+    
+    B2 -.-> |"旧数据保留 (可用于快照)"| Archive[(Snapshot)]
+    
+    style B3 fill:#ceead6
+    style R2 fill:#e8f0fe
+```
+
+**关键机制**:
+- 数据永不原地覆盖, 写入新位置后原子更新父指针
+- 旧数据自然保留, 快照几乎零开销
+- 文件系统永远保持一致状态, 无需 fsck
+
+### 17.2 Btrfs vs ZFS 对比
+
+| 特性 | Btrfs | ZFS |
+|------|-------|-----|
+| **起源** | Oracle/Linux (2007) | Sun/Solaris (2005) |
+| **许可证** | GPL | CDDL (OpenZFS: 双授权) |
+| **主线集成** | Linux 内核原生 | 通过 DKMS/kmod |
+| **RAID 实现** | 原生 (RAID0/1/5/6/10) | RAID-Z (Z1/Z2/Z3) |
+| **最大卷大小** | 16 EiB | 256 ZiB |
+| **校验和** | CRC32/xxhash | Fletcher-4/SHA-256 |
+| **压缩** | zlib/lzo/zstd | lz4/zstd/gzip |
+| **去重** | 实时 (CPU 密集) | 块级 (需大量 RAM) |
+| **自愈** | 镜像/RAID 模式 | 自动修复损坏块 |
+
+### 17.3 Btrfs 子卷与快照
+
+```bash
+# 创建子卷
+btrfs subvolume create /mnt/data/subvol1
+
+# 创建只读快照 (瞬间完成)
+btrfs subvolume snapshot -r /mnt/data/subvol1 /mnt/data/snap1
+
+# 创建可写快照 (用于测试)
+btrfs subvolume snapshot /mnt/data/subvol1 /mnt/data/test_snap
+
+# 发送增量备份
+btrfs send -p /mnt/data/snap1 /mnt/data/snap2 | btrfs receive /backup/
+```
+
+### 17.4 ZFS ARC 与 L2ARC
+
+```mermaid
+graph TD
+    App[应用程序] --> ARC["ARC (Adaptive Replacement Cache)<br/>主内存缓存"]
+    ARC --> |"Miss"| L2[L2ARC<br/>SSD 二级缓存]
+    L2 --> |"Miss"| Pool[(磁盘 Pool)]
+    
+    ARC --> |"写入"| SLOG[SLOG/ZIL<br/>同步写日志]
+    SLOG --> Pool
+    
+    style ARC fill:#e8f0fe
+    style L2 fill:#fef7e0
+```
+
+**ZFS 性能调优**:
+
+```bash
+# 查看 ARC 统计
+arc_summary
+
+# 设置 ARC 最大内存
+echo "options zfs zfs_arc_max=8589934592" >> /etc/modprobe.d/zfs.conf
+
+# 添加 L2ARC 设备
+zpool add tank cache /dev/nvme0n1
+```
+
+---
+
+## 18. NVMe 多队列架构
+
+传统 SATA 使用单队列 (Queue Depth=32), 无法发挥 SSD 并行能力. NVMe 引入多队列架构:
+
+### 18.1 架构对比
+
+```mermaid
+graph TD
+    subgraph AHCI ["SATA/AHCI"]
+        CPU[多核 CPU] --> Q1[单一命令队列<br/>深度: 32]
+        Q1 --> SATA[SATA 控制器]
+    end
+    
+    subgraph NVMe ["NVMe"]
+        C0[CPU 0] --> SQ0[SQ 0]
+        C1[CPU 1] --> SQ1[SQ 1]
+        C2[CPU 2] --> SQ2[SQ 2]
+        SQ0 --> NVMeC[NVMe 控制器]
+        SQ1 --> NVMeC
+        SQ2 --> NVMeC
+        NVMeC --> CQ[Completion Queues]
+    end
+    
+    style NVMe fill:#ceead6
+```
+
+| 特性 | SATA/AHCI | NVMe |
+|------|-----------|------|
+| **队列数** | 1 | 最多 65535 |
+| **队列深度** | 32 | 每队列 65536 |
+| **命令数** | 32 | 理论 4+ 亿 |
+| **延迟** | ~6ms (寻道) | ~10-20μs |
+| **IOPS** | ~100K | ~1M+ |
+| **接口** | 6 Gbps | PCIe 4.0: 64 Gbps |
+
+### 18.2 NVMe 命令提交流程
+
+```mermaid
+sequenceDiagram
+    participant Driver as NVMe 驱动
+    participant SQ as Submission Queue
+    participant Ctrl as NVMe 控制器
+    participant CQ as Completion Queue
+    
+    Driver->>SQ: 1. 写入命令到 SQ
+    Driver->>Ctrl: 2. 写 Doorbell 通知
+    Ctrl->>Ctrl: 3. 控制器处理命令
+    Ctrl->>CQ: 4. 写入完成项到 CQ
+    Ctrl->>Driver: 5. MSI-X 中断通知
+    Driver->>CQ: 6. 读取完成状态
+```
+
+### 18.3 Linux blk-mq 整合
+
+```c
+// Linux 多队列块层 (blk-mq)
+// 为每个 CPU 创建独立软件队列, 直接映射到 NVMe 硬件队列
+
+struct blk_mq_tag_set {
+    unsigned int        nr_hw_queues;   // 硬件队列数 (= NVMe 队列)
+    unsigned int        queue_depth;    // 每队列深度
+    struct blk_mq_ops   *ops;           // 操作回调
+};
+
+// 查看设备队列配置
+// ls /sys/block/nvme0n1/mq/
+// 每个目录代表一个硬件队列
+```
+
+**调优建议**:
+
+```bash
+# 设置 NVMe 使用 none 调度器 (无需排序)
+echo none > /sys/block/nvme0n1/queue/scheduler
+
+# 调整队列深度
+echo 256 > /sys/block/nvme0n1/queue/nr_requests
+```
 
 ---
 

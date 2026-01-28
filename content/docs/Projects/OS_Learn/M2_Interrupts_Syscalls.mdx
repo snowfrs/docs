@@ -934,7 +934,7 @@ int trace_open(struct pt_regs *ctx) {
 }
 ```
 
-### 8.4 BTF 与 CO-RE
+### 10.4 BTF 与 CO-RE
 
 | 技术 | 英文 | 作用 |
 |------|------|------|
@@ -949,7 +949,7 @@ bpf_probe_read_kernel_str(comm, sizeof(comm),
                           task->comm);  // 自动重定位
 ```
 
-### 8.5 eBPF vs 内核模块
+### 10.5 eBPF vs 内核模块
 
 | 特性 | eBPF | 内核模块 (LKM) |
 |------|------|----------------|
@@ -959,7 +959,7 @@ bpf_probe_read_kernel_str(comm, sizeof(comm),
 | **开发复杂度** | 较低 | 很高 |
 | **性能** | 接近原生 (JIT) | 原生 |
 
-### 8.6 常用工具链
+### 10.6 常用工具链
 
 | 工具 | 用途 |
 |------|------|
@@ -987,9 +987,9 @@ bpftrace -e 'tracepoint:raw_syscalls:sys_enter { @start[tid] = nsecs; }
 
 ---
 
-## 7. 高级交互技术: 动态追踪与零拷贝绕过
+## 11. 高级交互技术: 动态追踪与零拷贝绕过
 
-### 7.1 动态追踪原语 (Kprobes & Uprobes)
+### 11.1 动态追踪原语 (Kprobes & Uprobes)
 
 操作系统专家如何实现在不重新编译内核的情况下进行亚微秒级观测?其核心在于**运行时指令替换**.
 
@@ -1014,7 +1014,7 @@ sequenceDiagram
     Kernel->>Func: 继续执行后续指令
 ```
 
-### 7.2 零拷贝绕过 (vDPA & XDP)
+### 11.2 零拷贝绕过 (vDPA & XDP)
 
 为了消除内核态/用户态上下文切换以及内存拷贝的开销, 现代高性能系统采用"绕过"策略: 
 
@@ -1022,7 +1022,7 @@ sequenceDiagram
 2.  **vDPA (vHost Data Path Acceleration)**: 在虚拟化场景下, 硬件网卡直接将数据推送到虚拟机的 VirtIO 队列中, 绕过主机内核协议栈.
 3.  **XDP (eXpress Data Path)**: 在网卡驱动层直接运行 eBPF 程序, 在 `sk_buff` 分配前决定丢弃或转发数据包.
 
-### 7.3 用户态中断 (User Interrupts - UINTR)
+### 11.3 用户态中断 (User Interrupts - UINTR)
 
 传统的处理器只能在内核态响应中断. Intel 推出的 **UINTR** 允许一个用户态进程直接向另一个用户态进程发送交互, 无需经过内核上下文切换.
 
