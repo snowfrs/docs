@@ -75,7 +75,7 @@ graph TD
 | **异常分类** | Interrupt / Trap / Fault / Abort | 同步 vs 异步, 异常栈切换与逻辑陷阱 |
 | **中断架构** | Local APIC / I/O APIC / MSI-X | 中断亲和性 (Irq Affinity) 与硬件隔离 |
 | **中断流转** | 上半部 / 下半部 (NAPI) | 中断上下文禁忌与软中断 (softirq) 调度 |
-| **系统边界** | `syscall` / VDSO / vDPA | 模式切换损耗与零拷贝绕过技术 |
+| **系统边界** | `syscall` / VDSO | 模式切换损耗与快速系统调用指令 |
 | **动态追踪** | Kprobes / Uprobes / eBPF | 运行时指令替换技术与无损观测 |
 
 ---
@@ -87,9 +87,9 @@ graph TD
 |:---:|--------|----------|
 | **进程抽象** | 进程映像 / PCB | `task_struct` 核心字段与状态转换机 |
 | **执行流控制** | fork / clone / vfork / exec | 写时复制 (COW) 机制与共享资源控制标志 |
-| **线程模型** | LWP / 线程池 / 用户线程 | N\:1, 1\:1, M\:N 模型对比与内核线程实现 |
+| **线程模型** | NPTL / Kernel Threads | 1\:1 模型实现与 `do_exit` 资源回收 |
 | **EEVDF 调度器** | 虚拟截止时间 / 延迟控制 | Linux 6.6+ 核心调度器原理与 CFS 差异 |
-| **能效与异构调度** | EAS / big.LITTLE / Tickless | 移动端性能功耗平衡与全动态 Tick 机制 |
+| **调度器演进** | O(1) / CFS / EEVDF | 虚拟运行时间 (vruntime) 与滞后 (lag) 补偿 |
 | **资源隔离** | Cgroups v2 / Namespaces | CPU 份额限制, PSI 压力指标与容器化基础 |
 
 ---
@@ -100,7 +100,7 @@ graph TD
 | 主题 | 知识点 | 底层深度内容 |
 |:---:|--------|----------|
 | **硬件原语** | TAS / CAS / LL-SC / Barrier | 内存屏障 (smp_mb) 与缓存一致性影响 |
-| **自旋锁演进** | Ticket / MCS / qspinlock | 解决大规模多核下的缓存震荡问题 |
+| **自旋锁机制** | Spinlock / Reader-Writer | 自旋等待与 CPU 缓存行争用 |
 | **高级同步** | Semaphores / Mutex / futex | 睡眠唤醒机制, 内核等待队列与优先级继承 |
 | **无锁并发** | RCU (Read-Copy-Update) | 读端零开销, 宽限期 (Grace Period) 与回收 |
 | **死锁治理** | Coffman 条件 / Banker 算法 | lockdep 静态依赖检测与动态图分析 |
@@ -127,7 +127,7 @@ graph TD
 | 主题 | 知识点 | 底层深度内容 |
 |:---:|--------|----------|
 | **VFS 统一封装** | dentry cache / inode 索引 | 路径查找冲突与 RCU 路径检索优化 |
-| **文件系统实现** | ext4 / XFS / DAX | Extent Tree 结构与持行内存储存绕过 |
+| **文件系统实现** | ext4 / XFS | Extent Tree 结构与日志 (JBD2) 机制 |
 | **高性能 I/O** | io_uring / Zero-Copy | Completion Queue 机制与内存环同步 |
 | **块层演变** | Multi-queue (blk-mq) | 解决 NVMe 下的单队列锁竞争瓶颈 |
 | **一致性保障** | Journaling / CoW / FSCK | 原子提交机制与崩溃恢复一致性链条 |
@@ -139,7 +139,7 @@ graph TD
 
 | 主题 | 知识点 | 底层深度内容 |
 |:---:|--------|----------|
-| **CPU 虚拟化** | VT-x / VMX / VMCS | 根模式切换与二段式异常拦截 (VM Exit) |
+| **CPU 虚拟化** | VT-x / SVM / ARM EL2 | 多架构支持 (Intel/AMD/ARM) 与根模式切换 |
 | **内存虚拟化** | EPT (Extended Page Table) | 影子页表 vs 硬件辅助地址转换 |
 | **I/O 虚拟化** | VirtIO / IOMMU / SR-IOV | 半虚拟化后端协议与网卡穿透直连 |
 | **容器底层** | Namespace / Cgroups / Rootfs | 视图隔离,资源限制与联合文件系统 (OverlayFS) |

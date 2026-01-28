@@ -1079,38 +1079,7 @@ x86 平坦模型下段的残留:
 
 ---
 
-## 参考教材
 
-| 主题 | 推荐阅读 |
-|:---:|----------|
-| 分页基础 | *OSTEP* Ch18-19, *恐龙书* Ch9 |
-| 多级页表 | *OSTEP* Ch20, Intel SDM Vol.3 Ch4 |
-| 页面置换 | *OSTEP* Ch21-22, *恐龙书* Ch10 |
-| Linux 内存 | *LKD* Ch12, *ULK* Ch8 |
-| NUMA | *ULK* Ch8.4, kernel documentation |
-
----
-
-## 内核源码引用
-
-| 主题 | 源码路径 | 关键函数/结构 |
-|:---:|----------|---------------|
-| 页描述符 | `include/linux/mm_types.h` | `struct page` |
-| VMA | `include/linux/mm_types.h` | `struct vm_area_struct` |
-| mm_struct | `include/linux/mm_types.h` | `struct mm_struct` |
-| 页表类型 | `arch/x86/include/asm/pgtable_types.h` | `pte_t`, `pmd_t`, `pud_t`, `pgd_t` |
-| 缺页处理 | `arch/x86/mm/fault.c` | `do_page_fault()`, `handle_mm_fault()` |
-| 伙伴分配 | `mm/page_alloc.c` | `__alloc_pages()`, `free_pages()` |
-| Slab 分配 | `mm/slub.c` | `kmem_cache_alloc()`, `kmem_cache_free()` |
-| vmalloc | `mm/vmalloc.c` | `vmalloc()`, `vfree()` |
-| 页面回收 | `mm/vmscan.c` | `shrink_page_list()`, `kswapd()` |
-| LRU 管理 | `mm/vmscan.c` | `lru_add()`, `activate_page()` |
-| RMAP | `mm/rmap.c` | `try_to_unmap()`, `page_add_anon_rmap()` |
-| OOM Killer | `mm/oom_kill.c` | `out_of_memory()`, `oom_badness()` |
-| NUMA | `mm/mempolicy.c` | `set_mempolicy()`, `mbind()` |
-| mmap | `mm/mmap.c` | `do_mmap()`, `vm_area_alloc()` |
-
-**在线源码浏览**: [Bootlin Elixir](https://elixir.bootlin.com/linux/latest/source)
 
 ---
 
@@ -1436,6 +1405,41 @@ graph LR
     - 隔离内核与用户态页表, 彻底防御 **Meltdown** 漏洞.
 
 ---
+
+---
+
+## 参考教材
+
+| 主题 | 推荐阅读 |
+|:---:|----------|
+| 分页基础 | *OSTEP* Ch18-19, *恐龙书* Ch9 |
+| 多级页表 | *OSTEP* Ch20, Intel SDM Vol.3 Ch4 |
+| 页面置换 | *OSTEP* Ch21-22, *恐龙书* Ch10 |
+| Linux 内存 | *LKD* Ch12, *ULK* Ch8 |
+| NUMA | *ULK* Ch8.4, kernel documentation |
+
+---
+
+## 内核源码引用
+
+| 主题 | 源码路径 | 关键函数/结构 |
+|:---:|----------|---------------|
+| 页描述符 | `include/linux/mm_types.h` | `struct page` |
+| VMA | `include/linux/mm_types.h` | `struct vm_area_struct` |
+| mm_struct | `include/linux/mm_types.h` | `struct mm_struct` |
+| 页表类型 | `arch/x86/include/asm/pgtable_types.h` | `pte_t`, `pmd_t`, `pud_t`, `pgd_t` |
+| 缺页处理 | `arch/x86/mm/fault.c` | `do_page_fault()`, `handle_mm_fault()` |
+| 伙伴分配 | `mm/page_alloc.c` | `__alloc_pages()`, `free_pages()` |
+| Slab 分配 | `mm/slub.c` | `kmem_cache_alloc()`, `kmem_cache_free()` |
+| vmalloc | `mm/vmalloc.c` | `vmalloc()`, `vfree()` |
+| 页面回收 | `mm/vmscan.c` | `shrink_page_list()`, `kswapd()` |
+| LRU 管理 | `mm/vmscan.c` | `lru_add()`, `activate_page()` |
+| RMAP | `mm/rmap.c` | `try_to_unmap()`, `page_add_anon_rmap()` |
+| OOM Killer | `mm/oom_kill.c` | `out_of_memory()`, `oom_badness()` |
+| NUMA | `mm/mempolicy.c` | `set_mempolicy()`, `mbind()` |
+| mmap | `mm/mmap.c` | `do_mmap()`, `vm_area_alloc()` |
+
+**在线源码浏览**: [Bootlin Elixir](https://elixir.bootlin.com/linux/latest/source)
 
 ## 思考题
 
