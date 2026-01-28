@@ -80,7 +80,7 @@ graph TD
 ### 1.2 地址类型
 
 | 地址类型 | 英文 | 说明 |
-|----------|------|------|
+|----------|:---:|------|
 | 虚拟地址 | Virtual Address | 程序使用的地址 |
 | 线性地址 | Linear Address | 经过分段后的地址 (x86 分页前) |
 | 物理地址 | Physical Address | 内存芯片的实际地址 |
@@ -138,7 +138,7 @@ graph BT
 **程序的存储需求**:
 
 | 需求 | 说明 |
-|------|------|
+|:---:|------|
 | 加载 | 程序需要装入内存才能执行 |
 | 地址绑定 | 符号地址转换为物理地址 |
 | 保护 | 进程间内存隔离 |
@@ -148,7 +148,7 @@ graph BT
 **地址绑定时机**:
 
 | 时机 | 说明 | 特点 |
-|------|------|------|
+|:---:|------|:---:|
 | 编译时 | 编译器生成绝对地址 | 必须知道加载位置, 不灵活 |
 | 加载时 | 加载器进行重定位 | 可重定位代码, 加载后固定 |
 | 运行时 | MMU 动态转换 | 最灵活, 现代系统使用 |
@@ -178,7 +178,7 @@ graph BT
 **分配算法**:
 
 | 算法 | 英文 | 策略 | 特点 |
-|------|------|------|------|
+|:---:|------|:---:|------|
 | 首次适应 | First Fit | 从头搜索, 找到第一个足够大的空闲块 | 快速, 但低地址碎片化 |
 | 最佳适应 | Best Fit | 找到最小的足够大的空闲块 | 留下大块, 但产生大量小碎片 |
 | 最差适应 | Worst Fit | 找到最大的空闲块 | 减少小碎片, 但大块很快用完 |
@@ -247,16 +247,52 @@ graph LR
 - **结构**: `<ProcessID, PageNumber>` -> `FrameNumber`.
 - **由于搜索慢, 通常配合哈希表使用.**
 - **优点**: 页表大小固定, 不随进程数和地址空间增大而膨胀. (常见于 PowerPC, Itanium 架构).
-```
+
 
 ---
+
+### 2.6 Slab / SLUB 分配器架构 (Kernel Allocator)
+
+Slab 通过维护不同状态的对象桶(Cache), 实现极致的小对象分配性能, 消除内部碎片: 
+
+```mermaid
+graph TD
+    Cache[Generic Cache - kmalloc-32] --> SlabNodes
+    subgraph SlabNodes ["Slab Nodes (NUMA Aware)"]
+        S1[Slab 1: Full] --- S2[Slab 2: Partial]
+        S2 --- S3[Slab 3: Empty]
+    end
+    
+    subgraph SlabInternal ["Slab 结构 (连续页帧)"]
+        direction LR
+        Obj1[Object]
+        Obj2[Object]
+        Obj3[Object]
+        Free[Free List]
+    end
+    
+    S2 -.-> SlabInternal
+```
+
+**核心优势**:
+- **消除内部碎片**: 按需切分页帧.
+- **对象缓存**: 预先调用构造函数, 减少初始化开销.
+- **CPU 本地化**: 每个 CPU 拥有自己的 slab, 减少锁竞争.
+
+```c
+// Slab API 示例
+struct kmem_cache *my_cache = kmem_cache_create("my_struct", sizeof(struct my_struct), ...);
+struct my_struct *obj = kmem_cache_alloc(my_cache, GFP_KERNEL);
+kmem_cache_free(my_cache, obj);
+kmem_cache_destroy(my_cache);
+```
 
 ## 3. 分页机制
 
 ### 3.1 基本概念
 
 | 概念 | 英文 | 说明 |
-|------|------|------|
+|:---:|------|:---:|
 | 页 | Page (Virtual Page) | 虚拟地址空间的固定大小块 |
 | 页帧 | Page Frame (Physical Page) | 物理内存的固定大小块 |
 | 页表 | Page Table | 虚拟页 → 物理页帧的映射表 |
@@ -265,7 +301,7 @@ graph LR
 ### 3.2 页大小
 
 | 大小 | 名称 | 使用场景 |
-|------|------|----------|
+|:---:|------|----------|
 | 4KB | 普通页 | 默认, 细粒度控制 |
 | 2MB | 大页 (Huge Page) | 减少 TLB miss, 数据库 |
 | 1GB | 巨页 (Giant Page) | 大内存应用 |
@@ -362,7 +398,7 @@ flowchart TD
 ### 4.2 TLB 结构
 
 | 类型 | 覆盖范围 | 条目数 |
-|------|----------|--------|
+|:---:|----------|--------|
 | L1 ITLB | 指令地址 | ~64 (4KB), ~8 (大页) |
 | L1 DTLB | 数据地址 | ~64 (4KB), ~32 (大页) |
 | L2 STLB | 统一 | ~1536 |
@@ -454,7 +490,7 @@ dotraplinkage void do_page_fault(struct pt_regs *regs,
 ### 5.3 缺页类型
 
 | 类型 | 英文 | 原因 | 处理 |
-|------|------|------|------|
+|:---:|------|:---:|------|
 | 主缺页 | Major Fault | 页面在磁盘 | 从文件/交换区读入 |
 | 次缺页 | Minor Fault | 页面已在内存 | 仅建立映射 (如 COW) |
 | 无效访问 | - | 非法地址或权限不足 | SIGSEGV |
@@ -492,7 +528,7 @@ static vm_fault_t do_wp_page(struct vm_fault *vmf)
 ### 6.1 经典算法
 
 | 算法 | 英文 | 原理 | 特点 |
-|------|------|------|------|
+|:---:|------|:---:|------|
 | OPT | Optimal | 替换最久未来不用的页 | 理论最优, 不可实现 |
 | FIFO | First-In-First-Out | 替换最早进入的页 | 简单, Belady 异常 |
 | LRU | Least Recently Used | 替换最久未使用的页 | 接近 OPT |
@@ -608,53 +644,8 @@ cat /proc/buddyinfo
 # Order:                  0    1    2    3    4    5    6    7    8    9   10
 ```
 
-#### 7.3.1 Slab / SLUB 分配器架构
 
-Slab 通过维护不同状态的对象桶(Cache), 实现极致的小对象分配性能: 
 
-```mermaid
-graph TD
-    subgraph Cache ["kmem_cache (例: task_struct)"]
-        S1[Slab 1: Full] --- S2[Slab 2: Partial]
-        S2 --- S3[Slab 3: Empty]
-    end
-
-    subgraph SlabInternal ["Slab 结构 (连续页帧)"]
-        direction LR
-        Obj1[Obj] --- Obj2[Obj]
-        Obj2 --- Obj3[Free]
-        Obj3 --- Obj4[Free]
-    end
-
-    S2 -.-> SlabInternal
-```
-
-**核心优势**:
-- **消除内部碎片**: 按需切分.
-- **对象缓存**: 预先调用构造函数, 减少初始化开销.
-- **CPU 本地化**: 每个 CPU 拥有自己的 slab, 减少锁竞争.
-
-**API**:
-
-```c
-// 创建 cache
-struct kmem_cache *my_cache = kmem_cache_create(
-    "my_struct",                   // 名称
-    sizeof(struct my_struct),      // 对象大小
-    0,                             // 对齐
-    SLAB_HWCACHE_ALIGN,            // 标志
-    NULL                            // 构造函数
-);
-
-// 分配对象
-struct my_struct *obj = kmem_cache_alloc(my_cache, GFP_KERNEL);
-
-// 释放对象
-kmem_cache_free(my_cache, obj);
-
-// 销毁 cache
-kmem_cache_destroy(my_cache);
-```
 
 ---
 
@@ -853,7 +844,7 @@ echo z3fold > /sys/module/zswap/parameters/zpool
 ### 12.1 四大指标定义
 
 | 指标 | 英文 | 定义 | 特点 |
-|------|------|------|------|
+|:---:|------|:---:|------|
 | **VSS** | Virtual Set Size | 虚拟地址总量 | 包含未分配物理内存的部分, 无实际参考价值 |
 | **RSS** | Resident Set Size | 驻留内存总量 | 包含共享库, 多进程相加会超过物理内存 |
 | **PSS** | Proportional Set Size | 按比例分摊的驻留内存 | 最核心指标, 共享页按使用者数平摊 |
@@ -978,14 +969,14 @@ sysctl vm.dirty_ratio=10             # 进程阻塞刷脏页
 ### 14.1 历史与现状
 
 | 时期 | 架构 |
-|------|------|
+|:---:|------|
 | Linux 2.2 及之前 | Page Cache 和 Buffer Cache 独立, 双重缓存 |
 | Linux 2.4+ | 统一架构, Buffer Cache 成为 Page Cache 的一部分 |
 
 ### 14.2 现代定义
 
 | 概念 | 面向对象 | free 中对应 |
-|------|----------|-------------|
+|:---:|----------|-------------|
 | **Page Cache** | 文件内容 (read/write) | cached |
 | **Buffer Cache** | 块设备元数据 (inode, 目录项, 裸设备) | buffers |
 
@@ -1002,7 +993,7 @@ vm.dirty_writeback_centisecs=500  # 每 5 秒唤醒一次刷盘线程
 **调优建议**:
 
 | 场景 | 策略 |
-|------|------|
+|:---:|------|
 | 数据库 | 降低 dirty_ratio, 减少突发刷盘 |
 | 日志写入 | 增加 dirty_expire, 减少刷盘频率 |
 | 低内存 | 降低各阈值, 防止 OOM |
@@ -1081,7 +1072,7 @@ x86 平坦模型下段的残留:
 ### 16.3 使用场景
 
 | 架构 | 实现 |
-|------|------|
+|:---:|------|
 | IBM PowerPC | 哈希页表 (HPT) |
 | Itanium (IA-64) | VHPT |
 | ARM | 部分变体支持 |
@@ -1091,7 +1082,7 @@ x86 平坦模型下段的残留:
 ## 参考教材
 
 | 主题 | 推荐阅读 |
-|------|----------|
+|:---:|----------|
 | 分页基础 | *OSTEP* Ch18-19, *恐龙书* Ch9 |
 | 多级页表 | *OSTEP* Ch20, Intel SDM Vol.3 Ch4 |
 | 页面置换 | *OSTEP* Ch21-22, *恐龙书* Ch10 |
@@ -1103,7 +1094,7 @@ x86 平坦模型下段的残留:
 ## 内核源码引用
 
 | 主题 | 源码路径 | 关键函数/结构 |
-|------|----------|---------------|
+|:---:|----------|---------------|
 | 页描述符 | `include/linux/mm_types.h` | `struct page` |
 | VMA | `include/linux/mm_types.h` | `struct vm_area_struct` |
 | mm_struct | `include/linux/mm_types.h` | `struct mm_struct` |
@@ -1130,7 +1121,7 @@ x86 平坦模型下段的残留:
 内核在每个 Memory Node 下维护 5 组双向链表:
 
 | 链表 | 说明 |
-|------|------|
+|:---:|------|
 | **Inactive Anon** | 长期未访问的匿名页 (Heap/Stack), 优先交换 |
 | **Active Anon** | 最近高频访问的匿名页 |
 | **Inactive File** | 长期未访问的文件缓存, 优先丢弃 |
@@ -1174,7 +1165,7 @@ x86 平坦模型下段的残留:
 从内核 v6.1 开始引入的现代 LRU 实现:
 
 | 特性 | 传统 LRU | MGLRU |
-|------|----------|-------|
+|:---:|----------|-------|
 | 页面分类 | Active/Inactive | 多代 (Generations) |
 | 扫描开销 | 较高 | 显著降低 |
 | 年龄采样 | 粗粒度 | 精细化 |
@@ -1185,24 +1176,24 @@ x86 平坦模型下段的残留:
 `vm.swappiness` (0-200) 控制匿名页与文件页的回收倾向:
 
 | 值 | 行为 |
-|----|------|
+|----|:---:|
 | 0 | 尽量不使用 Swap (仅在必要时) |
 | 10 | 数据库服务器推荐 |
 | 60 | 默认值 |
 | 100 | 均衡考虑匿名页和文件页 |
 ---
 
-## 19. HugePages 大页内存
+## 18. HugePages 大页内存
 
-### 19.1 TLB 问题
+### 18.1 TLB 问题
 
 | 问题 | 说明 |
-|------|------|
+|:---:|------|
 | 标准页 | 4KB, 64GB 内存需要 1600 万页表项 |
 | TLB 容量 | 有限 (数百到数千条目) |
 | TLB Miss | 需要多级页表遍历 (Page Walk), 延迟高 |
 
-### 19.2 HugePages 优势
+### 18.2 HugePages 优势
 
 | 页大小 | 64GB 内存页表项数 | TLB 效率 |
 |--------|-------------------|----------|
@@ -1210,7 +1201,7 @@ x86 平坦模型下段的残留:
 | 2MB | 32,768 | 高 (512x 减少) |
 | 1GB | 64 | 极高 |
 
-### 19.3 配置方式
+### 18.3 配置方式
 
 **静态 HugePages** (推荐数据库):
 
@@ -1235,7 +1226,7 @@ echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 
 ---
 
-## 20. KSM 内存合并
+## 19. KSM 内存合并
 
 **KSM (Kernel Samepage Merging)**: 扫描并合并内容相同的物理页.
 
@@ -1267,25 +1258,25 @@ echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 
 ---
 
-## 21. 内存回收与压缩技术
+## 20. 内存回收与压缩技术
 
 当可用内存下降到水位线 (Watermark) 以下时, 内核启动回收:
 
-### 21.1 kswapd vs 直接回收 (Direct Reclaim)
+### 20.1 kswapd vs 直接回收 (Direct Reclaim)
 
 | 模式 | 触发点 | 执行方式 | 底层深度解析 |
 | :--- | :--- | :--- | :--- |
 | **kswapd** | 内存低于 `WMARK_LOW` | 异步内核线程 | **预警机制**. 在后台默默工作, 尽量不阻塞用户进程. |
 | **直接回收** | 内存低于 `WMARK_MIN` | 同步执行 | **最后防线**. 分配请求会被强制挂起, 必须先释放出足够内存. 会导致进程瞬间延时 (Latency Spike). |
 
-### 21.2 内存压缩 (Zswap / Zram)
+### 20.2 内存压缩 (Zswap / Zram)
 
 为了减少缓慢的磁盘 Swap I/O, 现代 Linux 引入了压缩技术:
 
 1. **Zswap**: 作为一个压缩缓存, 当页面准备被置换到 Swap 分区时, 先尝试压缩并存放在物理内存的动态池中.
 2. **Zram**: 创建一个基于内存的分区并格式化为 Swap. 将数据暂存在压缩的主存中, 显著提升低内存在线性能.
 
-### 21.3 LRU 双链表与 MGLRU
+### 20.3 LRU 双链表与 MGLRU
 
 **经典 LRU**:
 内核通过 `Active` 和 `Inactive` 两个链表管理内存页.
@@ -1295,7 +1286,7 @@ echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 - **痛点**: 传统 LRU 在大内存下扫描开销巨大且反馈滞后.
 - **机制**: 将页面分为多个 "代 (Generations)". 仅扫描最老的一代, 极大减少 CPU 消耗. 实测在高负载下提升性能 40%+.
 
-### 21.4 Swappiness 的数学本质
+### 20.4 Swappiness 的数学本质
 
 `vm.swappiness` (0-200) 不是简单的 "换出概率", 而是 `Anon_Cost` 与 `File_Cost` 的比率调节器.
 - **公式概念**: `Scan_Balance = Swappiness / 200`.
@@ -1304,7 +1295,7 @@ echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
     - **Desktop/K8s Node**: 设为 `60`. 平衡响应速度.
     - **Laptop**: 设为 `60-100`. 积极利用 Swap 休眠.
 
-### 21.5 OOM Killer 决策链
+### 20.5 OOM Killer 决策链
 
 当回收宣告失败, `out_of_memory()` 登场:
 1.  **打分**: `Score = (RSS + Swap) / Total_Memory * 1000`.
@@ -1313,7 +1304,7 @@ echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
     - `+1000`: 优先献祭.
 3.  **处决**: 杀掉分最高的进程, 释放内存.
 
-### 21.6 关键内存调优参数 (Advanced)
+### 20.6 关键内存调优参数 (Advanced)
 
 除了 swappiness, 内核还透出了两个通过平衡 "空间" 与 "时间" 的关键旋钮:
 
@@ -1330,9 +1321,9 @@ echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 
 ---
 
-## 22. 零拷贝技术
+## 21. 零拷贝技术
 
-### 22.1 传统 I/O 问题
+### 21.1 传统 I/O 问题
 
 ```
 传统 read() + send():
@@ -1344,10 +1335,10 @@ echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 问题: 4 次拷贝, 4 次上下文切换
 ```
 
-### 22.2 零拷贝技术
+### 21.2 零拷贝技术
 
 | 技术 | 拷贝次数 | 说明 |
-|------|----------|------|
+|:---:|----------|:---:|
 | `mmap + write` | 3 次 | 减少一次用户态拷贝 |
 | `sendfile` | 2 次 (仅 DMA) | 纯内核态, **零 CPU 拷贝** |
 | `splice/tee` | 0 次 | 仅移动映射, 不移动数据 |
@@ -1359,16 +1350,16 @@ sendfile(socket_fd, file_fd, NULL, file_size);
 // 数据直接从 Page Cache 到网卡缓冲区
 ```
 
-## 23. 高级内存抽象: Folios 与 Userfaultfd
+## 22. 高级内存抽象: Folios 与 Userfaultfd
 
-### 23.1 Linux Folios (复合页抽象)
+### 22.1 Linux Folios (复合页抽象)
 
 内核曾长期困扰于 `struct page` 过于细碎 (4KB) 导致的开销. **Folios** 是 Linux 5.16+ 引入的新抽象, 允许内核将多个连续物理页作为一个单元处理.
 
 - **优势**: 减少元数据开销, 显著降低内核页缓存遍历的 CPU 周期 (iTLB miss 优化).
 - **多尺寸 THP (mTHP)**: 结合 Folios, 内核现在可以按需申请各种尺寸的大页, 而不仅仅是固定的 2MB.
 
-### 23.2 用户态缺页处理 (Userfaultfd)
+### 22.2 用户态缺页处理 (Userfaultfd)
 
 传统 Page Fault 由内核完全控制. **Userfaultfd** 将控制权交还给用户态程序.
 
@@ -1380,14 +1371,14 @@ sendfile(socket_fd, file_fd, NULL, file_size);
 
 ---
 
-## 24. 现代内存演进: 分级存储与安全
+## 23. 现代内存演进: 分级存储与安全
 
-### 24.1 分级存储与 CXL (Compute Express Link)
+### 23.1 分级存储与 CXL (Compute Express Link)
 
 随着 DRAM 容量成本的增加, 现代 OS 正向**分级存储 (Tiered Memory)** 演进.
 
 | 层级 | 介质 | 访问时延 | 管理机制 |
-|------|------|----------|----------|
+|:---:|------|----------|----------|
 | **Tier 0** | HBM (高带宽内存) | < 100ns | 内核作为热页缓存 |
 | **Tier 1** | Local DRAM | ~100ns | 默认内存节点 |
 | **Tier 2** | Remote DRAM (CXL) | ~200-400ns | 通过池化扩展容量 |
@@ -1395,7 +1386,7 @@ sendfile(socket_fd, file_fd, NULL, file_size);
 
 **内核策略**: Linux 使用 `memory tiering` 机制, 结合 **MGLRU** 将不活跃的 Page 自动降级 (Promotion/Demotion) 到慢速节点.
 
-### 24.2 CXL 内存配置实践
+### 23.2 CXL 内存配置实践
 
 ```bash
 # 查看 CXL 设备
@@ -1429,12 +1420,12 @@ graph LR
 ```
 
 | 参数 | 路径 | 说明 |
-|------|------|------|
+|:---:|------|:---:|
 | 启用降级 | `/sys/kernel/mm/numa/demotion_enabled` | 1=启用 |
 | 降级目标 | `/sys/devices/system/node/nodeX/memory_tier` | 指定层级 |
 | 统计指标 | `pgpromote_success`, `pgdemote_kswapd` | 监控升降级频率 |
 
-### 24.3 内核空间安全加固
+### 23.3 内核空间安全加固
 
 1.  **KASLR (Kernel Address Space Layout Randomization)**:
     - 每次启动时, 内核代码段和模块会被加载到不同的随机地址.

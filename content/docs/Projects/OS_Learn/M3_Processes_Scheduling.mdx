@@ -11,7 +11,7 @@ title: "M3: 进程与处理机调度"
 ## 关键概念速查
 
 | 概念 | 英文 | 定义 | 关联内核源码 |
-|------|------|------|--------------|
+|:---:|------|:---:|--------------|
 | 进程 | Process | 程序的一次执行实例, 资源分配单位 | `include/linux/sched.h` |
 | 线程 | Thread | 调度执行单位, Linux 中由 task_struct 表示 | `include/linux/sched.h` |
 | task_struct | - | Linux PCB 实现, 进程控制块 | `include/linux/sched.h` |
@@ -61,7 +61,7 @@ graph TB
 ### 1.1 进程的定义
 
 | 视角 | 定义 |
-|------|------|
+|:---:|------|
 | 教科书定义 | 程序的一次执行过程 |
 | 资源视角 | 资源分配的基本单位 (地址空间,文件,信号) |
 | 调度视角 | 可调度的执行实体 |
@@ -277,7 +277,7 @@ flowchart TD
 `clone()` 允许细粒度控制父子进程共享的资源:
 
 | 标志 | 共享内容 |
-|------|----------|
+|:---:|----------|
 | `CLONE_VM` | 地址空间 (mm_struct) |
 | `CLONE_FS` | 文件系统信息 (cwd, root, umask) |
 | `CLONE_FILES` | 文件描述符表 |
@@ -320,7 +320,7 @@ sequenceDiagram
 **进程的局限性**:
 
 | 问题 | 说明 |
-|------|------|
+|:---:|------|
 | 创建开销大 | 需要分配独立地址空间, 复制页表 |
 | 切换开销大 | 地址空间切换导致 TLB 刷新 |
 | 通信困难 | 需要 IPC 机制 (管道,socket,共享内存) |
@@ -373,7 +373,7 @@ graph TD
 ```
 
 | 对比项 | 进程 | 线程 |
-|--------|------|------|
+|--------|:---:|------|
 | 创建时间 | ~ms 级 | ~μs 级 |
 | 切换时间 | ~100μs (刷新 TLB) | ~10μs (共享地址空间) |
 | 通信方式 | IPC | 直接共享内存 |
@@ -382,7 +382,7 @@ graph TD
 ### 4.3 线程的应用场景
 
 | 场景 | 描述 | 示例 |
-|------|------|------|
+|:---:|------|:---:|
 | **I/O 并发** | 一个线程阻塞时其他线程继续工作 | Web 服务器,数据库 |
 | **计算并行** | 利用多核 CPU 并行计算 | 视频编码,科学计算 |
 | **响应性** | 后台线程处理耗时任务, UI 保持响应 | GUI 应用程序 |
@@ -457,7 +457,7 @@ int main() {
 ### 4.5 线程实现的三种方式
 
 | 类型 | 英文 | 调度者 | 优点 | 缺点 |
-|------|------|--------|------|------|
+|:---:|------|--------|:---:|------|
 | 用户级线程 | User-Level Thread (ULT) | 用户态线程库 | 切换快 (无系统调用), 无需内核支持 | 一个阻塞则全部阻塞, 无法利用多核 |
 | 内核级线程 | Kernel-Level Thread (KLT) | 内核调度器 | 真并发, 阻塞独立, 利用多核 | 切换开销大 (需要系统调用) |
 | 混合模型 | M:N Model | 两级调度 | 灵活, 权衡性能 | 实现复杂 |
@@ -494,7 +494,7 @@ graph TD
 **原语 (Primitive)**:
 
 | 概念 | 说明 |
-|------|------|
+|:---:|------|
 | 定义 | 由若干条机器指令组成的, 用于完成特定功能的原子操作 |
 | 特点 | 执行过程中不可被中断 |
 | 实现 | 关中断,原子指令 |
@@ -516,7 +516,7 @@ void P(semaphore *s) {
 **可再入程序 (Reentrant Program)**:
 
 | 概念 | 说明 |
-|------|------|
+|:---:|------|
 | 定义 | 可被多个进程同时调用而不会产生错误的程序 |
 | 要求 | 不使用全局/静态变量, 或使用时加锁 |
 | 对比 | 不可再入程序使用共享数据结构而不保护 |
@@ -581,6 +581,56 @@ void *thread_func(void *arg) {
 }
 ```
 
+### 4.10 线程模型深究: CLONE 标志
+
+#### 4.10.1 进程 vs 线程的内核视图
+
+Linux 内核中, 进程和线程都是 `task_struct`, 区别在于资源共享程度:
+
+```c
+// 创建进程: fork()
+clone(SIGCHLD);  // 不共享任何资源
+
+// 创建线程: pthread_create()
+clone(CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | 
+      CLONE_THREAD | CLONE_SYSVSEM | SIGCHLD);
+```
+
+#### 4.10.2 CLONE 标志详解
+
+| 标志 | 含义 | 进程 | 线程 |
+|:---:|------|:---:|------|
+| `CLONE_VM` | 共享虚拟内存 | × | ✓ |
+| `CLONE_FS` | 共享文件系统信息 (根目录, umask) | × | ✓ |
+| `CLONE_FILES` | 共享文件描述符表 | × | ✓ |
+| `CLONE_SIGHAND` | 共享信号处理程序 | × | ✓ |
+| `CLONE_THREAD` | 同一线程组 (共享 PID) | × | ✓ |
+| `CLONE_PARENT` | 共享父进程 | × | ✓ |
+| `CLONE_NEWNS` | 新 Mount namespace | 可选 | × |
+| `CLONE_NEWPID` | 新 PID namespace | 可选 | × |
+
+#### 4.10.3 线程共享与独立
+
+```mermaid
+graph TD
+    subgraph Process ["Process (Multi-threaded)"]
+        subgraph Shared ["Shared Resources"]
+            VA["Virtual Address Space (Code, Heap, Globals)"]
+            FD["File Descriptor Table"]
+            SH["Signal Handlers"]
+            MM["Memory Mappings"]
+        end
+        
+        subgraph Threads ["Threads"]
+            T1["Thread 1<br/>(TID, Stack, Regs, TLS)"]
+            T2["Thread 2<br/>(TID, Stack, Regs, TLS)"]
+            T3["Thread 3<br/>(TID, Stack, Regs, TLS)"]
+        end
+        
+        Shared --- Threads
+    end
+```
+
 ---
 
 ## 5. CPU 调度基础
@@ -588,7 +638,7 @@ void *thread_func(void *arg) {
 ### 5.1 调度时机
 
 | 时机 | 触发方式 |
-|------|----------|
+|:---:|----------|
 | 进程终止 | 调用 `exit()` 或被信号杀死 |
 | 进程阻塞 | I/O 等待,锁等待,sleep |
 | 时间片用尽 | 定时器中断触发 |
@@ -598,7 +648,7 @@ void *thread_func(void *arg) {
 ### 5.2 调度指标
 
 | 指标 | 英文 | 定义 | 优化方向 |
-|------|------|------|----------|
+|:---:|------|:---:|----------|
 | CPU 利用率 | CPU Utilization | CPU 忙碌时间占比 | 批处理: 最大化 |
 | 吞吐量 | Throughput | 单位时间完成进程数 | 批处理: 最大化 |
 | 周转时间 | Turnaround Time | 从提交到完成总时间 | 批处理: 最小化 |
@@ -608,7 +658,7 @@ void *thread_func(void *arg) {
 ### 5.3 经典调度算法
 
 | 算法 | 英文 | 特点 | 问题 |
-|------|------|------|------|
+|:---:|------|:---:|------|
 | FCFS | First-Come, First-Served | 简单, 非抢占 | 护航效应 |
 | SJF | Shortest Job First | 最优平均等待时间 | 需预知执行时间, 饥饿 |
 | SRTF | Shortest Remaining Time First | SJF 抢占版 | 同上 |
@@ -640,10 +690,67 @@ vruntime += delta_exec × (NICE_0_LOAD / weight)
 
 ### 6.3 EEVDF 调度器 (Linux 6.6+)
 
+**EEVDF (Earliest Eligible Virtual Deadline First)** 是 Linux 6.6 引入的 CFS 替代者, 解决了 CFS 的延迟不确定性问题.
+
+#### 6.3.1 CFS 的局限性
+
+| 问题 | 描述 |
+|:---:|------|
+| **延迟不确定** | vruntime 只保证长期公平, 短期延迟无保证 |
+| **唤醒延迟** | 刚唤醒的进程可能等待较长时间 |
+| **交互响应** | 需要依赖启发式 (如 sleeper bonus) |
+
+#### 6.3.2 EEVDF 核心概念
+
+```mermaid
+graph TD
+    subgraph EEVDF ["EEVDF 调度决策"]
+        VD[Virtual Deadline] --> Eligible{是否 Eligible?}
+        Eligible -- "lag >= 0" --> Pick["选择最早 VD"]
+        Eligible -- "lag < 0" --> Wait["等待变为 eligible"]
+    end
+```
+
+| 概念 | 公式 | 说明 |
+|:---:|------|:---:|
+| **Virtual Runtime** | `vruntime` | 同 CFS, 累计加权运行时间 |
+| **Lag** | `lag = V - vruntime` | V 为全局虚拟时间, lag > 0 表示欠债 |
+| **Eligible** | `lag >= 0` | 进程有资格被调度 |
+| **Virtual Deadline** | `VD = vruntime + slice/weight` | 虚拟截止时间 |
+
+#### 6.3.3 调度决策
+
+```
+1. 从所有 eligible 进程中选择
+2. 选择 Virtual Deadline 最早的进程
+3. 如果无 eligible 进程, 选择 lag 最大者
+```
+
+#### 6.3.4 EEVDF vs CFS 对比
+
+| 特性 | CFS | EEVDF |
+|:---:|-----|-------|
+| **公平性保证** | 长期公平 | 短期 + 长期公平 |
+| **延迟边界** | 无硬性保证 | 有虚拟截止时间 |
+| **唤醒处理** | sleeper bonus (启发式) | lag 自然处理 |
+| **实现复杂度** | 较低 | 略高 |
+| **交互响应** | 需要调优 | 更可预测 |
+
+#### 6.3.5 内核配置
+
+```bash
+# Linux 6.6+ 默认启用 EEVDF
+# 查看当前调度器
+cat /sys/kernel/debug/sched/features
+
+# 相关 sysctl
+sysctl kernel.sched_min_granularity_ns
+```
+
 从 Linux 6.6 开始, EEVDF (Earliest Eligible Virtual Deadline First) 取代了 CFS 成为默认调度器. 它通过将"公平性"与"延迟控制"解耦, 解决了 CFS 在处理延迟敏感任务时的先天不足.
 
 | 特性 | CFS | EEVDF |
-|------|-----|-------|
+|:---:|-----|-------|
 | **理论基础** | 纯 vruntime 比较 | V-Time + Lag + Deadline |
 | **调度目标** | 最大化吞吐与长期公平 | 响应截止时间保障 |
 | **核心优势** | 实现简单, 吞吐量高 | 更精确的延迟控制, 消除不必要的抢占 |
@@ -741,66 +848,6 @@ sched_latency_ns = nr_running × 0.75ms (多进程时)
 sched_min_granularity_ns = 0.75ms
 ```
 
-### 6.8 EEVDF 调度器 (Linux 6.6+)
-
-**EEVDF (Earliest Eligible Virtual Deadline First)** 是 Linux 6.6 引入的 CFS 替代者, 解决了 CFS 的延迟不确定性问题.
-
-#### 6.7.1 CFS 的局限性
-
-| 问题 | 描述 |
-|------|------|
-| **延迟不确定** | vruntime 只保证长期公平, 短期延迟无保证 |
-| **唤醒延迟** | 刚唤醒的进程可能等待较长时间 |
-| **交互响应** | 需要依赖启发式 (如 sleeper bonus) |
-
-#### 6.7.2 EEVDF 核心概念
-
-```mermaid
-graph TD
-    subgraph EEVDF ["EEVDF 调度决策"]
-        VD[Virtual Deadline] --> Eligible{是否 Eligible?}
-        Eligible -- "lag >= 0" --> Pick["选择最早 VD"]
-        Eligible -- "lag < 0" --> Wait["等待变为 eligible"]
-    end
-```
-
-| 概念 | 公式 | 说明 |
-|------|------|------|
-| **Virtual Runtime** | `vruntime` | 同 CFS, 累计加权运行时间 |
-| **Lag** | `lag = V - vruntime` | V 为全局虚拟时间, lag > 0 表示欠债 |
-| **Eligible** | `lag >= 0` | 进程有资格被调度 |
-| **Virtual Deadline** | `VD = vruntime + slice/weight` | 虚拟截止时间 |
-
-#### 6.7.3 调度决策
-
-```
-1. 从所有 eligible 进程中选择
-2. 选择 Virtual Deadline 最早的进程
-3. 如果无 eligible 进程, 选择 lag 最大者
-```
-
-#### 6.7.4 EEVDF vs CFS 对比
-
-| 特性 | CFS | EEVDF |
-|------|-----|-------|
-| **公平性保证** | 长期公平 | 短期 + 长期公平 |
-| **延迟边界** | 无硬性保证 | 有虚拟截止时间 |
-| **唤醒处理** | sleeper bonus (启发式) | lag 自然处理 |
-| **实现复杂度** | 较低 | 略高 |
-| **交互响应** | 需要调优 | 更可预测 |
-
-#### 6.7.5 内核配置
-
-```bash
-# Linux 6.6+ 默认启用 EEVDF
-# 查看当前调度器
-cat /sys/kernel/debug/sched/features
-
-# 相关 sysctl
-sysctl kernel.sched_min_granularity_ns
-sysctl kernel.sched_wakeup_granularity_ns
-```
-
 ---
 
 ## 7. 实时调度
@@ -808,7 +855,7 @@ sysctl kernel.sched_wakeup_granularity_ns
 ### 7.1 实时调度策略
 
 | 策略 | 说明 | 优先级范围 |
-|------|------|------------|
+|:---:|------|------------|
 | SCHED_FIFO | 先进先出, 无时间片 | 1-99 |
 | SCHED_RR | 轮转, 有时间片 | 1-99 |
 | SCHED_DEADLINE | EDF (Earliest Deadline First) | 特殊 |
@@ -921,7 +968,7 @@ renice -n -5 -p $PID
 ## 参考教材
 
 | 主题 | 推荐阅读 |
-|------|----------|
+|:---:|----------|
 | 进程概念 | *OSTEP* Ch4-5, *恐龙书* Ch3 |
 | 线程 | *OSTEP* Ch26-27, *恐龙书* Ch4 |
 | 调度算法 | *OSTEP* Ch7-9, *恐龙书* Ch5 |
@@ -933,7 +980,7 @@ renice -n -5 -p $PID
 ## 内核源码引用
 
 | 主题 | 源码路径 | 关键函数/结构 |
-|------|----------|---------------|
+|:---:|----------|---------------|
 | task_struct 定义 | `include/linux/sched.h` | `struct task_struct` |
 | 进程创建 | `kernel/fork.c` | `kernel_clone()`, `copy_process()` |
 | CFS 调度器 | `kernel/sched/fair.c` | `pick_next_task_fair()`, `update_curr()` |
@@ -958,7 +1005,7 @@ renice -n -5 -p $PID
 ### 10.1 IPC 机制对比
 
 | IPC 方式 | 特性 | 适用场景 |
-|----------|------|----------|
+|----------|:---:|----------|
 | **管道 (Pipe)** | 单向字节流 (或 FIFO 双向) | 简单生产/消费 (shell 管道) |
 | **信号 (Signal)** | 异步通知原语 | 进程状态通知,终止,配置重载 |
 | **共享内存** | 直接映射同一块物理内存 | **性能极致**, 需配合互斥锁 |
@@ -997,7 +1044,7 @@ graph LR
 ### 11.1 核心信号
 
 | 信号 | 编号 | 语义 | 可捕获 |
-|------|------|------|--------|
+|:---:|------|:---:|--------|
 | SIGTERM | 15 | 优雅退出请求 | 是 |
 | SIGKILL | 9 | 强制终结 | **否** |
 | SIGINT | 2 | 终端中断 (Ctrl+C) | 是 |
@@ -1030,8 +1077,6 @@ int main() {
 > **警告**: 信号处理函数中**禁止调用**非异步信号安全函数 (如 `printf`, `malloc`), 否则可能导致死锁或堆损坏.
 
 ---
-
-
 
 ## 12. 上下文切换深度
 
@@ -1070,7 +1115,7 @@ int main() {
 ### 12.2 性能损耗
 
 | 类型 | 英文 | 说明 |
-|------|------|------|
+|:---:|------|:---:|
 | 硬成本 | Hard Cost | CPU 周期消耗 (保存/恢复寄存器) |
 | 软成本 | Soft Cost | 缓存冷启动 (Cache Pollution), TLB Miss |
 
@@ -1092,7 +1137,7 @@ pidstat -w 1
 **Cgroups (Control Groups)** 是 Linux 内核用于限制, 审计和隔离进程组资源使用的机制.
 
 | 核心功能 | 说明 |
-|----------|------|
+|----------|:---:|
 | 资源限制 | 设置内存上限, CPU 配额 |
 | 优先级分配 | 确保关键组获得更多资源 |
 | 统计审计 | 监控实际资源消耗 |
@@ -1126,7 +1171,7 @@ echo $$ > /sys/fs/cgroup/mygroup/cgroup.procs
 ### 13.4 Memory 控制器
 
 | 参数 | 作用 |
-|------|------|
+|:---:|------|
 | `memory.low` | 软保护线, 内核尽力保证 |
 | `memory.high` | 节流线, 超过后限速 |
 | `memory.max` | 硬上限, 超过触发 OOM |
@@ -1141,7 +1186,7 @@ echo $$ > /sys/fs/cgroup/mygroup/cgroup.procs
 Brendan Gregg 提出的 **USE 方法**, 针对每个资源检查:
 
 | 指标 | 英文 | 说明 |
-|------|------|------|
+|:---:|------|:---:|
 | **U** - 使用率 | Utilization | 资源忙碌时间占比 |
 | **S** - 饱和度 | Saturation | 请求排队等待的程度 |
 | **E** - 错误 | Errors | 资源是否产生错误 |
@@ -1185,7 +1230,7 @@ ss -s                     # Socket 统计
 传统 Load Average 存在以下问题:
 
 | 问题 | 说明 |
-|------|------|
+|:---:|------|
 | 混合信号 | 无法区分 CPU 压力还是 I/O 压力 |
 | 无时间比例 | 不知道等待时间占比 |
 | 延迟反馈 | 5 分钟和 15 分钟指标滞后 |
@@ -1195,7 +1240,7 @@ ss -s                     # Socket 统计
 **PSI (Pressure Stall Information)** 提供更精准的资源阻塞视图:
 
 | 指标 | 说明 |
-|------|------|
+|:---:|------|
 | **some** | 至少有一个任务因该资源阻塞的时间占比 |
 | **full** | 所有任务都因该资源阻塞的时间占比 (CPU 没有此指标) |
 
@@ -1223,7 +1268,7 @@ cat /proc/pressure/io
 - **full avg10=0.10**: 过去 10 秒内, 有 0.1% 的时间**所有**非 idle 任务全被 I/O 阻塞. 这意味着系统彻底卡死.
 
 | 场景 | PSI 表现 |
-|------|----------|
+|:---:|----------|
 | CPU 瓶颈 | `cpu/some` 高 |
 | 内存压力 | `memory/some` 高, 内核正在回收 |
 | 严重内存不足 | `memory/full` 高, 系统抖动 |
@@ -1304,64 +1349,12 @@ Cgroup v2 统一了层级结构, 并引入了更人性化的配置接口:
 
 ---
 
-## 18. 线程模型深究: CLONE 标志
+## 18. 进程与线程深度对比
 
-### 18.1 进程 vs 线程的内核视图
-
-Linux 内核中, 进程和线程都是 `task_struct`, 区别在于资源共享程度:
-
-```c
-// 创建进程: fork()
-clone(SIGCHLD);  // 不共享任何资源
-
-// 创建线程: pthread_create()
-clone(CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | 
-      CLONE_THREAD | CLONE_SYSVSEM | SIGCHLD);
-```
-
-### 18.2 CLONE 标志详解
-
-| 标志 | 含义 | 进程 | 线程 |
-|------|------|------|------|
-| `CLONE_VM` | 共享虚拟内存 | × | ✓ |
-| `CLONE_FS` | 共享文件系统信息 (根目录, umask) | × | ✓ |
-| `CLONE_FILES` | 共享文件描述符表 | × | ✓ |
-| `CLONE_SIGHAND` | 共享信号处理程序 | × | ✓ |
-| `CLONE_THREAD` | 同一线程组 (共享 PID) | × | ✓ |
-| `CLONE_PARENT` | 共享父进程 | × | ✓ |
-| `CLONE_NEWNS` | 新 Mount namespace | 可选 | × |
-| `CLONE_NEWPID` | 新 PID namespace | 可选 | × |
-
-### 18.3 线程共享与独立
-
-```mermaid
-graph TD
-    subgraph Process ["Process (Multi-threaded)"]
-        subgraph Shared ["Shared Resources"]
-            VA["Virtual Address Space (Code, Heap, Globals)"]
-            FD["File Descriptor Table"]
-            SH["Signal Handlers"]
-            MM["Memory Mappings"]
-        end
-        
-        subgraph Threads ["Threads"]
-            T1["Thread 1<br/>(TID, Stack, Regs, TLS)"]
-            T2["Thread 2<br/>(TID, Stack, Regs, TLS)"]
-            T3["Thread 3<br/>(TID, Stack, Regs, TLS)"]
-        end
-        
-        Shared --- Threads
-    end
-```
-
----
-
-## 19. 进程与线程深度对比
-
-### 19.1 核心对比表
+### 18.1 核心对比表
 
 | 对比维度 | 进程 (Process) | 线程 (Thread) |
-|----------|----------------|---------------|
+|----------|:---:|:---:|
 | **本质** | 资源分配的最小单位 | CPU 调度的最小单位 |
 | **地址空间** | 独立 | 共享所属进程的地址空间 |
 | **通信成本** | 高 (IPC) | 低 (共享内存, 但需同步) |
@@ -1369,7 +1362,7 @@ graph TD
 | **稳定性** | 强 (一个崩溃不影响其他) | 弱 (一个 crash 导致全挂) |
 | **创建速度** | 慢 (复制 mm_struct) | 快 (共享 mm_struct) |
 
-### 19.2 优缺点对比
+### 18.2 优缺点对比
 
 **进程**:
 *   ✅ **安全**: 隔离性好, 可通过 Cgroups 单独限制资源.
@@ -1382,17 +1375,17 @@ graph TD
 *   ❌ **难**: 并发编程复杂度高 (锁, 竞争, 死锁).
 *   ❌ **险**: 无隔离, 一个线程 OOM/Segfault 可能带崩整个进程.
 
-### 19.3 选型建议
+### 18.3 选型建议
 
 | 场景 | 推荐模型 | 原因 |
-|------|----------|------|
+|:---:|----------|:---:|
 | **Chrome 浏览器** | **多进程** | 每个 Tab 一个进程. 网页崩溃不影响浏览器; 安全沙箱. |
 | **Nginx** | **多进程 + 异步 IO** | Master 管理 Worker. 稳定性高, 利用多核. |
 | **Redis** | **单线程 (主)** | 避免锁竞争, 利用 CPU 缓存. (持久化用子进程). |
 | **MySQL / JVM** | **多线程** | 需要频繁共享大量内存数据 (Buffer Pool, Heap). |
 | **AI 训练** | **多进程 (DDP)** | Python GIL 限制, 多进程规避锁, 独立显存上下文. |
 
-### 19.4 底层核心概念
+### 18.4 底层核心概念
 
 *   **LWP (Light Weight Process)**: Linux 内核没有 "线程" 的概念, 只有 LWP. `pthread_create` 对应 `clone(CLONE_VM | ...)`.
 *   **TID vs PID**:
@@ -1402,18 +1395,18 @@ graph TD
 
 ---
 
-## 20. 特殊进程类型与处理
+## 19. 特殊进程类型与处理
 
-### 20.1 特殊进程分类
+### 19.1 特殊进程分类
 
 | 类型 | 英文 | 特征 | 状态 |
-|------|------|------|------|
+|:---:|------|:---:|------|
 | **僵尸进程** | Zombie | 已退出但父进程未回收 | Z |
 | **孤儿进程** | Orphan | 父进程已退出 | 被 init 收养 |
 | **守护进程** | Daemon | 后台运行, 无控制终端 | S/R |
 | **内核线程** | Kernel Thread | 只运行在内核态 | 无 mm_struct |
 
-### 20.2 僵尸进程详解
+### 19.2 僵尸进程详解
 
 ```mermaid
 sequenceDiagram
@@ -1444,12 +1437,12 @@ ps aux | awk '{if($8=="Z") print}' | wc -l
 **处理策略**:
 
 | 方法 | 命令 | 说明 |
-|------|--------|------|
+|:---:|--------|:---:|
 | 通知父进程 | `kill -SIGCHLD <ppid>` | 触发父进程调用 wait() |
 | 杀死父进程 | `kill -9 <ppid>` | 僵尸被 init 收养并清理 |
 | 修复程序 | 增加 SIGCHLD 处理 | 根本解决 |
 
-### 20.3 守护进程创建
+### 19.3 守护进程创建
 
 ```c
 // 经典守护进程创建步骤
@@ -1484,7 +1477,7 @@ void daemonize() {
 ### 20.4 内核线程
 
 | 特征 | 说明 |
-|------|------|
+|:---:|------|
 | 创建方式 | `kthread_create()` / `kthread_run()` |
 | 地址空间 | 无用户空间 (`mm_struct` 为 NULL) |
 | 调度 | 与普通进程相同 |

@@ -28,7 +28,7 @@ graph TD
 ### 1.1 Hypervisor 类型
 
 | 类型 | 架构 | 特点 | 代表实现 |
-|------|------|------|----------|
+|:---:|------|:---:|----------|
 | **Type-1 (Bare-metal)** | 直接运行在硬件上 | 高性能, 高隔离 | Xen, VMware ESXi, Hyper-V |
 | **Type-2 (Hosted)** | 运行在 OS 之上 | 开发方便, 效率较低 | VirtualBox, VMware Workstation |
 | **KVM (Hybrid)** | 作为内核模块 | Linux 既是 OS 又是 Hypervisor | Linux KVM |
@@ -38,7 +38,7 @@ graph TD
 操作系统设计时假设独占硬件资源, 虚拟化需要解决以下问题:
 
 | 挑战 | 问题描述 | 解决方案 |
-|------|----------|----------|
+|:---:|----------|----------|
 | **特权指令** | Guest 执行 Ring 0 指令会影响宿主机 | 硬件辅助 (VT-x) 或二进制翻译 |
 | **地址空间** | Guest 物理地址与真实物理地址不同 | 影子页表或 EPT |
 | **设备访问** | Guest 直接访问硬件会冲突 | 设备模拟或直通 (SR-IOV) |
@@ -110,7 +110,7 @@ sequenceDiagram
 VMCS 是每个 vCPU 的核心数据结构, 大小为 4KB, 包含六个逻辑区域:
 
 | 区域 | 内容 | 作用 |
-|------|------|------|
+|:---:|------|:---:|
 | **Guest-State Area** | 所有通用寄存器, 段寄存器, CR0/CR3/CR4, EFLAGS, RIP | VM Entry 时加载, VM Exit 时保存 |
 | **Host-State Area** | 仅保存切换所需的最小状态 | VM Exit 时加载 |
 | **VM-Execution Control** | 控制哪些事件触发 VM Exit | 如: CR 访问拦截, I/O 拦截 |
@@ -141,7 +141,7 @@ VMCS_GUEST_LINEAR_ADDR   // 引发 Exit 的线性地址
 ### 2.4 VM Exit 分类
 
 | 类型 | 触发条件 | 示例 |
-|------|----------|------|
+|:---:|----------|:---:|
 | **无条件 Exit** | 某些指令总是触发 | `CPUID`, `INVD`, `VMCALL` |
 | **条件 Exit** | 由 VMCS 控制位决定 | CR 访问, I/O, MSR, 中断 |
 | **异常 Exit** | Exception Bitmap 中的位置 1 | #PF, #GP (按需配置) |
@@ -151,7 +151,7 @@ VMCS_GUEST_LINEAR_ADDR   // 引发 Exit 的线性地址
 VM Exit 是虚拟化最大的性能开销来源, 典型开销:
 
 | 阶段 | 周期数 (估算) |
-|------|---------------|
+|:---:|---------------|
 | 保存 Guest 状态到 VMCS | ~200-400 cycles |
 | 加载 Host 状态 | ~300-500 cycles |
 | TLB 刷新 (无 VPID) | ~1000+ cycles |
@@ -180,7 +180,342 @@ graph TD
 *   L1 的 VMCS 操作被 L0 拦截和模拟
 *   Intel VMCS Shadowing 允许 L1 部分直接操作硬件 VMCS
 
+### 2.6 KVM 内核源码深入分析
+
+KVM (Kernel-based Virtual Machine) 是 Linux 内核中的 Type-1 Hypervisor 实现. 理解其核心代码路径是掌握虚拟化原理的关键.
+
+#### 核心数据结构
+
+```c
+// arch/x86/include/asm/kvm_host.h
+
+struct kvm {
+    struct mm_struct *mm;                // 宿主机地址空间
+    struct kvm_memslots __rcu *memslots[KVM_ADDRESS_SPACE_NUM];
+    struct kvm_vcpu *vcpus[KVM_MAX_VCPUS]; // vCPU 数组
+    atomic_t online_vcpus;
+    
+    struct kvm_io_bus __rcu *buses[KVM_NR_BUSES];  // I/O 总线模拟
+    struct kvm_vm_stat stat;             // 统计信息
+    struct kvm_arch arch;                // 架构相关 (EPT, APIC 等)
+    
+    refcount_t users_count;
+    struct mutex lock;
+    spinlock_t mmu_lock;                 // 保护 EPT/影子页表
+    // ...
+};
+
+struct kvm_vcpu {
+    struct kvm *kvm;                     // 所属 VM
+    int vcpu_id;
+    int cpu;                             // 当前运行的物理 CPU
+    
+    struct kvm_run *run;                 // 与用户空间共享的内存
+    struct kvm_vcpu_arch arch;           // 架构状态 (寄存器, VMCS 等)
+    
+    struct task_struct *task;            // 对应的 QEMU 线程
+    bool preempted;
+    bool ready;
+    
+    struct kvm_dirty_ring dirty_ring;    // 脏页追踪
+    // ...
+};
+```
+
+#### vCPU 运行核心路径
+
+```c
+// virt/kvm/kvm_main.c
+// 用户空间通过 ioctl(KVM_RUN) 触发
+
+static long kvm_vcpu_ioctl(struct file *filp, unsigned int ioctl, ...)
+{
+    switch (ioctl) {
+    case KVM_RUN:
+        r = kvm_arch_vcpu_ioctl_run(vcpu);  // 进入架构相关代码
+        break;
+    // ...
+    }
+}
+
+// arch/x86/kvm/x86.c
+int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
+{
+    vcpu_load(vcpu);                     // 1. 加载 vCPU 上下文
+    
+    for (;;) {
+        if (kvm_vcpu_running(vcpu)) {
+            r = vcpu_run(vcpu);          // 2. 核心运行循环
+        } else {
+            r = vcpu_block(vcpu);        // vCPU 处于 HLT 等待
+        }
+        
+        if (r <= 0) break;               // 需要返回用户空间
+        
+        if (signal_pending(current)) {   // 3. 处理信号
+            r = -EINTR;
+            vcpu->run->exit_reason = KVM_EXIT_INTR;
+            break;
+        }
+    }
+    
+    vcpu_put(vcpu);
+    return r;
+}
+```
+
+#### VM Entry/Exit 核心流程
+
+```c
+// arch/x86/kvm/vmx/vmx.c
+// Intel VMX 实现的核心入口
+
+static int vmx_vcpu_run(struct kvm_vcpu *vcpu)
+{
+    struct vcpu_vmx *vmx = to_vmx(vcpu);
+    
+    // 1. 准备 VMCS
+    vmx_vcpu_load_vmcs(vcpu, cpu);
+    
+    // 2. 同步 Guest 状态到 VMCS
+    vmx_sync_dirty_debug_regs(vcpu);
+    vmx_load_guest_msr(vmx);
+    
+    // 3. 执行 VM Entry
+    vmx->exit_reason.full = __vmx_vcpu_run(vmx, ...);  // 汇编入口
+    
+    // 4. VM Exit 后回到这里
+    vmx_vcpu_enter_exit(vcpu, vmx);
+    
+    // 5. 读取 Exit 原因并处理
+    if (vmx->exit_reason.basic == EXIT_REASON_EXCEPTION_NMI)
+        kvm_set_exception(vcpu, ...);
+    
+    return vmx_complete_atomic_exit(vcpu);
+}
+
+// arch/x86/kvm/vmx/vmenter.S (关键汇编)
+SYM_FUNC_START(__vmx_vcpu_run)
+    // 保存 Host 通用寄存器
+    push    %rbp
+    push    %rbx
+    push    %r12-r15
+    
+    // 加载 Guest 通用寄存器
+    mov     VCPU_RBX(%rdi), %rbx
+    mov     VCPU_RCX(%rdi), %rcx
+    // ... 其他寄存器
+    
+    // 执行 VMLAUNCH 或 VMRESUME
+    vmlaunch  // 或 vmresume
+    
+    // --- Guest 在此执行 ---
+    // VM Exit 后返回到这里
+    
+    // 保存 Guest 寄存器到 VMCS
+    mov     %rbx, VCPU_RBX(%rdi)
+    // ...
+    
+    // 恢复 Host 寄存器
+    pop     %r15-%r12
+    ret
+SYM_FUNC_END(__vmx_vcpu_run)
+```
+
+#### VM Exit 处理分发
+
+```c
+// arch/x86/kvm/vmx/vmx.c
+
+static int (*kvm_vmx_exit_handlers[])(struct kvm_vcpu *) = {
+    [EXIT_REASON_EXCEPTION_NMI]     = handle_exception_nmi,
+    [EXIT_REASON_EXTERNAL_INTERRUPT]= handle_external_interrupt,
+    [EXIT_REASON_CPUID]             = kvm_emulate_cpuid,
+    [EXIT_REASON_HLT]               = kvm_emulate_halt,
+    [EXIT_REASON_IO_INSTRUCTION]    = handle_io,
+    [EXIT_REASON_CR_ACCESS]         = handle_cr,
+    [EXIT_REASON_MSR_READ]          = kvm_emulate_rdmsr,
+    [EXIT_REASON_MSR_WRITE]         = kvm_emulate_wrmsr,
+    [EXIT_REASON_EPT_VIOLATION]     = handle_ept_violation,
+    [EXIT_REASON_EPT_MISCONFIG]     = handle_ept_misconfig,
+    [EXIT_REASON_VMCALL]            = kvm_emulate_hypercall,
+    // ... 更多处理函数
+};
+
+static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
+{
+    struct vcpu_vmx *vmx = to_vmx(vcpu);
+    u32 exit_reason = vmx->exit_reason.basic;
+    
+    // Fast path: 某些 Exit 可快速处理
+    if (exit_reason < kvm_vmx_max_exit_handlers &&
+        kvm_vmx_exit_handlers[exit_reason])
+        return kvm_vmx_exit_handlers[exit_reason](vcpu);
+    
+    // Unknown exit - 返回用户空间
+    vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
+    return 0;
+}
+```
+
+#### EPT Violation 处理
+
+```c
+// arch/x86/kvm/vmx/vmx.c
+
+static int handle_ept_violation(struct kvm_vcpu *vcpu)
+{
+    gpa_t gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
+    u64 error_code = vmcs_read64(EXIT_QUALIFICATION);
+    
+    // 判断违规类型
+    bool is_write = error_code & EPT_VIOLATION_WRITE;
+    bool is_fetch = error_code & EPT_VIOLATION_INSTR_FETCH;
+    
+    // 调用通用 page fault 处理
+    return kvm_mmu_page_fault(vcpu, gpa, error_code, NULL, 0);
+}
+
+// arch/x86/kvm/mmu/mmu.c
+int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code, ...)
+{
+    // 1. 检查是否 MMIO 区域
+    if (is_mmio_fault)
+        return handle_mmio_page_fault(vcpu, gpa, ...);
+    
+    // 2. 分配 EPT 页表并建立映射
+    r = kvm_mmu_do_page_fault(vcpu, gpa, error_code, ...);
+    
+    // 3. 成功则重新进入 Guest
+    return r;
+}
+```
+
+#### KVM 性能统计
+
+```bash
+# 查看 vCPU 统计信息
+cat /sys/kernel/debug/kvm/*/vcpu0/stat
+
+# 关键指标含义
+exits        # VM Exit 总次数
+halt_exits   # HLT 指令触发的 Exit
+io_exits     # I/O 指令触发的 Exit
+mmio_exits   # MMIO 访问触发的 Exit
+irq_exits    # 中断注入触发的 Exit
+fpu_reload   # FPU 状态重载次数
+```
+
+
 ---
+
+### 2.7 多架构虚拟化支持 (Multi-Architecture Support)
+
+虽然 KVM 的核心逻辑是通用的, 但底层硬件交互在不同架构上差异巨大.
+
+#### 2.7.1 AMD SVM (Secure Virtual Machine)
+
+与 Intel VMX 不同, AMD 使用 **VMCB (Virtual Machine Control Block)** 单页结构, 且指令集更精简 (`VMRUN`).
+
+**VMCB 结构**:
+```c
+// arch/x86/include/asm/svm.h
+
+struct vmcb_control_area {
+    u32 intercept_cr;        // CR 读写拦截
+    u32 intercept_dr;        // DR 读写拦截
+    u32 intercept_exceptions;// 异常拦截
+    u64 tsc_offset;          // TSC 偏移
+    u8  tlb_control;         // TLB 刷新控制
+    // ...
+};
+
+struct vmcb_save_area {
+    struct vmcb_seg es, cs, ss, ds; // 段寄存器
+    u64 rip, rsp, rax;              // 通用寄存器
+    u64 cr0, cr2, cr3, cr4;         // 控制寄存器
+    // ...
+};
+
+struct vmcb {
+    struct vmcb_control_area control;
+    struct vmcb_save_area save;
+};
+```
+
+**AMD vCPU 运行循环 (`svm_vcpu_run`)**:
+```c
+// arch/x86/kvm/svm/svm.c
+
+static void svm_vcpu_run(struct kvm_vcpu *vcpu)
+{
+    struct vcpu_svm *svm = to_svm(vcpu);
+    
+    // 1. 将 Guest 状态写入 VMCB
+    svm->vmcb->save.rip = vcpu->arch.regs[VCPU_REGS_RIP];
+    
+    // 2. 汇编入口: 核心指令 clgi; vmload; vmrun; vmsave; stgi
+    __svm_vcpu_run(svm->vmcb_pa, svm->host_save_user_msrs);
+    
+    // 3. 从 VMCB 读取 Guest 状态
+    vcpu->arch.regs[VCPU_REGS_RIP] = svm->vmcb->save.rip;
+    
+    // 4. 处理 Exit
+    handle_exit(vcpu);
+}
+```
+
+#### 2.7.2 ARM64 Virtualization (EL2)
+
+ARMv8 引入了 **Exception Levels (EL)**, 其中 **EL2** 是专门的 Hypervisor 模式. Linux KVM 在 ARM 上通常使用 **VHE (Virtualization Host Extensions)** 模式, 允许 Host 内核直接运行在 EL2.
+
+**关键系统寄存器**:
+- `HCR_EL2` (Hypervisor Configuration Register): 控制虚拟化行为, trap 配置.
+- `VTTBR_EL2` (Virtualization Translation Table Base Register): 指向 Stage 2 页表 (类似 EPT).
+
+**ARM vCPU 进入流程**:
+```c
+// arch/arm64/kvm/hyp/vhe/switch.c
+
+static void __kvm_vcpu_run_vhe(struct kvm_vcpu *vcpu)
+{
+    struct kvm_cpu_context *host_ctxt;
+    struct kvm_cpu_context *guest_ctxt;
+    
+    host_ctxt = &this_cpu_ptr(&kvm_host_data)->host_ctxt;
+    guest_ctxt = &vcpu->arch.ctxt;
+    
+    // 1. 保存 Host 寄存器 (Callee-saved)
+    sysreg_save_host_state_vhe(host_ctxt);
+    
+    // 2. 加载 Guest 寄存器 & 配置 HCR_EL2
+    sysreg_restore_guest_state_vhe(guest_ctxt);
+    __activate_traps(vcpu);
+    
+    // 3. 进入 Guest (ERET 到 EL1)
+    // ARM 使用异常返回 (ERET) 指令降级到 Guest
+    __guest_enter(vcpu);
+    
+    // --- Guest 执行 ---
+    
+    // 4. Guest 退出 (Trap 到 EL2)
+    __guest_exit(vcpu);
+    
+    // 5. 恢复 Host 状态
+    sysreg_save_guest_state_vhe(guest_ctxt);
+    sysreg_restore_host_state_vhe(host_ctxt);
+}
+```
+
+**对比 Intel VT-x**:
+| 特性 | Intel VT-x | ARMv8 (VHE) |
+| :--- | :--- | :--- |
+| **模式** | VMX Root / Non-Root | EL2 (Host) / EL1 (Guest) |
+| **切换** | VMLAUNCH / VMEXIT | ERET / Exception |
+| **内存** | EPT (Extended Page Tables) | Stage 2 Translation |
+| **I/O** | PIO / MMIO Trap | MMIO Trap (System Register) |
+
+
 
 ## 3. 内存虚拟化: EPT / NPT
 
@@ -189,7 +524,7 @@ graph TD
 虚拟化引入了三级地址空间:
 
 | 地址类型 | 缩写 | 含义 |
-|----------|------|------|
+|----------|:---:|------|
 | Guest Virtual Address | GVA | Guest 进程使用的虚拟地址 |
 | Guest Physical Address | GPA | Guest 内核看到的 "物理" 地址 |
 | Host Physical Address | HPA | 真正的物理内存地址 |
@@ -197,7 +532,7 @@ graph TD
 ### 3.2 影子页表 vs EPT
 
 | 方案 | 工作原理 | 优点 | 缺点 |
-|------|----------|------|------|
+|:---:|----------|:---:|------|
 | **影子页表** | Hypervisor 维护 GVA→HPA 的直接映射 | 无需硬件支持 | 每次 Guest 修改页表需同步, 开销大 |
 | **EPT/NPT** | 硬件自动完成 GPA→HPA 转换 | 对 Guest 透明, 无需同步 | 页表 Walk 次数增加 |
 
@@ -231,7 +566,7 @@ Bits 12-51: 下一级页表物理地址 / 最终 HPA
 ### 3.4 EPT Violation vs EPT Misconfiguration
 
 | 类型 | 触发条件 | 处理方式 |
-|------|----------|----------|
+|:---:|----------|----------|
 | **EPT Violation** | 访问权限不足 | 分配内存, 更新 EPT, 注入异常 |
 | **EPT Misconfiguration** | EPT Entry 配置错误 | 严重错误, 通常导致 Guest 崩溃 |
 
@@ -250,7 +585,7 @@ EPT 支持 2MB 和 1GB 大页, 减少页表级数:
 ### 3.6 TLB 管理: VPID 与 PCID
 
 | 技术 | 作用 | 配置 |
-|------|------|------|
+|:---:|------|:---:|
 | **VPID** | 为每个 vCPU 分配 ID, 避免 VM 切换时刷新 TLB | VMCS Execution Control |
 | **PCID** | 为每个进程分配 ID, 避免上下文切换刷新 TLB | CR4.PCIDE 位 |
 
@@ -267,7 +602,7 @@ VMCS.VPID = <unique_id>  // 每个 vCPU 唯一
 ### 4.1 I/O 虚拟化方案对比
 
 | 方案 | 原理 | 性能 | 隔离性 |
-|------|------|------|--------|
+|:---:|------|:---:|--------|
 | **全模拟** | QEMU 软件模拟设备 | 最低 | 最高 |
 | **半虚拟化 (VirtIO)** | Guest 知道自己在虚拟环境, 使用优化协议 | 较高 | 高 |
 | **设备直通 (Passthrough)** | Guest 直接控制物理设备 | 接近裸机 | 设备独占 |
@@ -295,7 +630,7 @@ graph TD
 #### VirtIO 设备类型
 
 | 设备 | 用途 | 后端 |
-|------|------|------|
+|:---:|------|:---:|
 | virtio-net | 网络 | TAP, vhost-net, DPDK |
 | virtio-blk | 块存储 | 文件, LVM, Ceph |
 | virtio-scsi | SCSI 存储 | 支持多 LUN |
@@ -361,7 +696,7 @@ struct vring_used_elem {
 ### 4.4 VirtIO 通知机制
 
 | 方向 | 机制 | 说明 |
-|------|------|------|
+|:---:|------|:---:|
 | Guest → Host | virtio_notify() | 写 PCI BAR 或 eventfd |
 | Host → Guest | 中断注入 | 通过 irqfd 或 VMCS 中断窗口 |
 
@@ -387,7 +722,7 @@ graph TD
 SR-IOV 允许单个物理设备表现为多个虚拟设备:
 
 | 概念 | 说明 |
-|------|------|
+|:---:|------|
 | **PF (Physical Function)** | 物理设备, 拥有完整功能 |
 | **VF (Virtual Function)** | 轻量级虚拟设备, 可直通给 Guest |
 
@@ -408,7 +743,7 @@ lspci | grep "Virtual Function"
 ### 5.1 容器 vs 虚拟机
 
 | 特性 | 虚拟机 | 容器 |
-|------|--------|------|
+|:---:|--------|:---:|
 | 隔离级别 | 硬件级 (独立内核) | 进程级 (共享内核) |
 | 启动时间 | 秒 ~ 分钟 | 毫秒 ~ 秒 |
 | 资源开销 | 高 (独立 OS 实例) | 低 (共享内核) |
@@ -460,7 +795,7 @@ graph TD
 #### 核心控制器
 
 | 控制器 | 接口文件 | 功能 |
-|--------|----------|------|
+|--------|----------|:---:|
 | **cpu** | `cpu.max`, `cpu.weight` | CPU 时间配额 |
 | **memory** | `memory.max`, `memory.high` | 内存限制, OOM 控制 |
 | **io** | `io.max`, `io.weight` | 块 I/O 带宽 |
@@ -515,7 +850,7 @@ mount -t overlay overlay \
 **OCI (Open Container Initiative)** 定义了容器标准:
 
 | 规范 | 内容 |
-|------|------|
+|:---:|------|
 | **Runtime Spec** | 容器生命周期, 配置格式 |
 | **Image Spec** | 镜像格式, 分发协议 |
 | **Distribution Spec** | Registry API |
@@ -561,7 +896,7 @@ graph TD
 ```
 
 | 组件 | 职责 |
-|------|------|
+|:---:|------|
 | **containerd** | 镜像管理, 容器生命周期 |
 | **containerd-shim** | 托管容器进程, 允许 containerd 重启 |
 | **runc** | 创建 namespace/cgroup, 执行容器进程 |
@@ -575,7 +910,7 @@ graph TD
 共享内核带来的风险:
 
 | 风险 | 描述 |
-|------|------|
+|:---:|------|
 | **内核漏洞** | 容器可利用内核漏洞逃逸 |
 | **系统调用攻击面** | 所有 syscall 对容器可用 |
 | **/proc, /sys 泄露** | 敏感信息可能暴露 |
@@ -607,7 +942,7 @@ graph TD
 #### 关键技术
 
 | 技术 | 作用 |
-|------|------|
+|:---:|------|
 | **轻量级 VMM** | Firecracker, Cloud-Hypervisor |
 | **共享文件系统** | virtio-fs + DAX (零拷贝) |
 | **最小化 Guest 内核** | 裁剪内核, 快速启动 |
@@ -617,7 +952,7 @@ graph TD
 Amazon 开发的专用 VMM:
 
 | 特性 | 数值 |
-|------|------|
+|:---:|------|
 | 内存开销 | ~5MB |
 | 启动时间 | ~125ms |
 | 代码行数 | ~50K (Rust) |
@@ -648,7 +983,7 @@ graph TD
 ### 6.5 安全容器运行时综合对比
 
 | 特性 | runc (标准) | Kata Containers | Firecracker | gVisor |
-|------|-------------|-----------------|-------------|--------|
+|:---:|-------------|-----------------|-------------|--------|
 | **隔离机制** | Namespace + Cgroup | 轻量级 VM | MicroVM | 用户态内核 |
 | **内核共享** | 共享宿主机内核 | 独立 Guest 内核 | 独立 Guest 内核 | Sentry (用户态) |
 | **启动时间** | ~50ms | ~150-300ms | ~125ms | ~150ms |
@@ -674,7 +1009,7 @@ graph TD
 #### 6.6.1 技术对比
 
 | 技术 | 厂商 | 加密范围 | 信任边界 |
-|------|------|----------|----------|
+|:---:|------|----------|----------|
 | **AMD SEV** | AMD | VM 内存加密 | 仅 Guest 可见明文 |
 | **AMD SEV-ES** | AMD | + 寄存器状态加密 | 防止 VMM 读取 CPU 状态 |
 | **AMD SEV-SNP** | AMD | + 完整性保护 | 防止恶意修改 Guest 内存 |
@@ -848,7 +1183,7 @@ sequenceDiagram
 **对比**:
 
 | 特性 | Pre-copy | Post-copy |
-|------|----------|-----------|
+|:---:|----------|-----------|
 | **停机时间** | 较长 (等待收敛) | 极短 (立即切换) |
 | **总迁移时间** | 可能很长 (高脏页率) | 固定 (内存大小/带宽) |
 | **容错性** | 高 (源端保留完整副本) | 低 (切换后依赖源端) |
@@ -857,7 +1192,7 @@ sequenceDiagram
 #### 7.3.3 优化技术
 
 | 技术 | 原理 | 效果 |
-|------|------|------|
+|:---:|------|:---:|
 | **XBZRLE** | 压缩脏页增量 (异或编码) | 减少 40-70% 传输量 |
 | **Multifd** | 多线程并行传输 | 提升 3-5 倍带宽利用率 |
 | **Auto-converge** | 限制 vCPU 降低脏页率 | 强制收敛 |
@@ -880,7 +1215,7 @@ virsh domjobinfo vm1
 ## 内核源码引用
 
 | 主题 | 源码路径 | 关键函数/结构 |
-|------|----------|---------------|
+|:---:|----------|---------------|
 | KVM 核心 | `virt/kvm/kvm_main.c` | `kvm_vcpu_ioctl()`, `kvm_vm_ioctl()` |
 | VMX 驱动 | `arch/x86/kvm/vmx/vmx.c` | `vmx_vcpu_run()`, `vmx_handle_exit()` |
 | VMCS 操作 | `arch/x86/kvm/vmx/vmcs.h` | `vmcs_read32()`, `vmcs_write32()` |
