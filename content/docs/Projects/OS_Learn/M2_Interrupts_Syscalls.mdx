@@ -630,7 +630,7 @@ syscall             # 快速陷入
 4. 从 MSR_LSTAR 加载 RIP (系统调用入口)
 5. 屏蔽 RFLAGS (根据 MSR_SYSCALL_MASK)
 
-### 5.4 寄存器约定 (Linux x86-64 ABI)
+### 5.3 寄存器约定 (Linux x86-64 ABI)
 
 | 寄存器 | 输入用途 | 输出 |
 |--------|----------|:---:|
@@ -644,7 +644,7 @@ syscall             # 快速陷入
 
 > **为什么不用 RCX?** `syscall` 指令会使用 RCX 保存返回地址.
 
-### 5.5 系统调用表
+### 5.4 系统调用表
 
 ```c
 // arch/x86/entry/syscall_64.c
@@ -661,7 +661,7 @@ const sys_call_ptr_t sys_call_table[__NR_syscall_max+1] = {
 };
 ```
 
-### 5.6 系统调用入口 (entry_SYSCALL_64)
+### 5.5 系统调用入口 (entry_SYSCALL_64)
 
 ```c
 // arch/x86/entry/entry_64.S (简化)
@@ -690,7 +690,7 @@ SYM_CODE_START(entry_SYSCALL_64)
 SYM_CODE_END(entry_SYSCALL_64)
 ```
 
-### 5.7 系统调用定义宏
+### 5.6 系统调用定义宏
 
 ```c
 // include/linux/syscalls.h

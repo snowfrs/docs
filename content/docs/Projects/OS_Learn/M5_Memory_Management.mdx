@@ -1404,6 +1404,76 @@ graph LR
 3.  **KPTI (Kernel Page-Table Isolation)**:
     - 隔离内核与用户态页表, 彻底防御 **Meltdown** 漏洞.
 
+### 23.4 memfd_secret(): 安全内存隔离 (Linux 5.14+)
+
+`memfd_secret()` 系统调用创建一块**完全隔离的内存区域**, 即使内核也无法直接访问.
+
+#### 23.4.1 核心机制
+
+| 特性 | 说明 |
+|:---:|------|
+| **内核不可见** | 从内核直接映射中移除, 防止内核漏洞泄露 |
+| **分页隔离** | 使用独立页表, 不参与常规页面管理 |
+| **抗侧信道** | 减少 Spectre/Meltdown 类攻击面 |
+| **进程独占** | 仅创建进程可访问, 不可跨进程共享 |
+
+#### 23.4.2 使用示例
+
+```c
+#define _GNU_SOURCE
+#include <sys/mman.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    // 创建 secret memory fd
+    int fd = syscall(SYS_memfd_secret, 0);
+    if (fd < 0) {
+        perror("memfd_secret not supported");
+        return 1;
+    }
+    
+    // 设置大小
+    ftruncate(fd, 4096);
+    
+    // 映射到进程地址空间
+    void *secret = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                        MAP_SHARED, fd, 0);
+    
+    // 存储敏感数据 (如加密密钥)
+    memcpy(secret, "SECRET_KEY_DATA", 16);
+    
+    // 使用后清理
+    memset(secret, 0, 4096);
+    munmap(secret, 4096);
+    close(fd);
+    return 0;
+}
+```
+
+#### 23.4.3 适用场景
+
+| 场景 | 说明 |
+|:---:|------|
+| **密钥存储** | 加密密钥, TLS 会话密钥 |
+| **凭证保护** | 数据库密码, API Token |
+| **安全飞地** | 用户态 TEE 替代方案 |
+| **机密计算** | 配合 AMD SEV / Intel TDX 使用 |
+
+#### 23.4.4 内核配置
+
+```bash
+# 检查内核支持
+grep CONFIG_SECRETMEM /boot/config-$(uname -r)
+
+# 运行时检查
+dmesg | grep -i secretmem
+
+# 需要内核 5.14+ 且启用 CONFIG_SECRETMEM=y
+```
+
+> **安全提示**: `memfd_secret()` 提供的保护优于普通 `mlock()`, 但不能替代硬件级别的机密计算 (如 AMD SEV-SNP, Intel TDX).
+
 ---
 
 ---
